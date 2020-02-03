@@ -1,0 +1,14 @@
+{
+  "adapter": "postgres",
+  "host": "localhost",
+  "port": 5432,
+  "username": "fhp",
+  "password": "fhp",
+  "database": "tests",
+  "debug": true,
+  "quoteCharacter": "\"",
+  "placeholder": {
+    "char": "$",
+    "numeric": true
+  }
+}
