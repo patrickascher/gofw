@@ -1,84 +1,97 @@
-// Package memory implements a cache in memory backend
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package memory implements the cache.Interface and registers a memory provider.
+// All operations are using a sync.RWMutex for synchronization.
 package memory
 
 import (
+	"errors"
 	"fmt"
-	"github.com/patrickascher/gofw/cache"
+	cm "github.com/patrickascher/gofw/cache"
 	"sync"
 	"time"
 )
 
 // init register the memory provider.
 func init() {
-	_ = cache.Register("memory", NewMemoryCache)
+	_ = cm.Register(cm.MEMORY, newMemory)
 }
 
-var memoryCache *Memory
+// defaultGCSleepDuration holds the default gc loop waiting time in seconds
+var defaultGCSleepDuration = 60
+
+var ErrKeyNotExist = errors.New("cache/memory: key #%v does not exist")
 
 // Memory cache backend
 type Memory struct {
-	mutex     sync.RWMutex
-	dur       time.Duration
-	items     map[string]cache.Valuer
-	gcSpawned bool
+	mutex   sync.RWMutex
+	options Options
+	items   map[string]cm.Valuer
 }
 
+// Options for memory provider
+type Options struct {
+	LoopDuration time.Duration
+}
+
+// item implements the Valuer interface
 type item struct {
 	val     interface{}   //value
 	ttl     time.Duration //lifetime
 	created time.Time     //time when the value was set
 }
 
-// Value returns the value of the entry.
+// Value returns the value of the item.
 func (m *item) Value() interface{} {
 	return m.val
 }
 
-// Lifetime returns the Lifetime of the entry.
-func (m *item) Lifetime() time.Duration {
-	return m.ttl
-}
-
-// isExpire returns a bool if the value is expired.
-func (m *item) isExpire() bool {
-	// 0 means forever
-	if m.ttl == 0 {
+// expired returns a bool if the value is expired.
+func (m *item) expired() bool {
+	if m.ttl == cm.INFINITY {
 		return false
 	}
 	return time.Now().Sub(m.created) > m.ttl
 }
 
-// NewMemoryCache returns a new MemoryCache.
-func NewMemoryCache() cache.Cache {
-	if memoryCache == nil {
-		memoryCache = &Memory{items: make(map[string]cache.Valuer)}
-	} else {
-		return memoryCache
+// newMemory returns a new memory cache by the given options.
+func newMemory(opt interface{}) cm.Interface {
+	options := Options{LoopDuration: time.Duration(defaultGCSleepDuration) * time.Second}
+	if opt != nil {
+		options = opt.(Options)
+		//TODO create a nicer version
+		if options.LoopDuration < 1 {
+			options.LoopDuration = time.Duration(defaultGCSleepDuration) * time.Second
+		}
 	}
-	//cache := Memory{items: make(map[string]cache.Item)}
-	return memoryCache
+
+	return &Memory{options: options, items: make(map[string]cm.Valuer)}
 }
 
-// Get returns the value of the given key. If no key was found, nil will return.
-func (m *Memory) Get(key string) (cache.Valuer, error) {
+// Get returns the value of the given key.
+// Error will return if the key does not exist.
+func (m *Memory) Get(key string) (cm.Valuer, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	if val, ok := m.items[key]; ok {
 		return val, nil
 	}
-	return nil, fmt.Errorf("cache-memory: key #%v does not exist", key)
+	return nil, fmt.Errorf(ErrKeyNotExist.Error(), key)
 }
 
-// GetAll returns all items of the cache
-func (m *Memory) GetAll() map[string]cache.Valuer {
+// GetAll returns all items of the cache as map.
+func (m *Memory) GetAll() map[string]cm.Valuer {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	return m.items
 }
 
-// Set sets the value by key. if the ttl is 0 its infinitely stored.
+// Set key/value pair.
+// The ttl can be set by duration or forever with cache.INFINITY.
 func (m *Memory) Set(key string, value interface{}, ttl time.Duration) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -88,7 +101,7 @@ func (m *Memory) Set(key string, value interface{}, ttl time.Duration) error {
 	return nil
 }
 
-// Exist returns a bool if the key exists in the cache
+// Exist returns true if the key exists.
 func (m *Memory) Exist(key string) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -101,13 +114,13 @@ func (m *Memory) Exist(key string) bool {
 }
 
 // Delete removes a given key from the cache.
-// if the key does not exist or it wasn't removed, a error will return
+// Error will return if the key does not exist.
 func (m *Memory) Delete(key string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	if _, ok := m.items[key]; !ok {
-		return fmt.Errorf("cache-memory: key #%v does not exist", key)
+		return fmt.Errorf(ErrKeyNotExist.Error(), key)
 	}
 
 	delete(m.items, key)
@@ -115,30 +128,20 @@ func (m *Memory) Delete(key string) error {
 	return nil
 }
 
-// DeleteAll removes all items from the cache
+// DeleteAll removes all items from the cache.
 func (m *Memory) DeleteAll() error {
 	m.mutex.Lock()
-	m.items = make(map[string]cache.Valuer)
-	m.mutex.Unlock()
-	return nil
-}
+	defer m.mutex.Unlock()
 
-// GC is creating a garbage collector in a new goroutine
-func (m *Memory) GC(duration time.Duration) error {
-	go m.garbageCollector(duration)
-	m.gcSpawned = true
+	m.items = make(map[string]cm.Valuer)
 
 	return nil
 }
 
-func (m *Memory) GCSpawned() bool {
-	return m.gcSpawned
-}
-
-// garbageCollector is running a loop every x time. It removes all expired keys.
-func (m *Memory) garbageCollector(duration time.Duration) {
+// GC is an infinity loop. The loop waits for the given time and runs again to delete all expired keys.
+func (m *Memory) GC() {
 	for {
-		<-time.After(duration)
+		<-time.After(m.options.LoopDuration)
 		if m.items == nil {
 			return
 		}
@@ -150,14 +153,14 @@ func (m *Memory) garbageCollector(duration time.Duration) {
 	}
 }
 
-// expiredKeys returns all expired values by its key
+// expiredKeys returns all expired keys.
 func (m *Memory) expiredKeys() (keys []string) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	for key, itm := range m.items {
 		x := itm.(*item)
-		if x.isExpire() {
+		if x.expired() {
 			keys = append(keys, key)
 		}
 	}
