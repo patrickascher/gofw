@@ -19,7 +19,7 @@ var memoryCache *Memory
 type Memory struct {
 	mutex     sync.RWMutex
 	dur       time.Duration
-	items     map[string]cache.Item
+	items     map[string]cache.Valuer
 	gcSpawned bool
 }
 
@@ -51,7 +51,7 @@ func (m *item) isExpire() bool {
 // NewMemoryCache returns a new MemoryCache.
 func NewMemoryCache() cache.Cache {
 	if memoryCache == nil {
-		memoryCache = &Memory{items: make(map[string]cache.Item)}
+		memoryCache = &Memory{items: make(map[string]cache.Valuer)}
 	} else {
 		return memoryCache
 	}
@@ -60,7 +60,7 @@ func NewMemoryCache() cache.Cache {
 }
 
 // Get returns the value of the given key. If no key was found, nil will return.
-func (m *Memory) Get(key string) (cache.Item, error) {
+func (m *Memory) Get(key string) (cache.Valuer, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -71,7 +71,7 @@ func (m *Memory) Get(key string) (cache.Item, error) {
 }
 
 // GetAll returns all items of the cache
-func (m *Memory) GetAll() map[string]cache.Item {
+func (m *Memory) GetAll() map[string]cache.Valuer {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -118,18 +118,21 @@ func (m *Memory) Delete(key string) error {
 // DeleteAll removes all items from the cache
 func (m *Memory) DeleteAll() error {
 	m.mutex.Lock()
-	m.items = make(map[string]cache.Item)
+	m.items = make(map[string]cache.Valuer)
 	m.mutex.Unlock()
 	return nil
 }
 
 // GC is creating a garbage collector in a new goroutine
 func (m *Memory) GC(duration time.Duration) error {
-	if !m.gcSpawned {
-		go m.garbageCollector(duration)
-		m.gcSpawned = true
-	}
+	go m.garbageCollector(duration)
+	m.gcSpawned = true
+
 	return nil
+}
+
+func (m *Memory) GCSpawned() bool {
+	return m.gcSpawned
 }
 
 // garbageCollector is running a loop every x time. It removes all expired keys.
