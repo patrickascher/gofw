@@ -15,7 +15,7 @@ import (
 const (
 	// List of the pre defined cache providers.
 	MEMORY = "memory"
-	// INFINITY must be used by the cache providers to identify
+	// INFINITY should be used by the cache providers to identify
 	// that the value should not get deleted by the garbage collector.
 	INFINITY = 0
 )
@@ -68,6 +68,7 @@ func New(provider string, options interface{}) (Interface, error) {
 	if !ok {
 		return nil, fmt.Errorf(ErrUnknownProvider.Error(), provider)
 	}
+
 	instance := instanceFn(options)
 
 	// start garbage collector

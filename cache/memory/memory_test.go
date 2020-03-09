@@ -1,82 +1,97 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package memory_test
 
 import (
-	"github.com/patrickascher/gofw/cache/memory"
-	"github.com/stretchr/testify/assert"
+	"fmt"
+	cm "github.com/patrickascher/gofw/cache"
 	"testing"
 	"time"
+
+	"github.com/patrickascher/gofw/cache/memory"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestNewMemoryCache(t *testing.T) {
-	cache := memory.NewMemoryCache
-	c := cache()
+var mem cm.Interface
 
-	// set and get test
-	c.Set("test", "ABC", 5*time.Second)
-	item, err := c.Get("test")
-	assert.NoError(t, err)
-	assert.Equal(t, "ABC", item.Value())
-	assert.Equal(t, 5*time.Second, item.Lifetime())
-
-	// setting multiple keys and check it
-	c.Set("test", "CBA", 5*time.Second)
-	c.Set("test2", "ABC", 5*time.Second)
-	allItems := c.GetAll()
-	assert.Equal(t, 2, len(allItems))
-	assert.Equal(t, "CBA", allItems["test"].Value())
-	assert.Equal(t, "ABC", allItems["test2"].Value())
-
-	// test non existing keys
-	val, err := c.Get("notExisting")
-	assert.Equal(t, nil, val)
-	assert.Error(t, err)
-	assert.Equal(t, false, c.Exist("notExisting"))
-	assert.Equal(t, true, c.Exist("test"))
-
-	// delete one key
-	assert.Equal(t, nil, c.Delete("test"))
-	assert.Equal(t, 1, len(allItems))
-	assert.Equal(t, "ABC", allItems["test2"].Value())
-
-	// delete non existing key
-	err = c.Delete("notEsssxisting")
-	assert.Error(t, err)
-
-	// delete all keys
-	err = c.DeleteAll()
-	assert.NoError(t, err)
-	allItems = c.GetAll()
-	assert.Equal(t, 0, len(allItems))
+func init() {
+	mem = memory.New(memory.Options{GCInterval: 1})
+	go mem.GC()
 }
 
-// TestMemoryCache_GC testing if the garbage collector is working correctly
-func TestMemoryCache_GC(t *testing.T) {
-	cache := memory.NewMemoryCache
-	c := cache()
-
-	c.Set("inf", "inity", 0)
-	c.Set("cached", 1, 1500*time.Millisecond)
-	item, err := c.Get("cached")
+func TestMemory_Set(t *testing.T) {
+	// ok
+	err := mem.Set("foo", "bar", cm.INFINITY)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, item.Value())
-	assert.Equal(t, 1500*time.Millisecond, item.Lifetime())
 
-	c.GC(500 * time.Millisecond)
-
-	//not hitting
-	time.Sleep(1 * time.Second)
-	assert.Equal(t, 1, item.Value())
-	val, err := c.Get("inf")
+	// ok: redefine
+	err = mem.Set("foo", "BAR", cm.INFINITY)
 	assert.NoError(t, err)
-	assert.Equal(t, "inity", val.Value())
 
-	//key cached should be deleted
-	time.Sleep(1 * time.Second)
-	val, err = c.Get("cached")
+	// ok
+	err = mem.Set("John", "Doe", cm.INFINITY)
+	assert.NoError(t, err)
+}
+
+func TestMemory_Get(t *testing.T) {
+	// ok
+	v, err := mem.Get("foo")
+	assert.NoError(t, err)
+	assert.Equal(t, "BAR", v.Value())
+
+	// error: key does not exist
+	v, err = mem.Get("baz")
 	assert.Error(t, err)
-	assert.Equal(t, nil, val)
+	assert.Equal(t, fmt.Sprintf(memory.ErrKeyNotExist.Error(), "baz"), err.Error())
+	assert.Nil(t, v)
+}
 
-	val, err = c.Get("inf")
+func TestMemory_GetAll(t *testing.T) {
+	// ok
+	v := mem.GetAll()
+	assert.Equal(t, 2, len(v))
+	assert.Equal(t, "BAR", v["foo"].Value())
+	assert.Equal(t, "Doe", v["John"].Value())
+}
+
+func TestMemory_Exist(t *testing.T) {
+	// ok
+	v := mem.Exist("foo")
+	assert.True(t, v)
+	v = mem.Exist("baz")
+	assert.False(t, v)
+}
+
+func TestMemory_GC(t *testing.T) {
+	//ok
+	err := mem.Set("gc", "val", 500*time.Millisecond)
 	assert.NoError(t, err)
-	assert.Equal(t, "inity", val.Value())
+	assert.Equal(t, 3, len(mem.GetAll()))
+	time.Sleep(1 * time.Second)
+	assert.Equal(t, 2, len(mem.GetAll()))
+}
+
+func TestMemory_Delete(t *testing.T) {
+	// ok
+	err := mem.Delete("John")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(mem.GetAll()))
+
+	// error: key does not exist
+	err = mem.Delete("baz")
+	assert.Error(t, err)
+	assert.Equal(t, fmt.Sprintf(memory.ErrKeyNotExist.Error(), "baz"), err.Error())
+}
+
+func TestMemory_DeleteAll(t *testing.T) {
+	// ok
+	err := mem.DeleteAll()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(mem.GetAll()))
+
+	// ok - delete with no entries
+	err = mem.DeleteAll()
+	assert.NoError(t, err)
 }

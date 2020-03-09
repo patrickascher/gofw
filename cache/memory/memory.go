@@ -2,38 +2,40 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-// Package memory implements the cache.Interface and registers a memory provider.
+// Package memory implements the cache.Interface and registers a in-memory provider.
 // All operations are using a sync.RWMutex for synchronization.
+// Benchmark file is available.
 package memory
 
 import (
 	"errors"
 	"fmt"
-	cm "github.com/patrickascher/gofw/cache"
 	"sync"
 	"time"
+
+	cm "github.com/patrickascher/gofw/cache"
 )
 
-// init register the memory provider.
+// init register the in-memory provider.
 func init() {
-	_ = cm.Register(cm.MEMORY, newMemory)
+	_ = cm.Register(cm.MEMORY, New)
 }
 
-// defaultGCSleepDuration holds the default gc loop waiting time in seconds
-var defaultGCSleepDuration = 60
+// defaultGCInterval holds the garbage collector waiting time in seconds
+var defaultGCInterval = 60
 
 var ErrKeyNotExist = errors.New("cache/memory: key #%v does not exist")
 
-// Memory cache backend
+// Memory cache provider
 type Memory struct {
 	mutex   sync.RWMutex
 	options Options
 	items   map[string]cm.Valuer
 }
 
-// Options for memory provider
+// Options for the in-memory provider
 type Options struct {
-	LoopDuration time.Duration
+	GCInterval time.Duration
 }
 
 // item implements the Valuer interface
@@ -56,17 +58,15 @@ func (m *item) expired() bool {
 	return time.Now().Sub(m.created) > m.ttl
 }
 
-// newMemory returns a new memory cache by the given options.
-func newMemory(opt interface{}) cm.Interface {
-	options := Options{LoopDuration: time.Duration(defaultGCSleepDuration) * time.Second}
+// New creates a in-memory cache by the given options.
+func New(opt interface{}) cm.Interface {
+	options := Options{GCInterval: time.Duration(defaultGCInterval) * time.Second}
 	if opt != nil {
-		options = opt.(Options)
-		//TODO create a nicer version
-		if options.LoopDuration < 1 {
-			options.LoopDuration = time.Duration(defaultGCSleepDuration) * time.Second
+		//TODO use a merger like https://github.com/imdario/mergo?
+		if opt.(Options).GCInterval > 0 {
+			options = opt.(Options)
 		}
 	}
-
 	return &Memory{options: options, items: make(map[string]cm.Valuer)}
 }
 
@@ -106,11 +106,8 @@ func (m *Memory) Exist(key string) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
-	if _, ok := m.items[key]; ok {
-		return true
-	}
-
-	return false
+	_, ok := m.items[key]
+	return ok
 }
 
 // Delete removes a given key from the cache.
@@ -138,13 +135,11 @@ func (m *Memory) DeleteAll() error {
 	return nil
 }
 
-// GC is an infinity loop. The loop waits for the given time and runs again to delete all expired keys.
+// GC is an infinity loop. The loop will rerun after an specific interval time which can be set
+// in the options (default 60sec).
 func (m *Memory) GC() {
 	for {
-		<-time.After(m.options.LoopDuration)
-		if m.items == nil {
-			return
-		}
+		<-time.After(m.options.GCInterval)
 		if keys := m.expiredKeys(); len(keys) != 0 {
 			for _, key := range keys {
 				_ = m.Delete(key)
