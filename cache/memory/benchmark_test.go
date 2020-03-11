@@ -5,10 +5,11 @@
 package memory_test
 
 import (
-	"github.com/patrickascher/gofw/cache"
 	"log"
 	"strconv"
 	"testing"
+
+	"github.com/patrickascher/gofw/cache"
 )
 
 var memCache cache.Interface

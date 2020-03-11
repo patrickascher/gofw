@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	// List of the pre defined cache providers.
+	// MEMORY defined cache provider.
 	MEMORY = "memory"
 	// INFINITY should be used by the cache providers to identify
 	// that the value should not get deleted by the garbage collector.
 	INFINITY = 0
 )
 
+// Error messages
 var (
 	ErrUnknownProvider       = errors.New("cache: unknown cache-provider %q")
 	ErrNoProvider            = errors.New("cache: empty cache-name or cache-provider is nil")
@@ -77,8 +78,8 @@ func New(provider string, options interface{}) (Interface, error) {
 	return instance, nil
 }
 
-// Register the cache provider.
-// If the cache provider name is empty or is already registered, an error will return.
+// Register the cache provider. This should be called in the init() of the providers.
+// If the cache provider/name is empty or is already registered, an error will return.
 func Register(provider string, fn provider) error {
 	if fn == nil || provider == "" {
 		return ErrNoProvider

@@ -1,133 +1,267 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package logger_test
 
 import (
 	"fmt"
-	"github.com/patrickascher/gofw/logger"
-	"github.com/stretchr/testify/assert"
-	"io"
-	"os"
+	"path/filepath"
 	"reflect"
-	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/patrickascher/gofw/logger"
+	"github.com/patrickascher/gofw/logger/file"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestLevel_StringString(t *testing.T) {
-	assert.Equal(t, "", logger.Level(1).String())
-	assert.Equal(t, "TRACE", logger.Level(2).String())
-	assert.Equal(t, "DEBUG", logger.Level(3).String())
-	assert.Equal(t, "INFO", logger.Level(4).String())
-	assert.Equal(t, "WARNING", logger.Level(5).String())
-	assert.Equal(t, "ERROR", logger.Level(6).String())
-	assert.Equal(t, "CRITICAL", logger.Level(7).String())
-	assert.Equal(t, "<unknown>", logger.Level(999).String())
+var mockLogger *mockProvider
+
+type mockProvider struct {
+	lock  sync.Mutex
+	Entry logger.LogEntry
 }
 
-func TestDefaultLoggingFormat(t *testing.T) {
-	ts := time.Now()
-
-	entry := logger.LogEntry{}
-	entry.Level = logger.TRACE
-	entry.Timestamp = ts
-	entry.Message = "Test"
-	entry.Line = 100
-	entry.Filename = "logger_test.go"
-
-	assert.Equal(t, entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")+" TRACE logger_test.go:100 Test", logger.DefaultLoggingFormat(entry))
-
-	// UNSPECIFIED is not logging the log-level
-	entry.Level = logger.UNSPECIFIED
-	assert.Equal(t, entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")+" logger_test.go:100 Test", logger.DefaultLoggingFormat(entry))
+func (mp *mockProvider) Write(e logger.LogEntry) {
+	mp.lock.Lock()
+	mp.Entry = e
+	mp.lock.Unlock()
 }
 
-func TestRegisterAndGet(t *testing.T) {
+func NewMockProvider() (*mockProvider, error) {
+	mockLogger = &mockProvider{}
+	return mockLogger, nil
+}
 
-	logger.Register(
-		"test", //logger name
-		logger.Config{
-			Writer:   GetTestWriter(),
-			LogLevel: logger.UNSPECIFIED,
+// Register is testing
+// - mandatory Config.Writer is missing
+// - table drive test for LogLevel out of range (0-6 is allowed). 0 in that case will be set as TRACE.
+func TestRegister(t *testing.T) {
+	test := assert.New(t)
+	mockProvider, err := NewMockProvider()
+	assert.NoError(t, err) // only here for best practice
+
+	// error: no writer is defined
+	err = logger.Register(
+		"mock", //logger name
+		logger.Config{},
+	)
+	test.Error(err)
+	test.Equal(logger.ErrMandatoryWriter.Error(), err.Error())
+
+	// table driven:
+	// Testing LogLevel is undefined - default TRACE should be set
+	// Testing Loglevel out of range - only 1-6 is allowed
+	var tests = []struct {
+		error   bool
+		logType string
+		config  logger.Config
+	}{
+		{error: false, logType: logger.TRACE.String(), config: logger.Config{Writer: mockProvider}},              // zero value, default Trace
+		{error: false, logType: logger.TRACE.String(), config: logger.Config{Writer: mockProvider, LogLevel: 0}}, // zero value, default Trace
+		{error: false, logType: logger.TRACE.String(), config: logger.Config{Writer: mockProvider, LogLevel: 1}},
+		{error: false, logType: logger.DEBUG.String(), config: logger.Config{Writer: mockProvider, LogLevel: 2}},
+		{error: false, logType: logger.INFO.String(), config: logger.Config{Writer: mockProvider, LogLevel: 3}},
+		{error: false, logType: logger.WARNING.String(), config: logger.Config{Writer: mockProvider, LogLevel: 4}},
+		{error: false, logType: logger.ERROR.String(), config: logger.Config{Writer: mockProvider, LogLevel: 5}},
+		{error: false, logType: logger.CRITICAL.String(), config: logger.Config{Writer: mockProvider, LogLevel: 6}},
+		{error: true, logType: "unknown log level", config: logger.Config{Writer: mockProvider, LogLevel: 7}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.logType, func(t *testing.T) {
+			err = logger.Register(
+				"mock", //logger name
+				tt.config,
+			)
+			if tt.error == true {
+				test.Error(err)
+			} else {
+				test.NoError(err)
+			}
+		})
+	}
+}
+
+// Register is testing if the different writer are getting set
+func TestRegister_DifferentWriter(t *testing.T) {
+	test := assert.New(t)
+	// defining different log providers
+	mockCommon := &mockProvider{}
+	mockTrace := &mockProvider{}
+	mockDebug := &mockProvider{}
+	mockInfo := &mockProvider{}
+	mockWarning := &mockProvider{}
+	mockError := &mockProvider{}
+	mockCritical := &mockProvider{}
+
+	// error: no writer is defined
+	err := logger.Register(
+		"mock", //logger name
+		logger.Config{Writer: mockCommon,
+			TraceWriter:    mockTrace,
+			DebugWriter:    mockDebug,
+			InfoWriter:     mockInfo,
+			WarningWriter:  mockWarning,
+			ErrorWriter:    mockError,
+			CriticalWriter: mockCritical,
 		},
 	)
+	test.NoError(err)
 
-	writer, err := logger.Get("test")
-	assert.NoError(t, err)
-	assert.Equal(t, "*logger.Logger", reflect.TypeOf(writer).String())
+	// log messages
+	l, err := logger.Get("mock")
+	test.NoError(err)
+	l.Trace("Trace")
+	l.Debug("Debug")
+	l.Info("Info")
+	l.Warning("Warning")
+	l.Error("Error")
+	l.Critical("Critical")
 
-	// Logger does not exist
-	_, err = logger.Get("doesNotExist")
-	assert.Error(t, err)
+	// check if the correct writer was used.
+	// Writer: must be empty because it was never user
+	test.Equal("", mockCommon.Entry.Message)
+	// TraceWriter: must be empty because it was never user
+	test.Equal("Trace", mockTrace.Entry.Message)
+	// DebugWriter: must be empty because it was never user
+	test.Equal("Debug", mockDebug.Entry.Message)
+	// InfoWriter: must be empty because it was never user
+	test.Equal("Info", mockInfo.Entry.Message)
+	// WarningWriter: must be empty because it was never user
+	test.Equal("Warning", mockWarning.Entry.Message)
+	// ErrorWriter: must be empty because it was never user
+	test.Equal("Error", mockError.Entry.Message)
+	// CriticalWriter: must be empty because it was never user
+	test.Equal("Critical", mockCritical.Entry.Message)
 }
 
-func TestLogger_Unspecified(t *testing.T) {
+// Get checks if a logger gets returned and if an error will return if the logger name does not exist.
+func TestGet(t *testing.T) {
+	test := assert.New(t)
+	mockProvider, err := NewMockProvider()
+	test.NoError(err) // only here for best practice
 
-	TestWriter := GetTestWriter()
-	logger.Register(
-		"testLogger", //logger name
-		logger.Config{
-			Writer:     TestWriter, //default writer for all lvls
-			LogLevel:   logger.UNSPECIFIED,
-			InfoWriter: logger.FileLogger(&logger.FileOptions{File: "test.log"}), //custom writer for this logger-lvl
-		},
+	// setting mock again with a fresh config to avoid mistakes.
+	err = logger.Register(
+		"mock", //logger name
+		logger.Config{Writer: mockProvider},
 	)
 
-	log, err := logger.Get("testLogger")
-	assert.NoError(t, err)
+	// ok
+	log, err := logger.Get("mock")
+	test.NoError(err)
+	test.Equal("*logger.logger", reflect.TypeOf(log).String())
 
-	log.Unspecified("Unspecified %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+	// error: logger does not exist
+	log, err = logger.Get("mock2")
+	test.Error(err)
+	test.Equal(fmt.Sprintf(logger.ErrUnknownLogger.Error(), "mock2"), err.Error())
+}
 
-	log.Trace("Trace %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+// Log is checking the following things:
+// - Log for the LogLevels 1-6.
+// - Checking if the LogEntry has the correct data. Timestamp, Linenumber and Filename have some minor checks.
+// - On the second round the LogLevel is set to ERROR, it checks if the LogLevels getting skipped before.
+func TestLogger_Log(t *testing.T) {
+	test := assert.New(t)
 
-	log.Debug("Debug %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+	// startTime is used in the LogEntry to check if the Timestamp is after the startTime.
+	startTime := time.Now()
+	time.Sleep(100 * time.Millisecond)
 
-	//Info gets logged into a the test.log
-	log.Info("Info %v", "log")
-	// wait for the go routine to write in the file
-	time.Sleep(500 * time.Millisecond)
-	//read file
-	file, err := os.OpenFile("test.log", os.O_RDWR, 0644)
-	assert.NoError(t, err)
-	defer file.Close()
-	// read file, line by line
-	var text = make([]byte, 52)
-	for {
-		_, err = file.Read(text)
+	// define the logger
+	log, err := logger.Get("mock")
+	test.NoError(err)
 
-		// break if finally arrived at end of file
-		if err == io.EOF {
-			break
+	// First round is the normal log for lvl 1-6
+	// Second round the LogLevel is set to ERROR and CRITICAL only
+	for i := 0; i < 2; i++ {
+
+		// Reconfigure the logger to log only ERROR and CRITICAL
+		if i == 1 {
+			mockProvider, err := NewMockProvider()
+			test.NoError(err)
+			err = logger.Register(
+				"mock", //logger name
+				logger.Config{Writer: mockProvider, LogLevel: logger.ERROR},
+			)
+			test.NoError(err)
+			log, err = logger.Get("mock")
+			test.NoError(err)
 		}
 
-		// break if error occurred
-		if err != nil && err != io.EOF {
-			assert.NoError(t, err)
+		// Table driven test
+		var tests = []struct {
+			msg  string
+			args []interface{}
+			fn   func(string, ...interface{})
+		}{
+			{msg: "TRACE", args: []interface{}{"arg1", "arg2"}, fn: log.Trace},
+			{msg: "DEBUG", args: []interface{}{"arg0", "arg2"}, fn: log.Debug},
+			{msg: "INFO", args: []interface{}{"arg1", "arg2"}, fn: log.Info},
+			{msg: "WARNING", args: []interface{}{"arg1", "arg2"}, fn: log.Warning},
+			{msg: "ERROR", args: []interface{}{"arg1", "arg2"}, fn: log.Error},
+			{msg: "CRITICAL", args: []interface{}{"arg1", "arg2"}, fn: log.Critical},
+		}
+		for _, tt := range tests {
+			t.Run(tt.msg, func(t *testing.T) {
+				//log
+				tt.fn(tt.msg, tt.args...)
+
+				// checking everything on round 1
+				// round two only ERROR and CRITICAL should get logged, all other levels should be empty
+				if i == 0 || (i == 1 && (tt.msg == "ERROR" || tt.msg == "CRITICAL")) {
+					test.Equal("logger_test.go", filepath.Base(mockLogger.Entry.Filename))
+					test.Equal(tt.msg, mockLogger.Entry.Level.String())
+					test.True(mockLogger.Entry.Line != 0)
+					test.True(mockLogger.Entry.Timestamp.After(startTime))
+					test.Equal(tt.msg, mockLogger.Entry.Message)
+					test.Equal(tt.args, mockLogger.Entry.Arguments)
+				} else {
+					test.Equal("", mockLogger.Entry.Message)
+				}
+			})
 		}
 	}
+}
 
-	TestWriter.Entry.Level = logger.INFO
-	TestWriter.Entry.Line = 90 // TODO better solution - this can fail as soon as the test gets edit
-	TestWriter.Entry.Message = strings.Replace(TestWriter.Entry.Message, "Debug", "Info", 1)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), strings.TrimSpace(string(text)))
+// This example demonstrate the basics of the logger.Interface.
+// For more details check the documentation.
+func Example() {
 
-	//delete file - error if it does not exist
-	err = os.Remove("test.log")
-	assert.NoError(t, err)
+	// Register a new logger with the name "access".
+	fileLogger, err := file.New(file.Options{Filepath: "access.log"})
+	if err != nil {
+		//...
+	}
+	err = logger.Register(
+		// logger name
+		"access",
+		// The logger should only log messages from the level WARNING and higher.
+		// If the LogLevel is empty, it will start logging from TRACE.
+		logger.Config{Writer: fileLogger, LogLevel: logger.WARNING},
 
-	log.Warning("Warning %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+		// Here is an example that everything should be logged in a file except CRITICAL, those should be emailed.
+		// Each log level can have their own log provider.
+		//
+		// emailLogger = email.New(email.Options{...})
+		// logger.Config{Writer: logFile, CriticalWriter:emailLogger},
+	)
+	if err != nil {
+		//...
+	}
 
-	log.Error("Error %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+	// get the logger
+	log, err := logger.Get("access")
+	if err != nil {
+		//..
+	}
 
-	log.Critical("Critical %v", "log")
-	fmt.Println(TestWriter.Body)
-	assert.Equal(t, logger.DefaultLoggingFormat(TestWriter.Entry), TestWriter.Body)
+	// log messages
+	// The first parameter is the message it self. After that an unlimited number of arguments can follow.
+	// It depends on the log provider how this is handled. Please check the provider documentation for more details.
+	log.Info("User %v has successfully logged in", "John Doe") //This message will not be logged because the minimum log level is WARNING.
+	log.Warning("User xy is locked because of too many login attempts")
 }

@@ -44,9 +44,9 @@ func TestInformation_DescribeNoDatabaseInConfig(t *testing.T) {
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/db.psql.json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/db.psql.json"})
 	}
 	if assert.NoError(t, err) {
 
@@ -71,9 +71,9 @@ func TestInformation_ForeignKeys(t *testing.T) {
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/db.json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/db.json"})
 	}
 
 	if assert.NoError(t, err) {

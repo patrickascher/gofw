@@ -12,9 +12,9 @@ func HelperParseConfig() (*sqlquery.Config, error) {
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "tests/db.json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/db.json"})
 	}
 
 	if err != nil {

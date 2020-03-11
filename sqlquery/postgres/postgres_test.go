@@ -25,9 +25,9 @@ func TestPostgres_Describe(t *testing.T) {
 	var cfg sqlquery.Config
 	var err error
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "../tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "../tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "../tests/db.psql.json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "../tests/db.psql.json"})
 	}
 
 	if assert.NoError(t, err) {
@@ -156,9 +156,9 @@ func TestPostgres_ForeignKeys(t *testing.T) {
 	var cfg sqlquery.Config
 	var err error
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "../tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "../tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &reader.JsonOptions{File: "../tests/db.psql.json"})
+		err = config.Parse("json", &cfg, &json.JsonOptions{File: "../tests/db.psql.json"})
 	}
 
 	if assert.NoError(t, err) {

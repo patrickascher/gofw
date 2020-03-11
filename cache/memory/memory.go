@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-// Package memory implements the cache.Interface and registers a in-memory provider.
+// Package memory implements the cache.Interface and registers an in-memory provider.
 // All operations are using a sync.RWMutex for synchronization.
 // Benchmark file is available.
 package memory
@@ -21,13 +21,16 @@ func init() {
 	_ = cm.Register(cm.MEMORY, New)
 }
 
-// defaultGCInterval holds the garbage collector waiting time in seconds
+// defaultGCInterval holds the garbage collector waiting time in seconds.
 var defaultGCInterval = 60
 
-var ErrKeyNotExist = errors.New("cache/memory: key #%v does not exist")
+// Error messages
+var (
+	ErrKeyNotExist = errors.New("cache/memory: key #%v does not exist")
+)
 
-// Memory cache provider
-type Memory struct {
+// memory cache provider
+type memory struct {
 	mutex   sync.RWMutex
 	options Options
 	items   map[string]cm.Valuer
@@ -67,12 +70,12 @@ func New(opt interface{}) cm.Interface {
 			options = opt.(Options)
 		}
 	}
-	return &Memory{options: options, items: make(map[string]cm.Valuer)}
+	return &memory{options: options, items: make(map[string]cm.Valuer)}
 }
 
 // Get returns the value of the given key.
 // Error will return if the key does not exist.
-func (m *Memory) Get(key string) (cm.Valuer, error) {
+func (m *memory) Get(key string) (cm.Valuer, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -83,7 +86,7 @@ func (m *Memory) Get(key string) (cm.Valuer, error) {
 }
 
 // GetAll returns all items of the cache as map.
-func (m *Memory) GetAll() map[string]cm.Valuer {
+func (m *memory) GetAll() map[string]cm.Valuer {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -92,7 +95,7 @@ func (m *Memory) GetAll() map[string]cm.Valuer {
 
 // Set key/value pair.
 // The ttl can be set by duration or forever with cache.INFINITY.
-func (m *Memory) Set(key string, value interface{}, ttl time.Duration) error {
+func (m *memory) Set(key string, value interface{}, ttl time.Duration) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -102,7 +105,7 @@ func (m *Memory) Set(key string, value interface{}, ttl time.Duration) error {
 }
 
 // Exist returns true if the key exists.
-func (m *Memory) Exist(key string) bool {
+func (m *memory) Exist(key string) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -112,7 +115,7 @@ func (m *Memory) Exist(key string) bool {
 
 // Delete removes a given key from the cache.
 // Error will return if the key does not exist.
-func (m *Memory) Delete(key string) error {
+func (m *memory) Delete(key string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -126,7 +129,7 @@ func (m *Memory) Delete(key string) error {
 }
 
 // DeleteAll removes all items from the cache.
-func (m *Memory) DeleteAll() error {
+func (m *memory) DeleteAll() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -137,7 +140,7 @@ func (m *Memory) DeleteAll() error {
 
 // GC is an infinity loop. The loop will rerun after an specific interval time which can be set
 // in the options (default 60sec).
-func (m *Memory) GC() {
+func (m *memory) GC() {
 	for {
 		<-time.After(m.options.GCInterval)
 		if keys := m.expiredKeys(); len(keys) != 0 {
@@ -149,7 +152,7 @@ func (m *Memory) GC() {
 }
 
 // expiredKeys returns all expired keys.
-func (m *Memory) expiredKeys() (keys []string) {
+func (m *memory) expiredKeys() (keys []string) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 

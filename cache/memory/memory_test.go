@@ -6,10 +6,10 @@ package memory_test
 
 import (
 	"fmt"
-	cm "github.com/patrickascher/gofw/cache"
 	"testing"
 	"time"
 
+	cm "github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/stretchr/testify/assert"
 )
