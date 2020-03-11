@@ -24,33 +24,30 @@ func init() {
 
 func BenchmarkMemory_Set(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		err := memCache.Set("key:"+strconv.Itoa(i), i, cache.INFINITY)
-		if err != nil {
-			b.Fatal(err)
-		}
+		_ = memCache.Set("key:"+strconv.Itoa(i), i, cache.INFINITY)
 	}
 }
 
 func BenchmarkMemory_Get(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		memCache.Get("key:" + strconv.Itoa(i))
+		_, _ = memCache.Get("key:" + strconv.Itoa(i))
 	}
 }
 
 func BenchmarkMemory_Exist(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		memCache.Exist("key:" + strconv.Itoa(i))
+		_ = memCache.Exist("key:" + strconv.Itoa(i))
 	}
 }
 
 func BenchmarkMemory_Delete(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		memCache.Delete("key:" + strconv.Itoa(i))
+		_ = memCache.Delete("key:" + strconv.Itoa(i))
 	}
 }
 
 func BenchmarkMemory_DeleteAll(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		memCache.DeleteAll()
+		_ = memCache.DeleteAll()
 	}
 }
