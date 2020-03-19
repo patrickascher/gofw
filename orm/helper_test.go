@@ -15,8 +15,8 @@ func init() {
 	orm.GlobalBuilder, _ = HelperCreateBuilder()
 }
 
-func HelperParseConfig() (*sqlquery.Config, error) {
-	var cfg sqlquery.Config
+func HelperParseConfig() (*sqlquery_.Config, error) {
+	var cfg sqlquery_.Config
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
@@ -32,29 +32,29 @@ func HelperParseConfig() (*sqlquery.Config, error) {
 	return &cfg, nil
 }
 
-func HelperCreateBuilder() (*sqlquery.Builder, error) {
+func HelperCreateBuilder() (*sqlquery_.Builder, error) {
 	cfg, err := HelperParseConfig()
 	if err != nil {
 		return nil, err
 	}
-	return sqlquery.NewBuilderFromConfig(cfg)
+	return sqlquery_.NewBuilderFromConfig(cfg)
 }
 
 type StrategyMock struct {
 	model        orm.Interface
 	methodCalled string
-	c            *sqlquery.Condition
+	c            *sqlquery_.Condition
 	res          interface{}
 }
 
-func (s *StrategyMock) First(m orm.Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) First(m orm.Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "First"
 	s.c = c
 	return nil
 }
 
-func (s *StrategyMock) All(res interface{}, m orm.Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) All(res interface{}, m orm.Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "All"
 	s.res = res
@@ -68,7 +68,7 @@ func (s *StrategyMock) Create(m orm.Interface) error {
 	return nil
 }
 
-func (s *StrategyMock) Update(m orm.Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) Update(m orm.Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "Update"
 	s.c = c
@@ -76,7 +76,7 @@ func (s *StrategyMock) Update(m orm.Interface, c *sqlquery.Condition) error {
 	return nil
 }
 
-func (s *StrategyMock) Delete(m orm.Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) Delete(m orm.Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "Delete"
 	s.c = c
@@ -85,17 +85,17 @@ func (s *StrategyMock) Delete(m orm.Interface, c *sqlquery.Condition) error {
 }
 
 type CommonX struct {
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
-	DeletedAt sqlquery.NullTime
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
+	DeletedAt sqlquery_.NullTime
 }
 
 type Customerfk struct {
 	orm.Model
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	//CommonX
 
 	Info      Contactfk   // hasOne
@@ -109,8 +109,8 @@ type CustomerNoSoftDelete struct {
 	orm.Model
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 }
 
 func (c *CustomerNoSoftDelete) TableName() string {
@@ -129,8 +129,8 @@ type Customer struct {
 	orm.Model
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	CommonX
 
 	Info   Contact `relation:"hasOne" fk:"ID"`  // hasOne
@@ -143,7 +143,7 @@ type Orderfk struct {
 
 	ID         int
 	CustomerID int
-	CreatedAt  sqlquery.NullTime
+	CreatedAt  sqlquery_.NullTime
 
 	Product Productfk
 }
@@ -154,7 +154,7 @@ type Order struct {
 	ID         int
 	CustomerID int
 	ProductID  int
-	CreatedAt  sqlquery.NullTime
+	CreatedAt  sqlquery_.NullTime
 
 	Product  Product  `relation:"hasOne" fk:"field:ID;associationField:ProductID"`     // hasOne
 	Customer Customer `relation:"belongsTo" fk:"field:ID;associationField:CustomerID"` // belongsTo
@@ -164,10 +164,10 @@ type Productfk struct {
 	orm.Model
 
 	ID        int
-	Name      sqlquery.NullString
-	Price     sqlquery.NullFloat64
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
+	Name      sqlquery_.NullString
+	Price     sqlquery_.NullFloat64
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
 	OrderId   int
 }
 
@@ -175,10 +175,10 @@ type Product struct {
 	orm.Model
 
 	ID        int
-	Name      sqlquery.NullString
-	Price     sqlquery.NullFloat64
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
+	Name      sqlquery_.NullString
+	Price     sqlquery_.NullFloat64
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
 }
 
 type Contactfk struct {
@@ -186,7 +186,7 @@ type Contactfk struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery.NullString
+	Phone      sqlquery_.NullString
 }
 
 type Contact struct {
@@ -194,19 +194,19 @@ type Contact struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery.NullString
+	Phone      sqlquery_.NullString
 }
 
 type Servicefk struct {
 	orm.Model
 
 	ID   int
-	Name sqlquery.NullString
+	Name sqlquery_.NullString
 }
 
 type Service struct {
 	orm.Model
 
 	ID   int
-	Name sqlquery.NullString
+	Name sqlquery_.NullString
 }

@@ -13,8 +13,8 @@ type Users struct {
 	Model
 
 	Id        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 }
 
 type Person struct {
@@ -37,7 +37,7 @@ func (c *Custom) DatabaseName() string {
 	return "robots"
 }
 
-func (c *Custom) Builder() (*sqlquery.Builder, error) {
+func (c *Custom) Builder() (*sqlquery_.Builder, error) {
 	return HelperCreateBuilder()
 }
 
@@ -109,7 +109,7 @@ func TestModel_Builder(t *testing.T) {
 	cust := &Customerfk{}
 	b, err := cust.Builder()
 	if assert.Error(t, err) {
-		assert.Equal(t, (*sqlquery.Builder)(nil), b)
+		assert.Equal(t, (*sqlquery_.Builder)(nil), b)
 	}
 
 	custom := &Custom{}

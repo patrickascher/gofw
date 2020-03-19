@@ -18,7 +18,7 @@ import (
 )
 
 // GlobalBuilder for a global db connection
-var GlobalBuilder *sqlquery.Builder
+var GlobalBuilder *sqlquery_.Builder
 var validate *validator.Validate
 
 // Error for Model
@@ -104,17 +104,17 @@ type Interface interface {
 	// defaults
 	TableName() string
 	DatabaseName() string
-	Builder() (*sqlquery.Builder, error)
+	Builder() (*sqlquery_.Builder, error)
 	DefaultCache() (cache.Cache, time.Duration, error)
 	Custom() bool
 
 	// orm
-	First(c *sqlquery.Condition) error
-	All(result interface{}, c *sqlquery.Condition) error
+	First(c *sqlquery_.Condition) error
+	All(result interface{}, c *sqlquery_.Condition) error
 	Create() error
 	Update() error
 	Delete() error
-	Count(c *sqlquery.Condition) (int, error)
+	Count(c *sqlquery_.Condition) (int, error)
 
 	DisableSnapshot(bool)
 	DisableCallback(bool)
@@ -137,8 +137,8 @@ type Interface interface {
 	SetStrategy(string) error
 
 	// condition for relations
-	SetRelationCondition(string, *sqlquery.Condition) error
-	RelationCondition() map[string]*sqlquery.Condition
+	SetRelationCondition(string, *sqlquery_.Condition) error
+	RelationCondition() map[string]*sqlquery_.Condition
 
 	// White and Blacklist
 	SetWhitelist(...string) *Model
@@ -164,9 +164,9 @@ type Interface interface {
 
 // Model struct contains all fields and relations of the database table.
 type Model struct {
-	CreatedAt *sqlquery.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	UpdatedAt *sqlquery.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	DeletedAt *sqlquery.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	CreatedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	UpdatedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	DeletedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
 
 	caller Interface // for result
 	table  *Table
@@ -181,7 +181,7 @@ type Model struct {
 
 	whiteOrBlackList *WhiteBlackList
 
-	relationCondition map[string]*sqlquery.Condition
+	relationCondition map[string]*sqlquery_.Condition
 
 	cache    cache.Cache
 	cacheTTL time.Duration
@@ -273,7 +273,7 @@ func (m *Model) checkLoopMap(args string) error {
 }
 
 // SetRelationCondition adds a special condition for a relation.
-func (m *Model) SetRelationCondition(name string, c *sqlquery.Condition) error {
+func (m *Model) SetRelationCondition(name string, c *sqlquery_.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
@@ -288,7 +288,7 @@ func (m *Model) SetRelationCondition(name string, c *sqlquery.Condition) error {
 	return ErrModelFieldNotFound
 }
 
-func (m *Model) RelationCondition() map[string]*sqlquery.Condition {
+func (m *Model) RelationCondition() map[string]*sqlquery_.Condition {
 	return m.relationCondition
 }
 
@@ -406,7 +406,7 @@ func CloneValue(source interface{}, destin interface{}) {
 func (m *Model) Initialize(caller Interface) error {
 	// set caller
 	m.caller = caller
-	m.relationCondition = make(map[string]*sqlquery.Condition)
+	m.relationCondition = make(map[string]*sqlquery_.Condition)
 	m.loopDetection = true
 	m.loopMap = make(map[string][]string) // TODO define size of relations
 
@@ -466,7 +466,7 @@ func (m *Model) Initialize(caller Interface) error {
 	// add validation to the model
 	validate = validator.New()       // TODO global?
 	validate.SetTagName(TagValidate) // TODO global?
-	validate.RegisterCustomTypeFunc(ValidateValuer, sqlquery.NullInt64{}, sqlquery.NullFloat64{}, sqlquery.NullBool{}, sqlquery.NullString{}, sqlquery.NullTime{})
+	validate.RegisterCustomTypeFunc(ValidateValuer, sqlquery_.NullInt64{}, sqlquery_.NullFloat64{}, sqlquery_.NullBool{}, sqlquery_.NullString{}, sqlquery_.NullTime{})
 
 	err = m.addDBValidation()
 	if err != nil {
@@ -492,7 +492,7 @@ func (m *Model) Initialize(caller Interface) error {
 // First will check the first founded row by its condition and adds it values to the struct fields.
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
-func (m *Model) First(c *sqlquery.Condition) error {
+func (m *Model) First(c *sqlquery_.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
@@ -509,7 +509,7 @@ func (m *Model) First(c *sqlquery.Condition) error {
 
 	// create sql condition
 	if c == nil {
-		c = &sqlquery.Condition{}
+		c = &sqlquery_.Condition{}
 	}
 
 	// configure white or blacklist, if set
@@ -520,7 +520,7 @@ func (m *Model) First(c *sqlquery.Condition) error {
 		}
 	}
 
-	err = m.checkLoopMap(c.Config(sqlquery.WHERE))
+	err = m.checkLoopMap(c.Config(sqlquery_.WHERE))
 	if err != nil {
 		return err
 	}
@@ -588,7 +588,7 @@ func CallMethodIfExist(model Interface, callbacks []string, args ...interface{})
 // All will return all rows by its condition and puts it in the given result.
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
-func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
+func (m *Model) All(result interface{}, c *sqlquery_.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
@@ -604,7 +604,7 @@ func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 	}
 
 	if c == nil {
-		c = &sqlquery.Condition{}
+		c = &sqlquery_.Condition{}
 	}
 
 	// configure white or blacklist, if set
@@ -615,7 +615,7 @@ func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 		}
 	}
 
-	err = m.checkLoopMap(c.Config(sqlquery.WHERE))
+	err = m.checkLoopMap(c.Config(sqlquery_.WHERE))
 	if err != nil {
 		return err
 	}
@@ -665,7 +665,7 @@ func (m *Model) setTimestampOn(field string) error {
 	}
 	col.Permission.Write = true
 
-	t := sqlquery.NullTime{Time: time.Now(), Valid: true}
+	t := sqlquery_.NullTime{Time: time.Now(), Valid: true}
 	switch timestamp.Kind() {
 	case reflect.Ptr:
 		timestamp.Set(reflect.ValueOf(&t))
@@ -853,7 +853,7 @@ func (m *Model) Update() error {
 	}
 
 	// create where condition
-	c := &sqlquery.Condition{}
+	c := &sqlquery_.Condition{}
 	for _, col := range m.Table().PrimaryKeys() {
 		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
 	}
@@ -1177,7 +1177,7 @@ func (m *Model) Delete() error {
 	}
 
 	// create where condition
-	c := &sqlquery.Condition{}
+	c := &sqlquery_.Condition{}
 	for _, col := range m.Table().PrimaryKeys() {
 		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
 	}
@@ -1251,14 +1251,14 @@ func (m *Model) commit() error {
 }
 
 // Count the existing rows by the given condition.
-func (m *Model) Count(c *sqlquery.Condition) (int, error) {
+func (m *Model) Count(c *sqlquery_.Condition) (int, error) {
 	if !m.isInit() {
 		return 0, ErrModelNotInitialized
 	}
 
 	b := m.Table().Builder
 	if c == nil {
-		c = &sqlquery.Condition{}
+		c = &sqlquery_.Condition{}
 	}
 	row, err := b.Select(m.Table().Name).Condition(c).Columns("!COUNT(*)").First()
 	if err != nil {
@@ -1371,7 +1371,7 @@ func (m *Model) initTable() error {
 }
 
 // initBuilder checks if a builder is given, otherwise an error will return.
-func (m *Model) initBuilder() (*sqlquery.Builder, error) {
+func (m *Model) initBuilder() (*sqlquery_.Builder, error) {
 	//checking default config
 	b, err := m.caller.Builder()
 	if err != nil {

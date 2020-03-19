@@ -1,36 +1,57 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery_test
 
 import (
-	"fmt"
+	"database/sql"
 	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/patrickascher/gofw/sqlquery/mysql"
-	"github.com/stretchr/testify/assert"
-	"reflect"
-	"testing"
 )
 
-func TestNewDriver(t *testing.T) {
-	mem, err := sqlquery.NewDriver("mysql")
-	assert.NoError(t, err)
-	assert.Equal(t, "*mysql.Mysql", reflect.ValueOf(mem).Type().String())
+var mockProvider *mockDriver
+
+// New creates a in-memory cache by the given options.
+func mockMock(cfg sqlquery.Config, db *sql.DB) (sqlquery.Driver, error) {
+	mockProvider = &mockDriver{}
+	return mockProvider, nil
 }
 
-func TestRegister(t *testing.T) {
-	_, err := sqlquery.NewDriver("xy")
-	assert.Equal(t, fmt.Errorf(sqlquery.ErrUnknownDriver.Error(), "xy"), err)
+type mockDriver struct {
+	describeDb    string
+	describeTable string
+	describeCols  []string
 
-	//empty cache-backend
-	err = sqlquery.Register("redis", nil)
-	assert.Equal(t, sqlquery.ErrNoDriver, err)
+	fkTable string
+	fkDb    string
+}
 
-	//empty cache-name
-	err = sqlquery.Register("", &mysql.Mysql{})
-	assert.Equal(t, sqlquery.ErrNoDriver, err)
+func (m *mockDriver) Connection() *sql.DB {
+	//return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=true", c.Username, c.Password, c.Host, c.Port, c.Database)
+	return nil
+}
 
-	//already exists - tests also if the register worked
-	err = sqlquery.Register("redis", &mysql.Mysql{})
-	assert.NoError(t, err)
-	err = sqlquery.Register("redis", &mysql.Mysql{})
-	assert.Error(t, err)
-	assert.Equal(t, fmt.Errorf(sqlquery.ErrDriverAlreadyExists.Error(), "redis"), err)
+func (m *mockDriver) QuoteCharacterColumn() string {
+	return "'"
+}
+
+func (m *mockDriver) Describe(b *sqlquery.Builder, db string, table string, cols []string) ([]*sqlquery.Column, error) {
+	m.describeDb = db
+	m.describeTable = table
+	m.describeCols = cols
+	return nil, nil
+}
+
+func (m *mockDriver) ForeignKeys(b *sqlquery.Builder, db string, table string) ([]*sqlquery.ForeignKey, error) {
+	m.fkDb = db
+	m.fkTable = table
+	return nil, nil
+}
+
+func (m *mockDriver) Placeholder() *sqlquery.Placeholder {
+	return &sqlquery.Placeholder{Char: "?", Numeric: false}
+}
+
+func (m *mockDriver) TypeMapping(s string, column sqlquery.Column) sqlquery.Type {
+	return nil
 }

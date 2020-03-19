@@ -9,7 +9,7 @@ import (
 	"reflect"
 )
 
-//Exported CONDITION types
+// Allowed conditions
 const (
 	WHERE = iota + 1
 	HAVING
@@ -20,8 +20,15 @@ const (
 	ON
 )
 
+// Error messages.
+var (
+	ErrArgumentType        = errors.New("sqlquery: this argument type %v is not allowed")
+	ErrPlaceholderMismatch = errors.New("sqlquery: %v placeholder(%v) and arguments(%v) does not fit")
+)
+
 // Condition is holding all condition statements and arguments.
-//TODO: rewrite the conditions that the actual rendering t string is happening in the render function
+// Arguments of ON,WHERE and HAVING are stored in the args variable.
+// GROUP, ORDER, LIMIT, OFFSET are set directly as string.
 type Condition struct {
 	where  string
 	having string
@@ -35,32 +42,73 @@ type Condition struct {
 	error error
 }
 
-// This was only created for the loop detection in the orm module.
-// TODO create a more usefull function here or figure something out in the orm module.
-func (c *Condition) Config(condition ...int) string {
+// Config returns the requested condition.
+// The first argument defines if the result should include the values or not.
+// Caution, the values are not escaped and should only be used for test or debugging. On database level these are placeholders and getting escaped by the driver.
+// 		c.Config(false,WHERE,ORDER) // WHERE and ORDER are being rendered.
+func (c *Condition) Config(values bool, condition ...int) string {
+	var stmt []string
+
 	for _, fn := range condition {
 		switch fn {
 		case WHERE:
-			return fmt.Sprintf(strings.Replace(c.where, PLACEHOLDER, "%v", -1), c.args[WHERE])
+			s := c.where
+			if s != "" {
+				if values {
+					stmt = append(stmt, fmt.Sprintf(strings.Replace(c.where, PLACEHOLDER, "%v", -1), c.args[WHERE]...))
+				} else {
+					stmt = append(stmt, s)
+				}
+			}
 		case HAVING:
-			return fmt.Sprintf(strings.Replace(c.having, PLACEHOLDER, "%v", -1), c.args[HAVING])
+			s := c.having
+			if s != "" {
+				if values {
+					stmt = append(stmt, fmt.Sprintf(strings.Replace(c.having, PLACEHOLDER, "%v", -1), c.args[HAVING]...))
+				} else {
+					stmt = append(stmt, s)
+				}
+			}
 		case LIMIT:
-			return c.limit
+			if c.limit != "" {
+				stmt = append(stmt, c.limit)
+			}
 		case ORDER:
-			return c.order
+			if c.order != "" {
+				stmt = append(stmt, c.order)
+			}
 		case OFFSET:
-			return c.offset
+			if c.offset != "" {
+				stmt = append(stmt, c.offset)
+			}
 		case GROUP:
-			return c.group
+			if c.group != "" {
+				stmt = append(stmt, c.group)
+			}
 		case ON:
-			return fmt.Sprintf(strings.Replace(c.on, PLACEHOLDER, "%v", -1), c.args[ON])
+			s := c.on
+			if s != "" {
+				if values {
+					stmt = append(stmt, fmt.Sprintf(strings.Replace(c.on, PLACEHOLDER, "%v", -1), c.args[ON]...))
+				} else {
+					stmt = append(stmt, s)
+				}
+			}
 		}
 	}
-	return ""
+
+	return strings.Join(stmt, " ")
 }
 
-// Reset the condition by a specific clause.
+// Reset the condition by one or more conditions or all of them.
+// If the argument is empty, all conditions are reset.
+//		c.Reset() // all will be reset
+// 		c.Reset(WHERE,HAVING) // only WHERE and HAVING are reset.
 func (c *Condition) Reset(reset ...int) {
+
+	if len(reset) == 0 {
+		reset = []int{ON, WHERE, GROUP, HAVING, ORDER, LIMIT, OFFSET}
+	}
 
 	for _, fn := range reset {
 		switch fn {
@@ -91,33 +139,46 @@ func (c *Condition) Reset(reset ...int) {
 	}
 }
 
-// Where can be called multiple times.
-// The condition gets connected by an AND.
-// This means, if you need an OR Condition, be aware to set the right brackets or write the whole Condition in one Where call.
+// Where condition.
+// Where can be called multiple times on a sql statement and gets chained by AND.
+// If you need an OR Condition, be aware to set the right brackets or write the whole condition in one WHERE call.
+// Arrays and slices can be passed as argument.
+//		c.Where("id = ?",1)
+//		c.Where("id IN (?)",[]int{10,11,12})
 func (c *Condition) Where(stmt string, args ...interface{}) *Condition {
 	c.conditionHelper(WHERE, stmt, args)
 	return c
 }
 
-// Group by condition.
-// Usage c.Group("id","id2")
+// Group condition.
+// Group should only be called once. If its called more often, the last values count.
+// Column names are not quoted TODO?.
+// 		c.Group("id","name") // GROUP BY id, name
 func (c *Condition) Group(group ...string) *Condition {
+	// skipping empty call or string
+	if len(group) == 0 || (len(group) == 1 && group[0] == "") {
+		return c
+	}
 
+	// reset if group would be used twice
+	c.Reset(GROUP)
 	for _, stmt := range group {
-
 		if c.group != "" {
 			c.group += ", "
 		}
-
 		c.group = c.group + stmt
 	}
 
-	c.group = " GROUP BY " + c.group
+	c.group = "GROUP BY " + c.group
 	return c
 }
 
-// Having can be called multiple times. The condition gets connected by an AND.
-// This means, if you need an OR Condition, be aware to set the right brackets or write the whole Condition in one Having call.
+// Having condition.
+// Having can be called multiple times on a sql statement and gets chained by AND.
+// If you need an OR Condition, be aware to set the right brackets or write the whole condition in one HAVING call.
+// Arrays and slices can be passed as argument.
+//		c.Having("amount > ?",100)
+//		c.Having("id IN (?)",[]int{10,11,12})
 func (c *Condition) Having(stmt string, args ...interface{}) *Condition {
 	c.conditionHelper(HAVING, stmt, args)
 	return c
@@ -125,7 +186,19 @@ func (c *Condition) Having(stmt string, args ...interface{}) *Condition {
 
 // Order by condition.
 // Usage con.Order("id DESC")
+
+// Order condition.
+// If a column has a `-` prefix, DESC order will get set.
+// Order should only be called once. If its called more often, the last values count.
+// Column names are not quoted TODO?.
+// 		c.Order("id","-name") // ORDER BY id ASC, name DESC
 func (c *Condition) Order(order ...string) *Condition {
+	// skipping empty call or string
+	if len(order) == 0 || (len(order) == 1 && order[0] == "") {
+		return c
+	}
+
+	c.Reset(ORDER)
 	for _, stmt := range order {
 
 		if c.order != "" {
@@ -145,33 +218,41 @@ func (c *Condition) Order(order ...string) *Condition {
 		c.order = c.order + stmt
 	}
 
-	c.order = " ORDER BY " + c.order
+	c.order = "ORDER BY " + c.order
 	return c
 }
 
 // Limit condition.
-// Usage c.Limit(5)
+// Limit should be called once. If its called more often, the last values count.
+//		c.Limit(10)
 func (c *Condition) Limit(l int) *Condition {
-	c.limit = " LIMIT " + strconv.Itoa(l)
+	c.limit = "LIMIT " + strconv.Itoa(l)
 	return c
 }
 
-// Offset by condition.
-// Usage c.Offset(1)
+// Offset condition.
+// Offset should be called once. If its called more often, the last values count.
+//		c.Offset(5)
 func (c *Condition) Offset(o int) *Condition {
-	c.offset = " OFFSET " + strconv.Itoa(o)
+	c.offset = "OFFSET " + strconv.Itoa(o)
 	return c
 }
 
 // On condition for sql joins.
 // Usage: c.On("company.id = employee.id",nil)
+
+// On condition for sql joins.
+// On should only be called once. If its called more often, the last values count.
+// Arrays and slices can be passed as argument.
+//		c.On("user.company = company.id AND user.id > ?",100)
 func (c *Condition) On(stmt string, args ...interface{}) *Condition {
+	c.Reset(ON)
 	c.conditionHelper(ON, stmt, args)
 	return c
 }
 
 // stmtMapManipulation is a helper for adding arguments which are the type array or slice.
-// It manipulates the statement ex.: `Where("id IN (?)",[1,2,3]` into `id IN (?,?,?)` and it  appends all given arguments.
+// It manipulates the statement ex.: `Where("id IN (?)",[1,2,3]` into `id IN (?,?,?)` and it appends all given arguments.
 func stmtMapManipulation(c *Condition, stmt string, args []interface{}, conditionType int) string {
 
 	//initialize arguments
@@ -199,6 +280,7 @@ func stmtMapManipulation(c *Condition, stmt string, args []interface{}, conditio
 
 // addArgument appends all given arguments to Condition.args.
 // in a slice or array all int's are casted to an int64
+// Only int and string types are allowed.
 func (c *Condition) addArgument(conditionType int, args interface{}) {
 
 	//Array/Slice arguments
@@ -212,7 +294,7 @@ func (c *Condition) addArgument(conditionType int, args interface{}) {
 				val := reflect.ValueOf(args).Index(n).String()
 				c.args[conditionType] = append(c.args[conditionType], val)
 			default:
-				c.error = errors.New("sql: this argument type is not allowed")
+				c.error = fmt.Errorf(ErrArgumentType.Error(), reflect.ValueOf(args).Index(n).Kind())
 			}
 		}
 		return
@@ -222,18 +304,18 @@ func (c *Condition) addArgument(conditionType int, args interface{}) {
 	c.args[conditionType] = append(c.args[conditionType], args)
 }
 
-// arguments merges the condition arguments in the right order.
+// arguments merges the condition arguments in the right order (ON, WHERE, HAVING)
 func (c *Condition) arguments() []interface{} {
 	var arguments []interface{}
 	arguments = append(arguments, c.args[ON]...)
 	arguments = append(arguments, c.args[WHERE]...)
 	arguments = append(arguments, c.args[HAVING]...)
-
 	return arguments
 }
 
-// conditionHelper adding the given condition as string to the struct.
-// The
+// conditionHelper for ON, WHERE and HAVING.
+// The stmt will be set to the correct condition variable.
+// Error will return if there is an argument/placeholder mismatch.
 func (c *Condition) conditionHelper(conditionType int, stmt string, args []interface{}) {
 
 	//no statement given
@@ -245,7 +327,7 @@ func (c *Condition) conditionHelper(conditionType int, stmt string, args []inter
 
 	//compare placeholders and arguments length, return error if there is a mismatch
 	if strings.Count(stmt, PLACEHOLDER) != len(args) {
-		c.error = fmt.Errorf("%v placeholder(%v) and arguments(%v) does not fit", sqlStmt, strings.Count(stmt, PLACEHOLDER), len(args))
+		c.error = fmt.Errorf(ErrPlaceholderMismatch.Error(), stmt, strings.Count(stmt, PLACEHOLDER), len(args))
 		return
 	}
 
@@ -255,22 +337,22 @@ func (c *Condition) conditionHelper(conditionType int, stmt string, args []inter
 	switch conditionType {
 	case WHERE:
 		if c.where == "" {
-			sqlStmt += " WHERE"
+			sqlStmt += "WHERE"
 		}
-		if sqlStmt != " WHERE" {
+		if sqlStmt != "WHERE" {
 			sqlStmt += c.where + " AND"
 		}
 		c.where = sqlStmt + " " + stmt
 	case HAVING:
 		if c.having == "" {
-			sqlStmt += " HAVING"
+			sqlStmt += "HAVING"
 		}
-		if sqlStmt != " HAVING" {
+		if sqlStmt != "HAVING" {
 			sqlStmt += c.having + " AND"
 		}
 		c.having = sqlStmt + " " + stmt
 	case ON:
-		c.on = " ON " + stmt
+		c.on = "ON " + stmt
 	}
 
 }
@@ -284,8 +366,10 @@ func (c *Condition) render(p *Placeholder) (string, error) {
 	}
 
 	//replace the package placeholder with the driver placeholder
-	condition := c.where + c.group + c.having + c.order + c.limit + c.offset
-	for i := 1; i <= strings.Count(c.where+c.group+c.having+c.order+c.limit+c.offset, PLACEHOLDER); i++ {
+	condition := c.Config(false, WHERE, GROUP, HAVING, ORDER, LIMIT, OFFSET)
+	n := strings.Count(condition, PLACEHOLDER)
+	// BUG(patrick): condition/render this logic fails if the placeholder is numeric and has the same char as placeholder.
+	for i := 1; i <= n; i++ {
 		condition = strings.Replace(condition, PLACEHOLDER, p.placeholder(), 1)
 	}
 

@@ -1,95 +1,79 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery_test
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"testing"
+
+	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestSqlUpdate_String(t *testing.T) {
-	values := map[string]interface{}{"id": 1, "name": "Wall-E"}
-	b, err := HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		stmt, args, errString := b.Update(TABLE).Columns("id", "name").Set(values).Where("id = ?", 2).String()
-		if assert.NoError(t, errString) {
-			if b.Placeholder.Numeric {
-				assert.Equal(t, "UPDATE "+b.QuoteIdentifier(TABLE)+" SET "+b.QuoteIdentifier("id")+" = "+b.Placeholder.Char+"1, "+b.QuoteIdentifier("name")+" = "+b.Placeholder.Char+"2 WHERE id = "+b.Placeholder.Char+"3", stmt)
+// TestDelete is table driven and checks the render function for different delete stmts.
+func TestUpdate(t *testing.T) {
+	test := assert.New(t)
+
+	b, err := sqlquery.New(sqlquery.Config{Driver: "test"}, nil)
+	test.NoError(err)
+
+	c1 := &sqlquery.Condition{}
+
+	// table driven:
+	var tests = []struct {
+		expectedArgs []interface{}
+		expectedSql  string
+		from         string
+		where        string
+		value        map[string]interface{}
+		columns      []string
+
+		condition *sqlquery.Condition
+
+		error    bool
+		errorMsg string
+	}{
+		// err: update without any values
+		{expectedSql: "", from: "users", error: true, errorMsg: sqlquery.ErrValueMissing.Error()},
+		// ok - testing value and order of it
+		{expectedArgs: []interface{}{"John", "Doe"}, expectedSql: "UPDATE 'users' SET 'name' = ?, 'surname' = ?", columns: []string{"name", "surname"}, from: "users", value: map[string]interface{}{"surname": "Doe", "name": "John"}},
+		// err: value set name and surname but only name is allowed
+		{expectedArgs: []interface{}{"John", "Doe"}, expectedSql: "UPDATE 'users' SET 'surname' = ?, 'name' = ?", from: "users", columns: []string{"nameX"}, value: map[string]interface{}{"name": "John", "surname": "Doe"}, error: true, errorMsg: fmt.Sprintf(sqlquery.ErrColumn.Error(), "nameX")},
+		{expectedArgs: []interface{}{"John", "Doe", int64(1), int64(2), int64(3), int64(4), int64(5)}, expectedSql: "UPDATE 'users' SET 'name' = ?, 'surname' = ? WHERE id IN (?, ?, ?, ?, ?)", from: "users", value: map[string]interface{}{"surname": "Doe", "name": "John"}, columns: []string{"name", "surname"}, condition: c1.Where("id IN (?)", []int{1, 2, 3, 4, 5})},
+		// argument mismatch
+		{expectedSql: "DELETE FROM 'users' WHERE id = 1", from: "users", value: map[string]interface{}{"name": "John", "surname": "Doe"}, where: "id = " + sqlquery.PLACEHOLDER + " OR id = " + sqlquery.PLACEHOLDER, error: true, errorMsg: fmt.Sprintf(sqlquery.ErrPlaceholderMismatch.Error(), "id = ? OR id = ?", 2, 0)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expectedSql, func(t *testing.T) {
+
+			sel := b.Update(tt.from).Set(tt.value)
+			if tt.columns != nil {
+				sel.Columns(tt.columns...)
+				// multi call to check if they are added correctly
+				sel.Columns(tt.columns...)
+			}
+			if tt.where != "" {
+				sel.Where(tt.where)
+			}
+			if tt.condition != nil {
+				sel.Condition(tt.condition)
+			}
+
+			sql, args, err := sel.String()
+			if tt.error {
+				test.Error(err)
+				test.Equal("", sql)
+				test.Nil(args)
+				test.Equal(tt.errorMsg, err.Error())
 			} else {
-				assert.Equal(t, "UPDATE "+b.QuoteIdentifier(TABLE)+" SET "+b.QuoteIdentifier("id")+" = "+b.Placeholder.Char+", "+b.QuoteIdentifier("name")+" = "+b.Placeholder.Char+" WHERE id = "+b.Placeholder.Char, stmt)
+				test.NoError(err, sql)
+				test.Equal(tt.expectedSql, sql)
+				test.Equal(tt.expectedArgs, args)
+
 			}
-			assert.Equal(t, []interface{}{1, "Wall-E", 2}, args)
-		}
-
-		//no value set
-		_, _, errString = b.Update(TABLE).Columns("id", "name").Where("id = ?", 2).String()
-		assert.Error(t, errString)
-
-		//placeholder argument mismatch
-		_, _, errString = b.Update(TABLE).Columns("id", "name").Set(values).Where("id = ? ?", 2).String()
-		assert.Error(t, errString)
-	}
-
-}
-
-func TestSqlUpdate_Exec(t *testing.T) {
-	values := map[string]interface{}{"name": "Wall-E2"}
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, HelperDeleteEntries(b))
-	assert.NoError(t, HelperInsertEntries(b))
-
-	if assert.NoError(t, err) {
-		res, errExec := b.Update(TABLE).Columns("name").Set(values).Where("id = ?", 2).Exec()
-		if assert.NoError(t, errExec) {
-			num, errRows := res.RowsAffected()
-			assert.NoError(t, errRows)
-			assert.Equal(t, int64(1), num)
-
-			s, errFirst := b.Select(TABLE).Where("id = ?", 2).Columns("name").First()
-			if assert.NoError(t, errFirst) {
-				r := Robot{}
-				s.Scan(&r.Name)
-				assert.Equal(t, true, r.Name.Valid)
-				assert.Equal(t, "Wall-E2", r.Name.String)
-			}
-		}
-
-		// error mismatch placeholder and arguments
-		_, errExec = b.Update(TABLE).Columns("name").Set(values).Where("id = ? ?", 2).Exec()
-		assert.Error(t, errExec)
-	}
-}
-
-func TestSqlUpdate_ExecTx(t *testing.T) {
-	values := map[string]interface{}{"name": "Wall-E2"}
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, HelperDeleteEntries(b))
-	assert.NoError(t, HelperInsertEntries(b))
-
-	if assert.NoError(t, err) {
-		tx, err := b.NewTx()
-		if assert.NoError(t, err) {
-			res, errExec := b.Update(TABLE).Columns("name").Set(values).Where("id = ?", 2).ExecTx(tx)
-			if assert.NoError(t, errExec) {
-				num, errRows := res.RowsAffected()
-				assert.NoError(t, errRows)
-				assert.Equal(t, int64(1), num)
-
-				s, errFirst := b.Select(TABLE).Where("id = ?", 2).Columns("name").FirstTx(tx)
-				if assert.NoError(t, errFirst) {
-					r := Robot{}
-					s.Scan(&r.Name)
-					assert.Equal(t, true, r.Name.Valid)
-					assert.Equal(t, "Wall-E2", r.Name.String)
-				}
-			}
-
-			// error mismatch placeholder and arguments - rollback
-			_, errExec = b.Update(TABLE).Columns("name").Set(values).Where("id = ? ?", 2).ExecTx(tx)
-			assert.Error(t, errExec)
-
-			// commit error - rollback already happened
-			err = b.CommitTx(tx)
-			assert.Error(t, err)
-		}
-
+		})
 	}
 }

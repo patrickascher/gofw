@@ -19,7 +19,7 @@ func TestCondition_conditionAll(t *testing.T) {
 	assert.NoError(t, err)
 	c, err := conditionAll(g)
 	assert.NoError(t, err)
-	cExp := sqlquery.Condition{}
+	cExp := sqlquery_.Condition{}
 	cExp.Order("id", "-first_name")
 	cExp.Where("id = ?", "1") // TODO fix params types
 	assert.Equal(t, &cExp, c)
@@ -32,7 +32,7 @@ func TestCondition_conditionAll(t *testing.T) {
 	assert.NoError(t, err)
 	c, err = conditionAll(g)
 	assert.NoError(t, err)
-	cExp = sqlquery.Condition{}
+	cExp = sqlquery_.Condition{}
 	assert.Equal(t, &cExp, c)
 
 	// sort field does not exist
@@ -66,20 +66,20 @@ func TestCondition_addSortCondition(t *testing.T) {
 	assert.NoError(t, err)
 
 	// single param
-	c := &sqlquery.Condition{}
-	cExp := &sqlquery.Condition{}
+	c := &sqlquery_.Condition{}
+	cExp := &sqlquery_.Condition{}
 	cExp.Order("id", "-first_name") // TODO: why is here no fqdn?
 	err = addSortCondition(g, "ID,-FirstName", c)
 	assert.NoError(t, err)
 	assert.Equal(t, cExp, c)
 
 	// field does not exist
-	c = &sqlquery.Condition{}
+	c = &sqlquery_.Condition{}
 	err = addSortCondition(g, "ID,-Name", c)
 	assert.Error(t, err)
 
 	// no params
-	c = &sqlquery.Condition{}
+	c = &sqlquery_.Condition{}
 	err = addSortCondition(g, "", c)
 	assert.NoError(t, err)
 }
@@ -94,8 +94,8 @@ func TestCondition_addFilterCondition(t *testing.T) {
 	assert.NoError(t, err)
 
 	// single param
-	c := &sqlquery.Condition{}
-	cExp := &sqlquery.Condition{}
+	c := &sqlquery_.Condition{}
+	cExp := &sqlquery_.Condition{}
 	cExp.Where("id = ?", "1") // TODO: why is here no fqdn?
 	err = addFilterCondition(g, "ID", []string{"1"}, c)
 	assert.NoError(t, err)
@@ -108,8 +108,8 @@ func TestCondition_addFilterCondition(t *testing.T) {
 	err = g.Source(&cust2)
 	assert.NoError(t, err)
 	// multiple params
-	c = &sqlquery.Condition{}
-	cExp = &sqlquery.Condition{}
+	c = &sqlquery_.Condition{}
+	cExp = &sqlquery_.Condition{}
 	cExp.Where("id IN(?)", []string{"1", "2", "3"}) // TODO: why is here no fqdn?
 	err = addFilterCondition(g, "ID", []string{"1,2,3"}, c)
 	assert.NoError(t, err)
@@ -214,7 +214,7 @@ func TestCondition_checkPrimaryParams(t *testing.T) {
 	// everything ok
 	c, err = checkPrimaryParams(g)
 	assert.NoError(t, err)
-	con := sqlquery.Condition{}
+	con := sqlquery_.Condition{}
 	con.Where("customerfks.id = ?", "1") // TODO fix?
 	assert.Equal(t, &con, c)
 }

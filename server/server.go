@@ -35,7 +35,7 @@ func header() {
 	fmt.Println("|___/\\___|_|    \\_/ \\___|_|    ")
 }
 
-// Initialize is init the logger, builder, router and cache by config.
+// Initialize is init the log, builder, router and cache by config.
 func Initialize(config interface{}, hooks ...int) error {
 	// setting the internal config
 	cfg = loadConfig(config)

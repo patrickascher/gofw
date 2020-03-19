@@ -1,61 +1,99 @@
-// Package controller creates a simple handler for the go-router package.
-// It supports the normal handler and the julienschmidt router handler.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package controller provides a controller / action based handler for the router.
+// A Controller can have different render types which write the controller data.
+// If the controller is initialized by the router, a global cache will be passed through.
+// Data, Redirects and Errors can be set directly in the controller.
+//
+// 		type AuthController struct {
+//			controller.Controller
+//		}
+//
+//		func(a *AuthController) Login()
+//		{
+//			// will return the controller name
+//			name := a.Name()
+//
+//			// set a controller variable user - which will get rendered
+//			a.Set("user", "John Doe")
+//
+//			// return the controller context.
+//			// check context.request / context.response documentation.
+//			ctx := a.Context()
+//
+//			// return the controller render type
+//			rtype := a.RenderType()
+//			// set the controller render type, default is JSON
+//			a.SetRenderType(controller.RenderJSON)
+//
+//			// check if a controller cache is set
+//			b := a.HasCache()
+//			// get the controller cache
+//			c := a.Cache()
+//			// set a controller cache
+//			// this is done automatic by the router if the router cache is set.
+//			a.SetCache(nil)
+//
+//			// redirect to a different route
+//			a.Redirect(301, "/forbidden")
+//
+//			// Set an error
+//			// If the render type is JSON a json error key will be set.
+//			a.Error(http.StatusUnauthorized, "you are not allowed")
+//		}
 package controller
 
 import (
 	"errors"
 	"fmt"
-	"github.com/julienschmidt/httprouter"
-	"github.com/patrickascher/gofw/cache"
 	"net/http"
 	"reflect"
+
+	"github.com/patrickascher/gofw/cache"
+	"github.com/patrickascher/gofw/controller/context"
 )
 
-// All error messages are defined here
-var (
-	defaultRender  = "json"
-	ErrUnknownFunc = errors.New("controller method %#v does not exist in %#v")
+// render types
+const (
+	RenderJSON = "json"
+	RenderHTML = "html"
 )
+
+// Error messages
+var (
+	ErrMethodUnknown = errors.New("controller: method %#v does not exist in %#v")
+)
+
+// globalRenderType is the default value for all controllers.
+var globalRenderType = RenderJSON
 
 // Controller struct
 type Controller struct {
-	ctx    *Context
-	caller Interface
-
-	// render
-	renderType string
-
-	// route controller info
-	name                               string                       //name of the controller, used for error message
-	patternHTTPMethodStructFuncMapping map[string]map[string]string //all existing httpMethods to controllerMethod (pattern,httpMethod,structMethod string)
-	skipMethodChecks                   bool
-
-	// cache
-	cache cache.Cache
+	ctx           *context.Context
+	caller        Interface
+	renderType    string
+	methodMapping map[string]map[string]string //map[url][HTTPMethod]ControllerMethod
+	cache         cache.Interface
 }
 
-// Interface of the controller
+// Interface of the controller.
 type Interface interface {
-	// controller funcs
-	Initialize(Interface, map[string]map[string]string) error
+	Initialize(caller Interface, mapping map[string]map[string]string, checkMethods bool) error
 	ServeHTTP(rw http.ResponseWriter, r *http.Request)
-	ServeHTTPJR(rw http.ResponseWriter, r *http.Request, p httprouter.Params)
-
-	// Methods
-	HTTPMethodsByPattern(string) map[string]string //needed by router
-	functionByPatternAndHTTPMethod(string, string) (func(), error)
-	setSkipFuncChecks(bool)
+	MappingBy(pattern string) map[string]string //map[HTTPMethod]ControllerMethod
 
 	// Context
-	SetContext(ctx *Context)
-	Context() *Context
+	Context() *context.Context
+	SetContext(ctx *context.Context)
 
 	// Cache
-	Cache() cache.Cache
-	SetCache(cache.Cache)
+	Cache() cache.Interface
+	SetCache(cache.Interface)
 	HasCache() bool
 
-	// render types
+	// render type
 	RenderType() string
 	SetRenderType(string)
 
@@ -63,21 +101,24 @@ type Interface interface {
 	Set(string, interface{})
 	Error(int, string)
 	Redirect(status int, url string)
+	Name() string
 
+	// internal helper
 	checkBrowserCancellation() bool
+	methodBy(pattern string, httpMethod string) (func(), error)
 }
 
-// SetCache sets the controller cache
-func (c *Controller) SetCache(cache cache.Cache) {
-	c.cache = cache
-}
-
-// Cache gets the controller cache
-func (c *Controller) Cache() cache.Cache {
+// Cache returns the defined cache.
+func (c *Controller) Cache() cache.Interface {
 	return c.cache
 }
 
-// HasCache checks if a cache is defined
+// SetCache to the controller.
+func (c *Controller) SetCache(cache cache.Interface) {
+	c.cache = cache
+}
+
+// HasCache checks if a cache is defined.
 func (c *Controller) HasCache() bool {
 	if c.cache == nil {
 		return false
@@ -85,105 +126,71 @@ func (c *Controller) HasCache() bool {
 	return true
 }
 
-// SetContext sets the controller context
-func (c *Controller) SetContext(ctx *Context) {
-	c.ctx = ctx
-}
-
-// Context returns the controller context
-func (c *Controller) Context() *Context {
+// Context returns the controller context.
+func (c *Controller) Context() *context.Context {
 	return c.ctx
 }
 
-// Set controller variables
+// SetContext to the controller.
+func (c *Controller) SetContext(ctx *context.Context) {
+	c.ctx = ctx
+}
+
+// Set a controller variable by key and value.
+// todo check if controller ctx is set...
 func (c *Controller) Set(key string, value interface{}) {
-	c.Context().Response.AddData(key, value)
+	c.Context().Response.SetData(key, value)
 }
 
-// isInitialized checks if a controller is initialized.
-// For that the controller name gets checked.
-func (c *Controller) isInitialized() bool {
-	if c.name != "" {
-		return true
+// Initialize the controller.
+// It checks if the given mapping is valid.
+// Default information (name, caller, renderType) will be set.
+// An error will return if the controller function does not exist.
+func (c *Controller) Initialize(caller Interface, mapping map[string]map[string]string, checkMethods bool) error {
+
+	if c.methodMapping == nil {
+		c.methodMapping = make(map[string]map[string]string, len(mapping))
 	}
-	return false
-}
+	c.caller = caller
 
-// setSkipFuncChecks is used to skip a struct function check.
-func (c *Controller) setSkipFuncChecks(b bool) {
-	c.skipMethodChecks = b
-}
-
-// Initialize the controller struct.
-// It checks if the given HTTPMethod to StructMethod mapping exists.
-// If not, an error will return. Also the controller name and render type will get set.
-func (c *Controller) Initialize(caller Interface, httpMethodMapping map[string]map[string]string) error {
-
-	if c.patternHTTPMethodStructFuncMapping == nil {
-		c.patternHTTPMethodStructFuncMapping = make(map[string]map[string]string, 0)
-	}
-
-	for pattern, httpMethod := range httpMethodMapping {
-		if !c.skipMethodChecks {
-			for _, method := range httpMethod {
-				_, err := getFunc(caller, method)
+	// checking if the controller methods exist and merge the method mapping
+	for pattern, hMethods := range mapping {
+		c.methodMapping[pattern] = hMethods //pattern is unique
+		if checkMethods {
+			for hMethod := range hMethods {
+				_, err := c.methodBy(pattern, hMethod)
 				if err != nil {
 					return err
 				}
 			}
 		}
-		c.patternHTTPMethodStructFuncMapping[pattern] = httpMethod // a pattern is unique by the router
 	}
 
-	if !c.isInitialized() {
-		c.caller = caller
-		c.name = reflect.Indirect(reflect.ValueOf(c.caller)).Type().String()
+	// if the name is not defined yet, some default values are set.
+	c.renderType = caller.RenderType()
+	if c.renderType == "" {
 
-		// calling user defined render type
-		c.renderType = reflect.ValueOf(caller).Elem().FieldByName("renderType").String()
-
-		if c.renderType == "" {
-			c.renderType = defaultRender
-		}
+		c.renderType = globalRenderType
 	}
 
 	return nil
 }
 
-// getFunc is a helper to reflect the method of the caller controller.
-// It will return an error, if the struct method does not exist.
-func getFunc(caller Interface, name string) (func(), error) {
-	methodVal := reflect.ValueOf(caller).MethodByName(name)
-	if methodVal.IsValid() == false {
-		return nil, fmt.Errorf(ErrUnknownFunc.Error(), name, reflect.Indirect(reflect.ValueOf(caller)).Type().String())
-	}
-	methodInterface := methodVal.Interface()
-	method := methodInterface.(func())
-
-	return method, nil
+// MappingBy the given pattern returns a mapping of all defined HTTP methods to controller methods.
+func (c *Controller) MappingBy(pattern string) map[string]string {
+	return c.methodMapping[pattern]
 }
 
-// HTTPMethodsByPattern returns a mapping of all existing HTTPMethods to struct method.
-func (c *Controller) HTTPMethodsByPattern(pattern string) map[string]string {
-	return c.patternHTTPMethodStructFuncMapping[pattern]
-}
-
-// functionByPatternAndHTTPMethod returns the struct function.
-// If struct func does not exist, a error will return.
-func (c *Controller) functionByPatternAndHTTPMethod(pattern string, HTTPMethod string) (func(), error) {
-	//TODO error when not in map?
-	return getFunc(c.caller, c.patternHTTPMethodStructFuncMapping[pattern][HTTPMethod])
-}
-
-// Redirect sets a HTTP location header and status code
+// Redirect sets a HTTP location header and status code.
+// On a redirect the old controller data will be lost.
 func (c *Controller) Redirect(status int, url string) {
 	http.Redirect(c.Context().Response.Raw(), c.Context().Request.Raw(), url, status)
 }
 
-// Error creates a HTTP error with the given code and message.
+// Error writes a HTTP error with the given code and message.
 // If the render type is json, the error will be set as a controller variable.
 func (c *Controller) Error(code int, msg string) {
-	if c.renderType == "json" {
+	if c.renderType == RenderJSON {
 		c.Context().Response.Raw().WriteHeader(code)
 		c.Set("error", msg)
 		return
@@ -191,28 +198,87 @@ func (c *Controller) Error(code int, msg string) {
 	http.Error(c.Context().Response.Raw(), msg, code)
 }
 
-// RenderType will get returned
+// RenderType of the controller.
 func (c *Controller) RenderType() string {
 	return c.renderType
 }
 
-// SetRenderType of the controller
+// SetRenderType of the controller.
 func (c *Controller) SetRenderType(s string) {
 	c.renderType = s
 }
 
-// copyController creates a new instance of the controller itself.
-func copyController(c *Controller) func() Interface {
+// ServeHTTP handler.
+func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	// create new instance per request
+	reqController := newController(c)
+	reqController.SetContext(context.New(r, w))
+
+	// TODO defer c.displayError(newC.Context())
+	function, err := reqController.methodBy(reqController.Context().Request.Pattern(), r.Method)
+	if err == nil {
+		function()
+	} else {
+		reqController.Error(501, err.Error()) // can  be reached if pattern method mapping is wrong!
+	}
+
+	// checks if client is still here
+	if reqController.checkBrowserCancellation() {
+		return
+	}
+
+	// render the controller data
+	err = reqController.Context().Response.Render(reqController.RenderType())
+	if err != nil {
+		reqController.Error(500, err.Error())
+	}
+}
+
+// name returns the controller name.
+func (c *Controller) Name() string {
+	if c.caller == nil {
+		return ""
+	}
+	return reflect.Indirect(reflect.ValueOf(c.caller)).Type().String()
+}
+
+// newController creates a new instance of the controller itself.
+// the render type and cache will be passed from given controller.
+// Initialize is called with the methodMapping. // TODO methodMapping could be passed as variable? Benchmarks?
+func newController(c *Controller) Interface {
 	vc := reflect.New(reflect.TypeOf(c.caller).Elem())
 	execController := vc.Interface().(Interface)
-	return func() Interface {
-		execController.setSkipFuncChecks(true)
-		execController.SetRenderType(c.caller.RenderType())
-		execController.SetCache(c.caller.Cache())
+	execController.SetRenderType(c.caller.RenderType())
+	execController.SetCache(c.caller.Cache())
+	execController.Initialize(execController, c.methodMapping, false)
+	return execController
 
-		execController.Initialize(execController, c.patternHTTPMethodStructFuncMapping)
-		return execController
+}
+
+// checkBrowserCancellation checking if the browser canceled the request
+func (c *Controller) checkBrowserCancellation() bool {
+	select {
+	case <-c.Context().Request.Raw().Context().Done():
+		c.Context().Response.Raw().WriteHeader(499)
+		return true
+	default:
 	}
+	return false
+}
+
+// methodBy pattern and HTTP method will return the mapped controller method.
+// Error will return if the controller method does not exist.
+func (c *Controller) methodBy(pattern string, HTTPMethod string) (func(), error) {
+	methodName := c.methodMapping[pattern][HTTPMethod]
+	methodVal := reflect.ValueOf(c.caller).MethodByName(methodName)
+	if methodVal.IsValid() == false {
+		return nil, fmt.Errorf(ErrMethodUnknown.Error(), methodName, reflect.Indirect(reflect.ValueOf(c.caller)).Type().String())
+	}
+	methodInterface := methodVal.Interface()
+	method := methodInterface.(func())
+
+	return method, nil
 }
 
 /*
@@ -229,73 +295,7 @@ func (c *Controller) displayError(ctx *Context) {
 			//Critical(fmt.Sprintf("%s:%d", file, line))
 			stack = stack + fmt.Sprintln(fmt.Sprintf("%s:%d", file, line))
 
-			ctx.Response.Get().Write([]byte(stack))
-			ctx.Response.Get().WriteHeader(500)
+			x
 		}
 	}
 }*/
-
-// ServeHTTPJR for the julienschmidt router
-func (c *Controller) ServeHTTPJR(rw http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	c.serveHTTPLogic(rw, r, p)
-}
-
-// ServeHTTP for the normal http handler
-func (c *Controller) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
-	c.serveHTTPLogic(rw, r)
-}
-
-// serveHTTPLogic contains the controller logic
-func (c *Controller) serveHTTPLogic(args ...interface{}) {
-
-	var w http.ResponseWriter
-	var r *http.Request
-	var p httprouter.Params
-	for k, arg := range args {
-		switch k {
-		case 0:
-			w = arg.(http.ResponseWriter)
-		case 1:
-			r = arg.(*http.Request)
-		case 2:
-			p = arg.(httprouter.Params)
-		}
-	}
-
-	//create new instance per request
-	newC := copyController(c)()
-	newC.SetContext(NewContext(r, w))
-	//if p != nil {
-	newC.Context().Request.AddJulienSchmidtRouterParams(p)
-	//}
-
-	//TODO defer c.displayError(newC.Context())
-	function, err := newC.functionByPatternAndHTTPMethod(newC.Context().Request.Pattern(), r.Method)
-	if err == nil {
-		function()
-	} else {
-		newC.Error(501, err.Error()) // can  be reached if pattern method mapping is wrong!
-	}
-
-	//checks if client is still here
-	if newC.checkBrowserCancellation() {
-		return
-	}
-
-	err = newC.Context().Response.Render(newC.RenderType())
-	if err != nil {
-		newC.Error(500, err.Error())
-	}
-
-}
-
-// checkBrowserCancellation checking if the browser canceled the request
-func (c *Controller) checkBrowserCancellation() bool {
-	select {
-	case <-c.Context().Request.Raw().Context().Done():
-		c.Context().Response.Raw().WriteHeader(499)
-		return true
-	default:
-	}
-	return false
-}

@@ -1,63 +1,35 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package rbac_test
 
 import (
 	"context"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/julienschmidt/httprouter"
-	"github.com/patrickascher/gofw/middleware"
-	jwt2 "github.com/patrickascher/gofw/middleware/jwt"
-	"github.com/patrickascher/gofw/middleware/rbac"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/patrickascher/gofw/middleware"
+	"github.com/patrickascher/gofw/middleware/jwt"
+	"github.com/patrickascher/gofw/middleware/rbac"
+	"github.com/patrickascher/gofw/router"
+	"github.com/stretchr/testify/assert"
 )
 
-//Default Claim
-type DefaultJWTClaim struct {
+type mockClaim struct {
 	User  string
 	Email string
 	Roles []string
-	jwt.StandardClaims
+	jwt.Claim
 }
 
-func (c *DefaultJWTClaim) SetJid(id string) {
-	c.Id = id
-}
-func (c *DefaultJWTClaim) SetIss(iss string) {
-	c.Issuer = iss
-}
-func (c *DefaultJWTClaim) Iss() string {
-	return c.Issuer
-}
-func (c *DefaultJWTClaim) SetAud(aud string) {
-	c.Audience = aud
-}
-func (c *DefaultJWTClaim) Aud() string {
-	return c.Audience
-}
-func (c *DefaultJWTClaim) SetSub(sub string) {
-	c.Subject = sub
-}
-func (c *DefaultJWTClaim) Sub() string {
-	return c.Subject
-}
-func (c *DefaultJWTClaim) SetIat(iat int64) {
-	c.IssuedAt = iat
-}
-func (c *DefaultJWTClaim) SetExp(exp int64) {
-	c.ExpiresAt = exp
-}
-func (c *DefaultJWTClaim) SetNbf(nbf int64) {
-	c.NotBefore = nbf
+type roleService struct {
 }
 
-type RoleService struct {
-}
+func (rs *roleService) Allowed(uri string, action string, claims interface{}) bool {
 
-func (rs *RoleService) Allowed(uri string, action string, claims interface{}) bool {
-
-	r := claims.(DefaultJWTClaim)
+	r := claims.(mockClaim)
 
 	for _, role := range r.Roles {
 		if uri == "/" && role == "admin" {
@@ -67,86 +39,54 @@ func (rs *RoleService) Allowed(uri string, action string, claims interface{}) bo
 	return false
 }
 
-func testRbac() rbac.Rbac {
-	rs := RoleService{}
+func TestRbac_MW(t *testing.T) {
+	test := assert.New(t)
 
-	rbac := rbac.Rbac{}
-	rbac.SetRoleService(&rs)
+	// mock roleService
+	rs := roleService{}
 
-	return rbac
-}
-
-func TestRbac_Middleware(t *testing.T) {
-	rbac := testRbac()
-
+	// controller
 	handlerFunc := func(w http.ResponseWriter, r *http.Request) {
 	}
 
-	// test request without any context - 401
+	// error: no role service is defined
+	rbacMw := rbac.New(nil)
 	r, _ := http.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	mw := middleware.New(rbac.Middleware)
+	mw := middleware.New(rbacMw.MW)
 	mw.Handle(handlerFunc)(w, r)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	test.Equal(http.StatusInternalServerError, w.Code)
 
-	// test request with context and admin role which is allowed with the URI "/" - 200
-	claim := DefaultJWTClaim{}
+	// error: no claim is defined
+	rbacMw = rbac.New(&rs)
+	r, _ = http.NewRequest("GET", "/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), router.PATTERN, "/"))
+	w = httptest.NewRecorder()
+	mw = middleware.New(rbacMw.MW)
+	mw.Handle(handlerFunc)(w, r)
+	test.Equal(http.StatusUnauthorized, w.Code)
+
+	// ok: no claim is defined
+	rbacMw = rbac.New(&rs)
+	r, _ = http.NewRequest("GET", "/", nil)
+	claim := mockClaim{}
 	claim.Roles = []string{"admin", "writer"}
-	r, _ = http.NewRequest("GET", "/", nil)
-	r.RequestURI = "/"
-	r = r.WithContext(context.WithValue(r.Context(), jwt2.ContextName, claim))
+	r = r.WithContext(context.WithValue(r.Context(), jwt.CLAIM, claim))
+	r = r.WithContext(context.WithValue(r.Context(), router.PATTERN, "/"))
 	w = httptest.NewRecorder()
+	mw = middleware.New(rbacMw.MW)
 	mw.Handle(handlerFunc)(w, r)
-	assert.Equal(t, "", w.Body.String())
-	assert.Equal(t, http.StatusOK, w.Code)
+	test.Equal(http.StatusOK, w.Code)
 
-	// test request with context and writer role which is not allowed with the URI "/" - 401
-	claim = DefaultJWTClaim{}
-	claim.Roles = []string{"writer"}
+	// error: role writer is not allowed
+	rbacMw = rbac.New(&rs)
 	r, _ = http.NewRequest("GET", "/", nil)
-	r.RequestURI = "/"
-	r = r.WithContext(context.WithValue(r.Context(), jwt2.ContextName, claim))
+	claim = mockClaim{}
+	claim.Roles = []string{"writer"}
+	r = r.WithContext(context.WithValue(r.Context(), jwt.CLAIM, claim))
+	r = r.WithContext(context.WithValue(r.Context(), router.PATTERN, "/"))
 	w = httptest.NewRecorder()
+	mw = middleware.New(rbacMw.MW)
 	mw.Handle(handlerFunc)(w, r)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-//same tests as in TestRbac_Middleware
-func TestRbac_MiddlewareJr(t *testing.T) {
-	rbac := testRbac()
-
-	handlerFunc := func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	}
-
-	// test request without any context - 401
-	r, _ := http.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	var p []httprouter.Param
-
-	mw := middleware.NewJR(rbac.MiddlewareJR)
-	mw.Handle(handlerFunc)(w, r, p)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	// test request with context and admin role which is allowed with the URI "/" - 200
-	claim := DefaultJWTClaim{}
-	claim.Roles = []string{"admin", "writer"}
-	r, _ = http.NewRequest("GET", "/", nil)
-	r.RequestURI = "/"
-	r = r.WithContext(context.WithValue(r.Context(), jwt2.ContextName, claim))
-	w = httptest.NewRecorder()
-	p = []httprouter.Param{}
-	mw.Handle(handlerFunc)(w, r, p)
-	assert.Equal(t, "", w.Body.String())
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	// test request with context and writer role which is not allowed with the URI "/" - 401
-	claim = DefaultJWTClaim{}
-	claim.Roles = []string{"writer"}
-	r, _ = http.NewRequest("GET", "/", nil)
-	r.RequestURI = "/"
-	r = r.WithContext(context.WithValue(r.Context(), jwt2.ContextName, claim))
-	w = httptest.NewRecorder()
-	p = []httprouter.Param{}
-	mw.Handle(handlerFunc)(w, r, p)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	test.Equal(http.StatusForbidden, w.Code)
 }

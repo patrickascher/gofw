@@ -28,7 +28,7 @@ func TestModel_initBuilder(t *testing.T) {
 	}
 
 	// no builder not defined or nil
-	GlobalBuilder = &sqlquery.Builder{}
+	GlobalBuilder = &sqlquery_.Builder{}
 	b, err := cust.initBuilder()
 	if assert.NoError(t, err) {
 		assert.Equal(t, GlobalBuilder, b)
@@ -47,7 +47,7 @@ func TestModel_initBuilder(t *testing.T) {
 	cb.caller = &cb
 	b, err = cb.initBuilder()
 	if assert.NoError(t, err) {
-		assert.Equal(t, &sqlquery.Builder{}, b)
+		assert.Equal(t, &sqlquery_.Builder{}, b)
 	}
 }
 

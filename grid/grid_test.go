@@ -383,7 +383,7 @@ func TestGrid_readOne(t *testing.T) {
 			err := g.Source(&cust)
 			assert.NoError(t, err)
 
-			c := sqlquery.Condition{}
+			c := sqlquery_.Condition{}
 			c.Where("id = ?", 1)
 			g.readOne(&c)
 
@@ -439,18 +439,18 @@ func TestGrid_delete(t *testing.T) {
 			err := g.Source(&cust)
 			assert.NoError(t, err)
 
-			c := sqlquery.Condition{}
+			c := sqlquery_.Condition{}
 			c.Where("id = ?", 1)
 			err = g.delete(&c)
 			assert.NoError(t, err)
 
 			// still the same amount of entries because of softDelete
-			c = sqlquery.Condition{}
+			c = sqlquery_.Condition{}
 			count, err := g.src.Count(&c)
 			assert.NoError(t, err)
 			assert.Equal(t, 5, count)
 
-			c = sqlquery.Condition{}
+			c = sqlquery_.Condition{}
 			c.Where("id = ?", 1)
 			err = g.readOne(&c)
 			assert.NoError(t, err)
@@ -583,7 +583,7 @@ func defaultGrid(r *http.Request) *Grid {
 	cache, _ := cache.Get("memory", 5*time.Minute)
 	c.SetCache(cache)
 
-	ctx := controller.Context{}
+	ctx := context.Context{}
 	ctx.Request = context.NewRequest(r)
 	rw := httptest.NewRecorder()
 	ctx.Response = context.NewResponse(rw)

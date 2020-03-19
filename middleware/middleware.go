@@ -1,77 +1,45 @@
-// Package middleware is a minimalistic middleware helper for the normal http.Handler and the httprouter.Handle of julienschmidt.
-// You can chain multiple middlewares and the get handled in the right order
-// See https://github.com/patrickascher/go-middleware for more information and examples.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package middleware is a minimalistic middleware chainer to handle  multiple middleware(s) in correct order.
+//
+// A Logger, RBAC and JWT middleware are already pre-defined. Check the package documentation for more information.
 package middleware
 
 import (
-	"github.com/julienschmidt/httprouter"
 	"net/http"
 )
 
-type Interface interface {
-	Add()
-	GetAll()
-	Handle()
-}
+// middleware handler
+type middleware func(http.HandlerFunc) http.HandlerFunc
 
-// Middleware handler
-type Middleware func(http.HandlerFunc) http.HandlerFunc
-type MiddlewareJR func(httprouter.Handle) httprouter.Handle
-
-// Chain is holding all added middlewares.
+// Chain is holding all added middleware(s).
 type Chain struct {
-	middlewares []Middleware
+	mws []middleware
 }
 
-// chain is holding all added middlewares.
-type ChainJR struct {
-	middlewares []MiddlewareJR
+// New creates an middleware chain.
+// It can be empty or multiple mws can be added as argument.
+func New(m ...middleware) *Chain {
+	return &Chain{append(([]middleware)(nil), m...)}
 }
 
-// New creates a new chain of middlewares.
-func New(m ...Middleware) *Chain {
-	return &Chain{append(([]Middleware)(nil), m...)}
-}
-
-// NewJR creates a new chain of middlewares for the julienschmidt router.
-func NewJR(m ...MiddlewareJR) *ChainJR {
-	return &ChainJR{append(([]MiddlewareJR)(nil), m...)}
-}
-
-// Add one or more middlewares.
-func (c *Chain) Add(m ...Middleware) *Chain {
-	c.middlewares = append(c.middlewares, m...)
+// Add one or more middleware(s) as argument.
+func (c *Chain) Add(m ...middleware) *Chain {
+	c.mws = append(c.mws, m...)
 	return c
 }
 
-// Add one or more middlewares.
-func (c *ChainJR) Add(m ...MiddlewareJR) *ChainJR {
-	c.middlewares = append(c.middlewares, m...)
-	return c
+// All returns the defined middleware(s).
+func (c *Chain) All() []middleware {
+	return c.mws
 }
 
-//GetAll configured middlewares.
-func (c *Chain) GetAll() []Middleware {
-	return c.middlewares
-}
-
-//GetAll configured middlewares.
-func (c *ChainJR) GetAll() []MiddlewareJR {
-	return c.middlewares
-}
-
-//Handle all middlewares in the order they were added to the chain.
+// Handle all defined middleware(s) in the order they were added to the chain.
 func (c *Chain) Handle(h http.HandlerFunc) http.HandlerFunc {
-	for i := range c.middlewares {
-		h = c.middlewares[len(c.middlewares)-i-1](h)
-	}
-	return h
-}
-
-//Handle all middlewares in the order they were added to the chain.
-func (c *ChainJR) Handle(h httprouter.Handle) httprouter.Handle {
-	for i := range c.middlewares {
-		h = c.middlewares[len(c.middlewares)-i-1](h)
+	for i := range c.mws {
+		h = c.mws[len(c.mws)-i-1](h)
 	}
 	return h
 }

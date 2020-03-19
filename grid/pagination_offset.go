@@ -61,10 +61,10 @@ func (p *paginationOffset) totalPages() int {
 }
 
 // generate is setting the pagination to the controller data.
-func (p *paginationOffset) generate(g *Grid, c *sqlquery.Condition) error {
+func (p *paginationOffset) generate(g *Grid, c *sqlquery_.Condition) error {
 
 	if c == nil {
-		c = &sqlquery.Condition{}
+		c = &sqlquery_.Condition{}
 	}
 
 	count, err := g.src.Count(c)

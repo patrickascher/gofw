@@ -2,9 +2,12 @@
 // It also loads the "github.com/go-sql-driver/mysql" driver
 //
 // See https://github.com/patrickascher/go-sql for more information and examples.
-package mysql
+package driver
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	_ "github.com/go-sql-driver/mysql" //include the mysql driver
 	"github.com/patrickascher/gofw/sqlquery"
 	"strings"
@@ -12,49 +15,125 @@ import (
 
 // init registers itself as mysql driver
 func init() {
-	sqlquery.Register("mysql", &Mysql{})
+	sqlquery.Register("mysql", newMysql)
+}
+
+// Error messages.
+var (
+	ErrTableDoesNotExist = errors.New("sqlquery: table %s does not exist")
+)
+
+// New creates a in-memory cache by the given options.
+func newMysql(cfg sqlquery.Config, db *sql.DB) (sqlquery.Driver, error) {
+
+	m := &mysql{}
+	if db != nil {
+		m.connection = db
+	} else {
+		db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=true", cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database))
+		if err != nil {
+			return nil, err
+		}
+		m.connection = db
+	}
+
+	return m, nil
 }
 
 // Mysql driver
-type Mysql struct {
+type mysql struct {
+	connection *sql.DB
 }
 
-// Describe select syntax
-func (m *Mysql) Describe(database string, table string, builder *sqlquery.Builder, cols []string) *sqlquery.Select {
-	sel := builder.Select("information_schema.COLUMNS c")
+func (m *mysql) Connection() *sql.DB {
+	return m.connection
+}
+
+func (m *mysql) QuoteCharacterColumn() string {
+	return "`"
+}
+
+func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns []string) ([]*sqlquery.Column, error) {
+
+	sel := b.Select("information_schema.COLUMNS c")
 	sel.Columns("c.COLUMN_NAME",
 		"c.ORDINAL_POSITION",
-		"!IF(c.IS_NULLABLE='YES','TRUE','FALSE') AS N",
-		"!IF(COLUMN_KEY='PRI','TRUE','FALSE') AS K",
+		sqlquery.Raw("IF(c.IS_NULLABLE='YES','TRUE','FALSE') AS N"),
+		sqlquery.Raw("IF(COLUMN_KEY='PRI','TRUE','FALSE') AS K"),
 		"c.COLUMN_TYPE",
 		"c.COLUMN_DEFAULT",
 		"c.CHARACTER_MAXIMUM_LENGTH",
-		"!IF(EXTRA='auto_increment','TRUE','FALSE') AS autoincrement",
+		sqlquery.Raw("IF(EXTRA='auto_increment','TRUE','FALSE') AS autoincrement"),
 	).
-		Where("c.TABLE_SCHEMA = ?", database).
+		Where("c.TABLE_SCHEMA = ?", db).
 		Where("c.TABLE_NAME = ?", table)
 
-	if len(cols) > 0 {
-		sel.Where("c.COLUMN_NAME IN (?)", cols)
+	if len(columns) > 0 {
+		sel.Where("c.COLUMN_NAME IN (?)", columns)
 	}
 
-	return sel
+	rows, err := sel.All()
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var cols []*sqlquery.Column
+
+	for rows.Next() {
+		var c sqlquery.Column
+		c.Table = table // adding Table info
+
+		var t string
+		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
+			return nil, err
+		}
+		c.Type = m.TypeMapping(t, c)
+		cols = append(cols, &c)
+	}
+
+	if len(cols) == 0 {
+		return nil, fmt.Errorf(ErrTableDoesNotExist.Error(), db+"."+table)
+	}
+
+	return cols, nil
+
 }
 
-// ForeignKeys select syntax
-func (m *Mysql) ForeignKeys(database string, table string, builder *sqlquery.Builder) *sqlquery.Select {
-	sel := builder.Select("!information_schema.key_column_usage cu, information_schema.table_constraints tc").
+func (m *mysql) ForeignKeys(b *sqlquery.Builder, db string, table string) ([]*sqlquery.ForeignKey, error) {
+
+	sel := b.Select("!information_schema.key_column_usage cu, information_schema.table_constraints tc").
 		Columns("tc.constraint_name", "tc.table_name", "cu.column_name", "cu.referenced_table_name", "cu.referenced_column_name").
 		Where("cu.constraint_name = tc.constraint_name AND cu.table_name = tc.table_name AND tc.constraint_type = 'FOREIGN KEY'").
-		Where("tc.table_schema = ?", database).
+		Where("tc.table_schema = ?", db).
 		Where("tc.table_name = ?", table)
 
-	return sel
+	rows, err := sel.All()
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var fKeys []*sqlquery.ForeignKey
+
+	for rows.Next() {
+		f := sqlquery.ForeignKey{Primary: sqlquery.Relation{}, Secondary: sqlquery.Relation{}}
+		if err := rows.Scan(&f.Name, &f.Primary.Table, &f.Primary.Column, &f.Secondary.Table, &f.Secondary.Column); err != nil {
+			return nil, err
+		}
+		fKeys = append(fKeys, &f)
+	}
+
+	return fKeys, nil
 }
 
-// ConvertColumnType is creating a global Type for Database specific types
-func (m *Mysql) ConvertColumnType(raw string, col *sqlquery.Column) sqlquery.Type {
+func (m *mysql) Placeholder() *sqlquery.Placeholder {
+	return &sqlquery.Placeholder{Char: "?", Numeric: false}
+}
 
+func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 	//Integer
 	if strings.HasPrefix(raw, "bigint") ||
 		strings.HasPrefix(raw, "int") ||
@@ -71,7 +150,6 @@ func (m *Mysql) ConvertColumnType(raw string, col *sqlquery.Column) sqlquery.Typ
 			} else {
 				integer.Min = -9223372036854775808
 				integer.Max = 9223372036854775807
-
 			}
 		}
 
@@ -188,7 +266,3 @@ func (m *Mysql) ConvertColumnType(raw string, col *sqlquery.Column) sqlquery.Typ
 
 	return nil
 }
-
-//TODO case "bit,bool - tinyint(1)":
-//TODO ENUM
-//TODO SET

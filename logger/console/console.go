@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-// Package console implements the logger.Interface.
+// Package console implements the log.Interface.
 // All operations are using a sync.RWMutex for synchronization.
 //
 // Check the console.Options for the available configurations.
@@ -49,7 +49,7 @@ func (c *console) colorFormat(e logger.LogEntry) string {
 	return fmt.Sprintf("%s \x1b["+color+"m%s\x1b[39m %s:%d %s", e.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05"), e.Level.String(), filepath.Base(e.Filename), e.Line, e.Message)
 }
 
-// Write implements the writer interface of the logger.Interface.
+// Write implements the writer interface of the log.Interface.
 // It creates a simple console output.
 func (c *console) Write(e logger.LogEntry) {
 	c.lock.Lock()

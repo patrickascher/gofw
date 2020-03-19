@@ -1,128 +1,64 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery_test
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"testing"
+
+	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestSqlDelete_WhereAndExec(t *testing.T) {
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, HelperDeleteEntries(b))
-	assert.NoError(t, HelperInsertEntries(b))
+// TestDelete is table driven and checks the render function for different delete stmts.
+func TestDelete(t *testing.T) {
+	test := assert.New(t)
 
-	if assert.NoError(t, err) {
-		res, errExec := b.Delete(TABLE).Where("id = ?", 1).Exec()
-		if assert.NoError(t, errExec) {
+	b, err := sqlquery.New(sqlquery.Config{Driver: "test"}, nil)
+	test.NoError(err)
 
-			num, errNum := res.RowsAffected()
-			assert.NoError(t, errNum)
-			assert.Equal(t, int64(1), num)
+	c1 := &sqlquery.Condition{}
 
-			rows, errSel := b.Select(TABLE).All()
-			defer rows.Close()
-			if assert.NoError(t, errSel) {
+	// table driven:
+	var tests = []struct {
+		expectedArgs []interface{}
+		expectedSql  string
+		from         string
+		where        string
 
-				var robots []Robot
-				for rows.Next() {
-					r := Robot{}
-					errScan := rows.Scan(&r.ID, &r.Name)
-					assert.NoError(t, errScan)
-					robots = append(robots, r)
-				}
+		condition *sqlquery.Condition
 
-				assert.Equal(t, 3, len(robots))
+		error    bool
+		errorMsg string
+	}{
+		{expectedSql: "DELETE FROM 'users'", from: "users"},
+		{expectedArgs: []interface{}{1}, expectedSql: "DELETE FROM 'users' WHERE id = ?", from: "users", where: "id = " + sqlquery.PLACEHOLDER},
+		{expectedArgs: []interface{}{int64(1), int64(2), int64(3), int64(4), int64(5)}, expectedSql: "DELETE FROM 'users' WHERE id IN (?, ?, ?, ?, ?)", from: "users", condition: c1.Where("id IN (?)", []int{1, 2, 3, 4, 5})},
+		// argument mismatch
+		{expectedSql: "DELETE FROM 'users' WHERE id = 1", from: "users", where: "id = " + sqlquery.PLACEHOLDER + " OR id = " + sqlquery.PLACEHOLDER, error: true, errorMsg: fmt.Sprintf(sqlquery.ErrPlaceholderMismatch.Error(), "id = ? OR id = ?", 2, 1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expectedSql, func(t *testing.T) {
+
+			sel := b.Delete(tt.from).Where(tt.where, 1)
+			if tt.condition != nil {
+				sel.Condition(tt.condition)
 			}
-		}
-	}
 
-	// delete without any where condition
-	res, err := b.Delete(TABLE).Exec() //argument error
-	if assert.NoError(t, err) {
-		num, errNum := res.RowsAffected()
-		assert.NoError(t, errNum)
-		assert.Equal(t, int64(3), num)
-	}
-
-	// error because of mismatch placeholders and arguments
-	_, err = b.Delete(TABLE).Where("id = ??", 1).Exec() //argument error
-	assert.Error(t, err)
-
-	// error because of none existing table
-	_, err = b.Delete("notExisting").Exec()
-	assert.Error(t, err)
-}
-
-func TestSqlDelete_WhereAndExecTx(t *testing.T) {
-	b, err := HelperCreateBuilder()
-	if assert.NoError(t, err) {
-
-		assert.NoError(t, HelperDeleteEntries(b))
-		assert.NoError(t, HelperInsertEntries(b))
-
-		tx, err := b.NewTx()
-		if assert.NoError(t, err) {
-			res, errExec := b.Delete(TABLE).Where("id = ?", 1).ExecTx(tx)
-			if assert.NoError(t, errExec) {
-
-				num, errNum := res.RowsAffected()
-				assert.NoError(t, errNum)
-				assert.Equal(t, int64(1), num)
-
-				rows, errSel := b.Select(TABLE).AllTx(tx)
-				defer rows.Close()
-				if assert.NoError(t, errSel) {
-
-					var robots []Robot
-					for rows.Next() {
-						r := Robot{}
-						errScan := rows.Scan(&r.ID, &r.Name)
-						assert.NoError(t, errScan)
-						robots = append(robots, r)
-					}
-
-					assert.Equal(t, 3, len(robots))
-				}
+			sql, args, err := sel.String()
+			if tt.error {
+				test.Error(err)
+				test.Equal("", sql)
+				test.Nil(args)
+				test.Equal(tt.errorMsg, err.Error())
+			} else {
+				test.NoError(err, sql)
+				test.Equal(tt.expectedSql, sql)
+				test.Equal(tt.expectedArgs, args)
 			}
-		}
-
-		// delete without any where condition
-		res, err := b.Delete(TABLE).ExecTx(tx) //argument error
-		if assert.NoError(t, err) {
-			num, errNum := res.RowsAffected()
-			assert.NoError(t, errNum)
-			assert.Equal(t, int64(3), num)
-		}
-
-		// error because of mismatch placeholders and arguments - rollback
-		_, err = b.Delete(TABLE).Where("id = ??", 1).ExecTx(tx) //argument error
-		assert.Error(t, err)
-
-		// error because of none existing table - rollback
-		_, err = b.Delete("notExisting").ExecTx(tx)
-		assert.Error(t, err)
-
-		// Rollback already happened
-		err = b.CommitTx(tx)
-		assert.Error(t, err)
-	}
-
-}
-
-func TestSqlDelete_String(t *testing.T) {
-	b, err := HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		stmt, args, errString := b.Delete(TABLE).Where("id = ?", 1).String()
-		assert.NoError(t, errString)
-		if b.Placeholder.Numeric {
-			assert.Equal(t, "DELETE FROM "+b.QuoteIdentifier(TABLE)+" WHERE id = "+b.Placeholder.Char+"1", stmt)
-		} else {
-			assert.Equal(t, "DELETE FROM "+b.QuoteIdentifier(TABLE)+" WHERE id = ?", stmt)
-		}
-		assert.Equal(t, []interface{}([]interface{}{1}), args)
-
-		stmt, args, errString = b.Delete(TABLE).String()
-		assert.NoError(t, errString)
-		assert.Equal(t, "DELETE FROM "+b.QuoteIdentifier(TABLE), stmt)
-		assert.Equal(t, []interface{}(nil), args)
+		})
 	}
 }

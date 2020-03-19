@@ -1,77 +1,55 @@
-// Copyright 2018 (pat@fullhouse-productions.com)
-// TODO check license styles
-package context
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+package context_test
 
 import (
+	"github.com/patrickascher/gofw/controller"
+	"github.com/patrickascher/gofw/controller/context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"net/http"
 )
-
-//HTTP
-type FakeResponse struct {
-	headers http.Header
-	body    []byte
-	status  int
-}
-
-func (r *FakeResponse) Status() int {
-	return r.status
-}
-func (r *FakeResponse) Body() string {
-	return string(r.body)
-}
-
-func (r *FakeResponse) BodyRaw() []byte {
-	return r.body
-}
-
-func (r *FakeResponse) Header() http.Header {
-
-	if r.headers == nil {
-		r.headers = make(http.Header)
-	}
-	return r.headers
-}
-
-func (r *FakeResponse) Write(body []byte) (int, error) {
-	r.body = body
-	return len(body), nil
-}
-
-func (r *FakeResponse) WriteHeader(status int) {
-	r.status = status
-}
 
 // TestResponse_Data if the data is set to the variable
 func TestResponse_Data(t *testing.T) {
-	resp := FakeResponse{}
-	r := NewResponse(&resp)
+	req := &http.Request{}
+	rw := &FakeResponse{}
+	ctx := context.New(req, rw)
 
-	r.AddData("User", "Goofy")
+	ctx.Response.SetData("user", "John Doe")
 
-	assert.Equal(t, map[string]interface{}{"User": "Goofy"}, r.data)
+	// ok: data returns
+	assert.Equal(t, "John Doe", ctx.Response.Data("user"))
+	// ok: key does not exist
+	assert.Equal(t, nil, ctx.Response.Data("password"))
 }
 
 // TestResponse_Data if the data is set to the variable
 func TestResponse_Render(t *testing.T) {
-	resp := FakeResponse{}
-	r := NewResponse(&resp)
-	headers := resp.Header()
+	test := assert.New(t)
 
-	r.AddData("User", "Goofy")
-	//render json
-	r.Render("json")
-	assert.Equal(t, "{\"User\":\"Goofy\"}", resp.Body())
-	assert.Equal(t, []string{"application/json"}, headers["Content-Type"])
+	req := &http.Request{}
+	rw := &FakeResponse{}
+	ctx := context.New(req, rw)
+
+	headers := rw.Header()
+
+	ctx.Response.SetData("user", "John Doe")
+	err := ctx.Response.Render("json")
+	test.NoError(err)
+
+	test.Equal("{\"user\":\"John Doe\"}", string(rw.body))
+	test.Equal([]string{"application/json"}, headers["Content-Type"])
 
 	//render default
-	r.Render("html")
-	assert.Equal(t, "{\"User\":\"Goofy\"}", resp.Body())
+	ctx.Response.Render(controller.RenderHTML)
+	test.Equal("{\"user\":\"John Doe\"}", string(rw.body)) // TODO at the moment only json is defined for everything
 
 	//json marshal error
-	r.AddData("Err", make(chan int))
-	err := r.Render("json")
+	ctx.Response.SetData("Err", make(chan int))
+	err = ctx.Response.Render(controller.RenderJSON)
 	assert.Error(t, err)
 }

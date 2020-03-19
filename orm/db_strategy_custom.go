@@ -12,11 +12,11 @@ func init() {
 type StrategyCustom struct {
 }
 
-func (s StrategyCustom) First(m Interface, c *sqlquery.Condition) error {
+func (s StrategyCustom) First(m Interface, c *sqlquery_.Condition) error {
 	return nil
 }
 
-func (s StrategyCustom) All(res interface{}, m Interface, c *sqlquery.Condition) error {
+func (s StrategyCustom) All(res interface{}, m Interface, c *sqlquery_.Condition) error {
 	return nil
 }
 
@@ -24,10 +24,10 @@ func (s StrategyCustom) Create(m Interface) error {
 	return nil
 }
 
-func (s StrategyCustom) Update(m Interface, c *sqlquery.Condition) error {
+func (s StrategyCustom) Update(m Interface, c *sqlquery_.Condition) error {
 	return nil
 }
 
-func (s StrategyCustom) Delete(m Interface, c *sqlquery.Condition) error {
+func (s StrategyCustom) Delete(m Interface, c *sqlquery_.Condition) error {
 	return nil
 }

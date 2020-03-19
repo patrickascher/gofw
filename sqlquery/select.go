@@ -1,16 +1,26 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
 
-//Exported JOIN types
+// Allowed join types.
 const (
 	LEFT = iota + 1
 	RIGHT
 	INNER
+)
+
+// Error messages.
+var (
+	ErrJoinType = errors.New("sqlquery: wrong join type %#v is used")
 )
 
 type join struct {
@@ -20,7 +30,10 @@ type join struct {
 	condition *Condition
 }
 
-//render the join statement
+// render the join statement
+// TODO the condition logic should maybe be changed. At the moment there is one condition for the whole select.
+// TODO: It makes more sense if the ON relation has his own condition.
+// TODO: In that case, this extra render method could be deleted.
 func (j *join) render(c *Condition, p *Placeholder) (string, error) {
 	t := ""
 	switch j.joinType {
@@ -31,12 +44,21 @@ func (j *join) render(c *Condition, p *Placeholder) (string, error) {
 	case INNER:
 		t = "INNER"
 	default:
-		return "", fmt.Errorf("sql: wrong join type %#v is used", j.joinType)
+		return "", fmt.Errorf(ErrJoinType.Error(), j.joinType)
 	}
 
 	//render the condition stmt
-	stmt := t + " JOIN " + j.builder.QuoteIdentifier(j.table) + j.condition.on
+	space := ""
+	if j.condition.on != "" {
+		space = " "
+	}
+	stmt := t + " JOIN " + j.builder.quoteColumns(j.table) + space + j.condition.on
 
+	// testing if the condition itself is correct.
+	_, err := j.condition.render(p)
+	if err != nil {
+		return "", err
+	}
 	//check if there are some map arguments
 	stmt = stmtMapManipulation(c, stmt, j.condition.args[ON], ON)
 
@@ -47,7 +69,7 @@ func (j *join) render(c *Condition, p *Placeholder) (string, error) {
 	return stmt, nil
 }
 
-// Select provides some features for a sql select
+// Select type.
 type Select struct {
 	builder *Builder
 
@@ -58,8 +80,10 @@ type Select struct {
 	condition *Condition
 }
 
-// Columns appending
+// Columns appending new columns to the select stmt.
+// If no columns are added, the * will be used.
 func (s *Select) Columns(cols ...string) *Select {
+	s.columns = []string{}
 	s.columns = append(s.columns, cols...)
 	return s
 }
@@ -67,14 +91,10 @@ func (s *Select) Columns(cols ...string) *Select {
 // Join is a wrapper for Condition.Join.
 // See: Condition.Join
 func (s *Select) Join(joinType int, table string, condition *Condition) *Select {
+	if joinType == 0 || table == "" {
+		return s
+	}
 	s.join = append(s.join, join{builder: s.builder, joinType: joinType, table: table, condition: condition})
-	return s
-}
-
-// Condition adds a ptr to a existing condition.
-func (s *Select) Condition(c *Condition) *Select {
-	c.Reset(ON)
-	s.condition = c
 	return s
 }
 
@@ -120,64 +140,58 @@ func (s *Select) Offset(l int) *Select {
 	return s
 }
 
+// Condition adds your own condition to the stmt.
+func (s *Select) Condition(c *Condition) *Select {
+	c.Reset(ON)
+	s.condition = c
+	return s
+}
+
 // render generates the sql query.
 // An error will return if the arguments and placeholders mismatch.
 func (s *Select) render() (string, []interface{}, error) {
-	columns := s.builder.escapeColumns(s.columns)
+
+	columns := s.builder.quoteColumns(s.columns...)
 	if columns == "" {
 		columns = "*"
 	}
-	selectStmt := "SELECT " + columns + " FROM " + s.builder.QuoteIdentifier(s.from)
+
+	selectStmt := "SELECT " + columns + " FROM " + s.builder.quoteColumns(s.from)
 
 	if len(s.join) > 0 {
 		for _, j := range s.join {
-			joinStmt, err := j.render(s.condition, s.builder.Placeholder)
+			joinStmt, err := j.render(s.condition, s.builder.driver.Placeholder())
 			if err != nil {
 				return "", nil, err
 			}
-			selectStmt = selectStmt + " " + joinStmt
+			if joinStmt != "" {
+				joinStmt = " " + joinStmt
+			}
+			selectStmt = selectStmt + joinStmt
 		}
 	}
-
-	conditionStmt, err := s.condition.render(s.builder.Placeholder)
+	conditionStmt, err := s.condition.render(s.builder.driver.Placeholder())
+	if conditionStmt != "" {
+		conditionStmt = " " + conditionStmt
+	}
 
 	return selectStmt + conditionStmt, s.condition.arguments(), err
 }
 
 // First will return only one row.
 // Its a wrapper for DB.QueryRow
-func (s *Select) First() (*sql.Row, error) {
+func (s Select) First() (*sql.Row, error) {
 	//s.Limit(1).Offset(0)
 	stmt, args, err := s.render()
 	if err != nil {
 		return nil, err
 	}
-	return s.builder.first(stmt, args)
+	return s.builder.first(stmt, args), nil
 }
 
-// FirstTx will return only one row, it is executing the query with a transaction.
-// Its a wrapper for DB.QueryRow
-func (s *Select) FirstTx(tx *sql.Tx) (*sql.Row, error) {
-	//s.Limit(1).Offset(0)
-	stmt, args, err := s.render()
-	if err != nil {
-		if errTx := tx.Rollback(); errTx != nil {
-			return nil, errTx
-		}
-		return nil, err
-	}
-	return s.builder.firstTx(tx, stmt, args)
-}
-
-// String returns the statement and arguments
+// All returns the found rows by using the *db.Query method.
 // An error will return if the arguments and placeholders mismatch.
-func (s *Select) String() (string, []interface{}, error) {
-	return s.render()
-}
-
-// All queries all rows by using the *db.Query method.
-// An error will return if the arguments and placeholders mismatch.
-func (s *Select) All() (*sql.Rows, error) {
+func (s Select) All() (*sql.Rows, error) {
 	stmt, args, err := s.render()
 	if err != nil {
 		return nil, err
@@ -185,15 +199,8 @@ func (s *Select) All() (*sql.Rows, error) {
 	return s.builder.all(stmt, args)
 }
 
-// AllTx queries all rows by using the *db.Query method, it is executing the query with a transaction.
+// String returns the statement and arguments.
 // An error will return if the arguments and placeholders mismatch.
-func (s *Select) AllTx(tx *sql.Tx) (*sql.Rows, error) {
-	stmt, args, err := s.render()
-	if err != nil {
-		if errTx := tx.Rollback(); errTx != nil {
-			return nil, errTx
-		}
-		return nil, err
-	}
-	return s.builder.allTx(tx, stmt, args)
+func (s Select) String() (string, []interface{}, error) {
+	return s.render()
 }

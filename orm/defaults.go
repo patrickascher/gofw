@@ -31,7 +31,7 @@ func (m *Model) DefaultCache() (cache.Cache, time.Duration, error) {
 
 // Builder returns the GlobalBuilder.
 // If it's not defined, a error will return.
-func (m *Model) Builder() (*sqlquery.Builder, error) {
+func (m *Model) Builder() (*sqlquery_.Builder, error) {
 	if GlobalBuilder == nil {
 		return nil, ErrModelNoBuilder
 	}

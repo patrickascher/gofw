@@ -2,12 +2,12 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-// Package logger provides an alternative to the standard log library.
+// Package log provides an alternative to the standard log library.
 //
 // Each LogLevels can have its own log provider. That means INFO can be logged in a file, ERROR is mailed and everything else will logged in the console.
-// Different loggers with different log levels can be created. This means you can have a logger for an importer and a different logger for the application it self.
+// Different loggers with different log levels can be created. This means you can have a log for an importer and a different log for the application it self.
 //
-// The logger is easy to extend by implementing the logger.Interface.
+// The log is easy to extend by implementing the log.Interface.
 package logger
 
 import (
@@ -29,15 +29,15 @@ const (
 
 // Error messages
 var (
-	ErrLogLevel        = errors.New("logger: LogLevel is unknown %#v")
-	ErrMandatoryWriter = errors.New("logger: writer is mandatory")
-	ErrUnknownLogger   = errors.New("logger: %v does not exist")
+	ErrLogLevel        = errors.New("log: LogLevel is unknown %#v")
+	ErrMandatoryWriter = errors.New("log: writer is mandatory")
+	ErrUnknownLogger   = errors.New("log: %v does not exist")
 	errUnknownLogLevel = "unknown log level"
 )
 
-// registry for the defined logger.
+// registry for the defined log.
 // TODO check if ptr or value should be used
-var registry map[string]*logger
+var registry map[string]*Logger
 
 // Interface is used by log providers.
 type Interface interface {
@@ -67,7 +67,7 @@ func (lvl level) String() string {
 	}
 }
 
-// LogEntry is representing the actual logger message.
+// LogEntry is representing the actual log message.
 type LogEntry struct {
 	Level     level
 	Filename  string
@@ -77,7 +77,7 @@ type LogEntry struct {
 	Arguments []interface{}
 }
 
-// Config for the logger instance.
+// Config for the log instance.
 // Writer is mandatory, all others are optional.
 // If the LogLevel is empty, TRACE will be set as default.
 type Config struct {
@@ -91,15 +91,15 @@ type Config struct {
 	CriticalWriter Interface
 }
 
-type logger struct {
+type Logger struct {
 	writer map[level]Interface
 }
 
-// setConfig for the logger.
+// setConfig for the log.
 // It skips the writer for lower log levels to safe memory.
-// Checks if a specific logger is set, otherwise the default Writer is taken.
+// Checks if a specific log is set, otherwise the default Writer is taken.
 // Improvement: Set only the specific loggers if set, and dont set the default writer instead -> to safe memory - internal logic must be changed.
-func (l *logger) setConfig(c Config) {
+func (l *Logger) setConfig(c Config) {
 
 	//set default writer for all levels
 	for _, lvl := range []level{TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL} {
@@ -143,7 +143,7 @@ func (l *logger) setConfig(c Config) {
 // Register adds a new log provider to the registry or reconfigure it.
 // If the name already exists, it will be overwritten.
 func Register(name string, c Config) error {
-	t := &logger{writer: make(map[level]Interface)}
+	t := &Logger{writer: make(map[level]Interface)}
 
 	// Checking the config.
 	// The main writer is mandatory.
@@ -160,21 +160,21 @@ func Register(name string, c Config) error {
 		return fmt.Errorf(ErrLogLevel.Error(), c.LogLevel)
 	}
 
-	// configure the logger
+	// configure the log
 	t.setConfig(c)
 
-	// adding the logger to the registry
+	// adding the log to the registry
 	if registry == nil {
-		registry = make(map[string]*logger)
+		registry = make(map[string]*Logger)
 	}
 	registry[name] = t
 
 	return nil
 }
 
-// Get the logger by its name.
-// If the logger was not registered, an error will return.
-func Get(name string) (*logger, error) {
+// Get the log by its name.
+// If the log was not registered, an error will return.
+func Get(name string) (*Logger, error) {
 	if _, ok := registry[name]; ok {
 		return registry[name], nil
 	}
@@ -182,7 +182,7 @@ func Get(name string) (*logger, error) {
 }
 
 // log calls the Writer.Write method
-func (l *logger) log(lvl level, msg string, args ...interface{}) {
+func (l *Logger) log(lvl level, msg string, args ...interface{}) {
 
 	// writer is not defined if the minimum log level is higher.
 	if l.writer[lvl] == nil {
@@ -208,31 +208,31 @@ func (l *logger) log(lvl level, msg string, args ...interface{}) {
 }
 
 // Trace log message
-func (l *logger) Trace(msg string, args ...interface{}) {
+func (l *Logger) Trace(msg string, args ...interface{}) {
 	l.log(TRACE, msg, args...)
 }
 
 // Debug log message
-func (l *logger) Debug(msg string, args ...interface{}) {
+func (l *Logger) Debug(msg string, args ...interface{}) {
 	l.log(DEBUG, msg, args...)
 }
 
 // Info log message
-func (l *logger) Info(msg string, args ...interface{}) {
+func (l *Logger) Info(msg string, args ...interface{}) {
 	l.log(INFO, msg, args...)
 }
 
 // Warning log message
-func (l *logger) Warning(msg string, args ...interface{}) {
+func (l *Logger) Warning(msg string, args ...interface{}) {
 	l.log(WARNING, msg, args...)
 }
 
 // Error log message
-func (l *logger) Error(msg string, args ...interface{}) {
+func (l *Logger) Error(msg string, args ...interface{}) {
 	l.log(ERROR, msg, args...)
 }
 
 // Critical log message
-func (l *logger) Critical(msg string, args ...interface{}) {
+func (l *Logger) Critical(msg string, args ...interface{}) {
 	l.log(CRITICAL, msg, args...)
 }

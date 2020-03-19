@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-func HelperParseConfig() (*sqlquery.Config, error) {
-	var cfg sqlquery.Config
+func HelperParseConfig() (*sqlquery_.Config, error) {
+	var cfg sqlquery_.Config
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
@@ -24,30 +24,30 @@ func HelperParseConfig() (*sqlquery.Config, error) {
 	return &cfg, nil
 }
 
-func HelperCreateBuilder() (*sqlquery.Builder, error) {
+func HelperCreateBuilder() (*sqlquery_.Builder, error) {
 	cfg, err := HelperParseConfig()
 
 	if err != nil {
 		return nil, err
 	}
-	return sqlquery.NewBuilderFromConfig(cfg)
+	return sqlquery_.NewBuilderFromConfig(cfg)
 }
 
 type StrategyMock struct {
 	model        Interface
 	methodCalled string
-	c            *sqlquery.Condition
+	c            *sqlquery_.Condition
 	res          interface{}
 }
 
-func (s *StrategyMock) First(m Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) First(m Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "First"
 	s.c = c
 	return nil
 }
 
-func (s *StrategyMock) All(res interface{}, m Interface, c *sqlquery.Condition) error {
+func (s *StrategyMock) All(res interface{}, m Interface, c *sqlquery_.Condition) error {
 	s.model = m
 	s.methodCalled = "All"
 	s.c = c
@@ -73,9 +73,9 @@ func (s *StrategyMock) Delete(m Interface) error {
 }
 
 type CommonX struct {
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
-	DeletedAt sqlquery.NullTime
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
+	DeletedAt sqlquery_.NullTime
 }
 
 type Customerfk struct {
@@ -84,8 +84,8 @@ type Customerfk struct {
 	unexp int
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	CommonX
 
 	Info    Contactfk   // hasOne
@@ -97,8 +97,8 @@ type Customerptr struct {
 	Model
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	CommonX
 
 	Info    *Contactfk   // hasOne
@@ -110,10 +110,10 @@ type CustomerNilBuilder struct {
 	Model
 
 	ID        int
-	FirstName sqlquery.NullString
+	FirstName sqlquery_.NullString
 }
 
-func (c *CustomerNilBuilder) Builder() (*sqlquery.Builder, error) {
+func (c *CustomerNilBuilder) Builder() (*sqlquery_.Builder, error) {
 	return nil, nil
 }
 
@@ -121,19 +121,19 @@ type CustomerBuilder struct {
 	Model
 
 	ID        int
-	FirstName sqlquery.NullString
+	FirstName sqlquery_.NullString
 }
 
-func (c *CustomerBuilder) Builder() (*sqlquery.Builder, error) {
-	return &sqlquery.Builder{}, nil
+func (c *CustomerBuilder) Builder() (*sqlquery_.Builder, error) {
+	return &sqlquery_.Builder{}, nil
 }
 
 type Customer struct {
 	Model
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	CommonX
 
 	Info   Contact `relation:"hasOne" fk:"ID"`  // hasOne
@@ -146,7 +146,7 @@ type Orderfk struct {
 
 	ID         int
 	CustomerID int
-	CreatedAt  sqlquery.NullTime
+	CreatedAt  sqlquery_.NullTime
 
 	Product  Productfk
 	Customer Customerfk
@@ -157,7 +157,7 @@ type Order struct {
 
 	ID         int
 	CustomerID int
-	CreatedAt  sqlquery.NullTime
+	CreatedAt  sqlquery_.NullTime
 
 	Product  Product  `relation:"hasOne" fk:"field:OrderID;associationField:ID"`       // hasOne
 	Customer Customer `relation:"belongsTo" fk:"field:ID;associationField:CustomerID"` // belongsTo
@@ -167,10 +167,10 @@ type Productfk struct {
 	Model
 
 	ID        int
-	Name      sqlquery.NullString
-	Price     sqlquery.NullFloat64
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
+	Name      sqlquery_.NullString
+	Price     sqlquery_.NullFloat64
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
 	OrderID   int
 }
 
@@ -178,10 +178,10 @@ type Product struct {
 	Model
 
 	ID        int
-	Name      sqlquery.NullString
-	Price     sqlquery.NullFloat64
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
+	Name      sqlquery_.NullString
+	Price     sqlquery_.NullFloat64
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
 	OrderID   int
 }
 
@@ -190,7 +190,7 @@ type Contactfk struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery.NullString
+	Phone      sqlquery_.NullString
 }
 
 type Contact struct {
@@ -198,19 +198,19 @@ type Contact struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery.NullString
+	Phone      sqlquery_.NullString
 }
 
 type Servicefk struct {
 	Model
 
 	ID   int
-	Name sqlquery.NullString
+	Name sqlquery_.NullString
 }
 
 type Service struct {
 	Model
 
 	ID   int
-	Name sqlquery.NullString
+	Name sqlquery_.NullString
 }

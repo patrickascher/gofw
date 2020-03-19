@@ -20,14 +20,14 @@ On a Logger the following functions are available
 `Unspecified`, `Trace`, `Debug`, `Info`, `Warning`, `Error` and `Critical`.
 
 ```go
-import "github.com/fullhouse-productions/go-logger"
+import "github.com/fullhouse-productions/go-log"
 
 console,err := logger.Get(CONSOLE)
 if err != nil{
 	//...
 }
 
-console.Debug("The logger is available for the project %#v","Gopher")
+console.Debug("The log is available for the project %#v","Gopher")
 ```
 
 # LogLevels

@@ -1,44 +1,73 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 )
 
-var driverStore = make(map[string]Driver)
-
-// Error messages are defined here
+// Error messages
 var (
-	ErrUnknownDriver       = errors.New("sqlquery: unknown driver %q (forgotten import?)")
-	ErrNoDriver            = errors.New("sqlquery: empty driver-name or driver is given")
-	ErrDriverAlreadyExists = errors.New("sqlquery: driver %#v already exists")
+	ErrUnknownProvider       = errors.New("sqlquery/driver: unknown driver %q")
+	ErrNoProvider            = errors.New("sqlquery/driver: empty driver-name or driver is nil")
+	ErrProviderAlreadyExists = errors.New("sqlquery/driver: driver %#v is already registered")
 )
 
-// Driver interface
+// registry for all cache providers.
+var registry = make(map[string]driver)
+
+// driver is a function which returns the driver interface.
+// The first argument is the config struct, followed by an open connection.
+// If the opened connection is nil, a connection will get created by the driver.
+// Like this the driver is getting initialized only when its called.
+type driver func(config Config, db *sql.DB) (Driver, error)
+
+// Driver interface.
 type Driver interface {
-	Describe(db string, table string, builder *Builder, cols []string) *Select
-	ForeignKeys(db string, table string, builder *Builder) *Select
-	ConvertColumnType(t string, column *Column) Type
+	// Connection should return an open connection. The implementation depends on the driver.
+	// As proposal, a connection should be unique to avoid overhead. Store it in on package level if its created.
+	Connection() *sql.DB
+
+	// The character which will be used for quoting columns.
+	QuoteCharacterColumn() string
+
+	// Describe the columns of the given table.
+	Describe(b *Builder, db string, table string, cols []string) ([]*Column, error)
+
+	// ForeignKeys of the given table.
+	ForeignKeys(b *Builder, db string, table string) ([]*ForeignKey, error)
+
+	// Placeholder for the go driver.
+	Placeholder() *Placeholder
+
+	// TypeMapping should unify the different column types of different database types.
+	TypeMapping(string, Column) Type
 }
 
-// Register the driver
-// If the driver name is empty or already exists a error will return
-func Register(name string, driver Driver) error {
-	if driver == nil || name == "" {
-		return ErrNoDriver
-	}
-	if _, exists := driverStore[name]; exists {
-		return fmt.Errorf(ErrDriverAlreadyExists.Error(), name)
-	}
-	driverStore[name] = driver
-	return nil
-}
-
-// NewDriver returns the sqlquery driver
-func NewDriver(name string) (Driver, error) {
-	instance, ok := driverStore[name]
+// newDriver returns a sqlquery driver.
+// Error will return if the diver is not registered.
+func newDriver(cfg Config, connection *sql.DB) (Driver, error) {
+	instanceFn, ok := registry[cfg.Driver]
 	if !ok {
-		return nil, fmt.Errorf(ErrUnknownDriver.Error(), name)
+		return nil, fmt.Errorf(ErrUnknownProvider.Error(), cfg.Driver)
 	}
-	return instance, nil
+
+	return instanceFn(cfg, connection)
+}
+
+// Register the sqlquery drive. This should be called in the init() of the providers.
+// If the sqlquery name/driver is empty or is already registered, an error will return.
+func Register(name string, driver driver) error {
+	if driver == nil || name == "" {
+		return ErrNoProvider
+	}
+	if _, exists := registry[name]; exists {
+		return fmt.Errorf(ErrProviderAlreadyExists.Error(), name)
+	}
+	registry[name] = driver
+	return nil
 }

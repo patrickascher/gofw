@@ -45,7 +45,7 @@ func TestRegister(t *testing.T) {
 
 	// error: no writer is defined
 	err = logger.Register(
-		"mock", //logger name
+		"mock", //log name
 		logger.Config{},
 	)
 	test.Error(err)
@@ -72,7 +72,7 @@ func TestRegister(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.logType, func(t *testing.T) {
 			err = logger.Register(
-				"mock", //logger name
+				"mock", //log name
 				tt.config,
 			)
 			if tt.error == true {
@@ -98,7 +98,7 @@ func TestRegister_DifferentWriter(t *testing.T) {
 
 	// error: no writer is defined
 	err := logger.Register(
-		"mock", //logger name
+		"mock", //log name
 		logger.Config{Writer: mockCommon,
 			TraceWriter:    mockTrace,
 			DebugWriter:    mockDebug,
@@ -137,7 +137,7 @@ func TestRegister_DifferentWriter(t *testing.T) {
 	test.Equal("Critical", mockCritical.Entry.Message)
 }
 
-// Get checks if a logger gets returned and if an error will return if the logger name does not exist.
+// Get checks if a log gets returned and if an error will return if the log name does not exist.
 func TestGet(t *testing.T) {
 	test := assert.New(t)
 	mockProvider, err := NewMockProvider()
@@ -145,16 +145,16 @@ func TestGet(t *testing.T) {
 
 	// setting mock again with a fresh config to avoid mistakes.
 	err = logger.Register(
-		"mock", //logger name
+		"mock", //log name
 		logger.Config{Writer: mockProvider},
 	)
 
 	// ok
 	log, err := logger.Get("mock")
 	test.NoError(err)
-	test.Equal("*logger.logger", reflect.TypeOf(log).String())
+	test.Equal("*logger.Logger", reflect.TypeOf(log).String())
 
-	// error: logger does not exist
+	// error: log does not exist
 	log, err = logger.Get("mock2")
 	test.Error(err)
 	test.Equal(fmt.Sprintf(logger.ErrUnknownLogger.Error(), "mock2"), err.Error())
@@ -171,7 +171,7 @@ func TestLogger_Log(t *testing.T) {
 	startTime := time.Now()
 	time.Sleep(100 * time.Millisecond)
 
-	// define the logger
+	// define the log
 	log, err := logger.Get("mock")
 	test.NoError(err)
 
@@ -179,12 +179,12 @@ func TestLogger_Log(t *testing.T) {
 	// Second round the LogLevel is set to ERROR and CRITICAL only
 	for i := 0; i < 2; i++ {
 
-		// Reconfigure the logger to log only ERROR and CRITICAL
+		// Reconfigure the log to log only ERROR and CRITICAL
 		if i == 1 {
 			mockProvider, err := NewMockProvider()
 			test.NoError(err)
 			err = logger.Register(
-				"mock", //logger name
+				"mock", //log name
 				logger.Config{Writer: mockProvider, LogLevel: logger.ERROR},
 			)
 			test.NoError(err)
@@ -227,19 +227,19 @@ func TestLogger_Log(t *testing.T) {
 	}
 }
 
-// This example demonstrate the basics of the logger.Interface.
+// This example demonstrate the basics of the log.Interface.
 // For more details check the documentation.
 func Example() {
 
-	// Register a new logger with the name "access".
+	// Register a new log with the name "access".
 	fileLogger, err := file.New(file.Options{Filepath: "access.log"})
 	if err != nil {
 		//...
 	}
 	err = logger.Register(
-		// logger name
+		// log name
 		"access",
-		// The logger should only log messages from the level WARNING and higher.
+		// The log should only log messages from the level WARNING and higher.
 		// If the LogLevel is empty, it will start logging from TRACE.
 		logger.Config{Writer: fileLogger, LogLevel: logger.WARNING},
 
@@ -247,13 +247,13 @@ func Example() {
 		// Each log level can have their own log provider.
 		//
 		// emailLogger = email.New(email.Options{...})
-		// logger.Config{Writer: logFile, CriticalWriter:emailLogger},
+		// log.Config{Writer: logFile, CriticalWriter:emailLogger},
 	)
 	if err != nil {
 		//...
 	}
 
-	// get the logger
+	// get the log
 	log, err := logger.Get("access")
 	if err != nil {
 		//..

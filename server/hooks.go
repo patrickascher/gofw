@@ -12,17 +12,17 @@ import (
 var (
 	cfgLogger  *logger.Logger
 	cfgCache   cache.Cache
-	cfgBuilder *sqlquery.Builder
+	cfgBuilder *sqlquery_.Builder
 	cfgRouter  *router.Manager
 )
 
-// Logger returns the default logger.
+// Logger returns the default log.
 // Logger is always defined.
 func Logger() *logger.Logger {
 	return cfgLogger
 }
 
-// initLogger is setting a console logger.
+// initLogger is setting a console log.
 func initLogger() error {
 	var err error
 	cfgLogger, err = logger.Get(logger.CONSOLE)
@@ -34,7 +34,7 @@ func initLogger() error {
 
 // Builder returns the configured database.
 // If no database is defined, the builder will be nil.
-func Builder() *sqlquery.Builder {
+func Builder() *sqlquery_.Builder {
 	return cfgBuilder
 }
 
@@ -46,7 +46,7 @@ func initBuilder() error {
 	}
 
 	if c.Database.Host != "" {
-		cfgBuilder, err = sqlquery.NewBuilderFromConfig(c.Database)
+		cfgBuilder, err = sqlquery_.NewBuilderFromConfig(c.Database)
 		if err != nil {
 			return err
 		}

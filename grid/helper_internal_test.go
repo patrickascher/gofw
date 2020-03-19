@@ -244,8 +244,8 @@ func insertAll() error {
 	return nil
 }
 
-func HelperParseConfig() (*sqlquery.Config, error) {
-	var cfg sqlquery.Config
+func HelperParseConfig() (*sqlquery_.Config, error) {
+	var cfg sqlquery_.Config
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
@@ -261,19 +261,19 @@ func HelperParseConfig() (*sqlquery.Config, error) {
 	return &cfg, nil
 }
 
-func HelperCreateBuilder() (*sqlquery.Builder, error) {
+func HelperCreateBuilder() (*sqlquery_.Builder, error) {
 	cfg, err := HelperParseConfig()
 
 	if err != nil {
 		return nil, err
 	}
-	return sqlquery.NewBuilderFromConfig(cfg)
+	return sqlquery_.NewBuilderFromConfig(cfg)
 }
 
 type CommonX struct {
-	CreatedAt sqlquery.NullTime
-	UpdatedAt sqlquery.NullTime
-	DeletedAt sqlquery.NullTime
+	CreatedAt sqlquery_.NullTime
+	UpdatedAt sqlquery_.NullTime
+	DeletedAt sqlquery_.NullTime
 }
 
 type Customerfk struct {
@@ -282,8 +282,8 @@ type Customerfk struct {
 	unexp int
 
 	ID        int
-	FirstName sqlquery.NullString
-	LastName  sqlquery.NullString
+	FirstName sqlquery_.NullString
+	LastName  sqlquery_.NullString
 	CommonX
 	AccountId int
 
@@ -305,7 +305,7 @@ type Orderfk struct {
 
 	ID         int
 	CustomerID int
-	CreatedAt  sqlquery.NullTime
+	CreatedAt  sqlquery_.NullTime
 }
 
 type Contactfk struct {
@@ -313,12 +313,12 @@ type Contactfk struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery.NullString
+	Phone      sqlquery_.NullString
 }
 
 type Servicefk struct {
 	orm.Model
 
 	ID   int
-	Name sqlquery.NullString
+	Name sqlquery_.NullString
 }

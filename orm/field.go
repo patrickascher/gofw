@@ -182,7 +182,7 @@ func (m *Model) addStructFieldsToTableColumn(caller interface{}) {
 		// create field and db column
 		col := &Column{}
 		col.StructField = field.Name
-		col.Information = &sqlquery.Column{Name: snaker.CamelToSnake(col.StructField)}
+		col.Information = &sqlquery_.Column{Name: snaker.CamelToSnake(col.StructField)}
 		col.Permission = Permission{Read: true, Write: true}
 
 		if m.strategy == CustomImpl && (col.StructField != CREATE && col.StructField != UPDATE && col.StructField != DELETE) {

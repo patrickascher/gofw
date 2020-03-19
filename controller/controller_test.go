@@ -1,170 +1,193 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package controller_test
 
 import (
+	"context"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/router"
-	_ "github.com/patrickascher/gofw/router/backend/julienschmidt"
+	"github.com/patrickascher/gofw/router/httprouter"
+	_ "github.com/patrickascher/gofw/router/httprouter"
 	"github.com/stretchr/testify/assert"
-	"testing"
-
-	"context"
-	"github.com/patrickascher/gofw/cache"
-	_ "github.com/patrickascher/gofw/cache/memory"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"testing"
+
+	"github.com/patrickascher/gofw/cache"
+	_ "github.com/patrickascher/gofw/cache/memory"
 	"time"
 )
 
-type TestController struct {
+type mockController struct {
 	controller.Controller
 }
 
-func (c *TestController) Get() {
-	c.Redirect(307, "/redirect")
-	c.Set("link", "Get")
+func (c *mockController) Login() {
+	c.Set("user", "John Doe")
+	c.Redirect(301, "/redirect")
 }
 
-func (c *TestController) RedirectFunc() {
-	c.Set("link", "RedirectFunc")
+func (c *mockController) RedirectFunc() {
+	c.Set("redirect", "successful")
 }
 
-func (c *TestController) ErrorFunc() {
+func (c *mockController) ErrorFunc() {
 	c.Error(500, "Error message")
 }
 
-func (c *TestController) ErrorJSONFunc() {
-	c.Error(500, "Error message")
+type mockControllerTimeout struct {
+	mockController
 }
 
-type TestControllerTimeout struct {
-	TestController
-}
-
-func (c *TestControllerTimeout) Timeout() {
+func (c *mockControllerTimeout) Timeout() {
 	time.Sleep(1 * time.Second)
-	c.Set("Get", true)
+	c.Set("Successful", true)
+}
+
+// Test SetCache, Cache, HasCache
+func TestController_Name(t *testing.T) {
+	test := assert.New(t)
+
+	c := mockController{}
+	// ok: name is only visible after initialization
+	test.Equal("", c.Name())
+
+	// ok
+	err := c.Initialize(&c, nil, false)
+	test.NoError(err)
+	test.Equal("controller_test.mockController", c.Name())
+
 }
 
 // Test SetCache, Cache, HasCache
 func TestController_Cache(t *testing.T) {
-	c := TestController{}
-	assert.Equal(t, false, c.HasCache())
-	assert.Equal(t, nil, c.Cache())
+	test := assert.New(t)
 
-	mem, err := cache.Get("memory", 60*time.Second)
-	assert.NoError(t, err)
+	c := mockController{}
+	// ok: no cache is defined yet
+	test.Equal(false, c.HasCache())
+	test.Equal(nil, c.Cache())
 
+	mem, err := cache.New(cache.MEMORY, nil)
+	test.NoError(err)
+
+	// set memory cache
 	c.SetCache(mem)
-	assert.Equal(t, mem, c.Cache())
-	assert.Equal(t, true, c.HasCache())
-
-}
-
-func TestController_Initialize(t *testing.T) {
-
-	c := TestController{}
-	err := c.Initialize(&c, map[string]map[string]string{"/": {"GET": "XGet"}})
-	assert.Error(t, err)
-
-	err = c.Initialize(&c, map[string]map[string]string{"/": {"GET": "Get"}})
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"GET": "Get"}, c.HTTPMethodsByPattern("/"))
-	assert.Equal(t, "json", c.RenderType())
-}
-
-func TestController_HTTPMethodsByPattern(t *testing.T) {
-	c := TestController{}
-	err := c.Initialize(&c, map[string]map[string]string{"/": {"GET": "Get"}})
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"GET": "Get"}, c.HTTPMethodsByPattern("/"))
+	test.Equal(mem, c.Cache())
+	test.Equal(true, c.HasCache())
 }
 
 // Test RenderType and SetRenderType
 func TestController_RenderType(t *testing.T) {
-	c := TestController{}
+	c := mockController{}
 	assert.Equal(t, "", c.RenderType())
 	c.SetRenderType("html")
 	assert.Equal(t, "html", c.RenderType())
 }
 
-// Redirect and Set is tested here
-func TestController_Redirect(t *testing.T) {
-	c := TestController{}
-	r, _ := router.Get("julienschmidt")
-	//Adding test route
-	err := r.PublicRoute("/", &c, router.RouteConfig{HTTPMethodToFunc: "get:Get", Middleware: nil})
-	assert.NoError(t, err)
-	err = r.PublicRoute("/redirect", &c, router.RouteConfig{HTTPMethodToFunc: "get:RedirectFunc", Middleware: nil})
-	assert.NoError(t, err)
+func TestController_Initialize(t *testing.T) {
+	test := assert.New(t)
 
-	//creating go test server
-	server := httptest.NewServer(r.Handler())
-	defer server.Close()
-	//request the url
-	resp, err := http.Get(server.URL + "/")
-	assert.NoError(t, err)
-	body, err2 := ioutil.ReadAll(resp.Body)
-	assert.NoError(t, err2)
-	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, "{\"link\":\"RedirectFunc\"}", string(body[:]))
+	c := mockController{}
 
+	// error: controller function XLogin does not exist.
+	err := c.Initialize(&c, map[string]map[string]string{"/": {"GET": "XLogin"}}, true)
+	test.Error(err)
+
+	// ok: controller function XLogin does not exist but method check is disabled
+	err = c.Initialize(&c, map[string]map[string]string{"/": {"GET": "XLogin"}}, false)
+	test.NoError(err)
+	test.Equal(map[string]string{"GET": "XLogin"}, c.MappingBy("/"))
+
+	// ok: Login method does exist
+	err = c.Initialize(&c, map[string]map[string]string{"/": {"GET": "Login"}}, true)
+	test.NoError(err)
+	test.Equal(map[string]string{"GET": "Login"}, c.MappingBy("/"))
+	test.Equal(controller.RenderJSON, c.RenderType())
 }
 
-// is also testing should test - ServeHTTP
+func TestController_MappingBy(t *testing.T) {
+	c := mockController{}
+	err := c.Initialize(&c, map[string]map[string]string{"/": {"GET": "Login", "POST": "Login"}}, true)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"GET": "Login", "POST": "Login"}, c.MappingBy("/"))
+}
 
-func TestController_Error_HTML(t *testing.T) {
-	c := TestController{}
-	c.SetRenderType("html")
-	r, _ := router.Get("julienschmidt")
+// TestController_Redirect tests if the /login route will get redirected to /redirect.
+// All the defined controller variables will be lost in login.
+func TestController_Redirect(t *testing.T) {
+	test := assert.New(t)
+
+	c := mockController{}
+	r, err := router.New(router.HTTPROUTER, httprouter.Options{CatchAllKeyValuePair: true})
+	test.NoError(err)
 
 	//Adding test route
-	err := r.PublicRoute("/error", &c, router.RouteConfig{HTTPMethodToFunc: "get:ErrorFunc", Middleware: nil})
-	assert.NoError(t, err)
+	err = r.AddPublicRoute("/login", &c, router.RouteConfig{HTTPMethodToFunc: "get:Login", Middleware: nil})
+	test.NoError(err)
+	err = r.AddPublicRoute("/redirect", &c, router.RouteConfig{HTTPMethodToFunc: "get:RedirectFunc", Middleware: nil})
+	test.NoError(err)
+
+	//creating go test server
+	server := httptest.NewServer(r.Handler())
+	defer server.Close()
+	//request the url
+	resp, err := http.Get(server.URL + "/login")
+	test.NoError(err)
+
+	body, err2 := ioutil.ReadAll(resp.Body)
+	test.NoError(err2)
+
+	test.Equal(200, resp.StatusCode)
+	test.Equal("{\"redirect\":\"successful\"}", string(body[:]))
+}
+
+func TestController_Error(t *testing.T) {
+	test := assert.New(t)
+	c := mockController{}
+	c.SetRenderType(controller.RenderHTML)
+
+	r, err := router.New(router.HTTPROUTER, httprouter.Options{CatchAllKeyValuePair: true})
+	test.NoError(err)
+
+	//Adding test route
+	err = r.AddPublicRoute("/error", &c, router.RouteConfig{HTTPMethodToFunc: "get:ErrorFunc", Middleware: nil})
+	test.NoError(err)
 
 	//creating go test server
 	server := httptest.NewServer(r.Handler())
 	defer server.Close()
 
-	//request the url
 	resp, err := http.Get(server.URL + "/error")
 	body, error := ioutil.ReadAll(resp.Body)
-	assert.NoError(t, error)
-	assert.NoError(t, err)
-	assert.Equal(t, 500, resp.StatusCode)
-	assert.Equal(t, "Error message\n{}", string(body[:]))
-}
+	test.NoError(error)
+	test.NoError(err)
+	test.Equal(500, resp.StatusCode)
+	test.Equal("Error message\n{}", string(body[:]))
 
-// is also testing ServeHTTPJR
-func TestController_Error_JSON(t *testing.T) {
-	c := TestController{}
-	r, _ := router.Get("julienschmidt")
-
-	//Adding test route
-	err := r.PublicRoute("/errorJson", &c, router.RouteConfig{HTTPMethodToFunc: "get:ErrorJSONFunc", Middleware: nil})
-	assert.NoError(t, err)
-
-	//creating go test server
-	server := httptest.NewServer(r.Handler())
-	defer server.Close()
-
-	//request the url
-	resp, err := http.Get(server.URL + "/errorJson")
-	body, error := ioutil.ReadAll(resp.Body)
-	assert.NoError(t, error)
-	assert.NoError(t, err)
-	assert.Equal(t, 500, resp.StatusCode)
-	assert.Equal(t, "{\"error\":\"Error message\"}", string(body[:]))
-
+	c.SetRenderType(controller.RenderJSON)
+	resp, err = http.Get(server.URL + "/error")
+	body, error = ioutil.ReadAll(resp.Body)
+	test.NoError(error)
+	test.NoError(err)
+	test.Equal(500, resp.StatusCode)
+	test.Equal("{\"error\":\"Error message\"}", string(body[:]))
 }
 
 // TestController_ServeHTTPWithCancellation is testing if the server cancels the request between the callbacks and main function call (Before 1sec sleep, Main 1sec sleep, After 1sec sleep)
 func TestController_ServeHTTPWithCancellation(t *testing.T) {
+	test := assert.New(t)
 	//server
-	c := TestControllerTimeout{}
-	r, _ := router.Get("julienschmidt")
-	err := r.PublicRoute("/test", &c, router.RouteConfig{HTTPMethodToFunc: "get:Get", Middleware: nil})
-	assert.NoError(t, err)
+	c := mockControllerTimeout{}
+
+	r, err := router.New(router.HTTPROUTER, httprouter.Options{CatchAllKeyValuePair: true})
+	test.NoError(err)
+
+	err = r.AddPublicRoute("/timeout", &c, router.RouteConfig{HTTPMethodToFunc: "get:Timeout", Middleware: nil})
+	test.NoError(err)
 
 	server := httptest.NewServer(r.Handler())
 	defer server.Close()

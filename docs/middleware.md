@@ -19,7 +19,7 @@ mw.Add(middleware.C,middleware.D)
 mw.GetAll() // returns all middlewares as a slice
 mw.Handle(middleware.E) // A -> B -> C -> D -> E are getting handled
 
-// NewJR for the julienschmidt-router
+// NewJR for the httprouter-router
 mw := NewJR(middleware.A,middleware.B)
 mw.Add(middleware.C,middleware.D)
 mw.GetAll() // returns all middlewares as a slice

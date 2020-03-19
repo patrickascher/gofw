@@ -1,3 +1,7 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package context
 
 import (
@@ -5,23 +9,24 @@ import (
 	"net/http"
 )
 
-// Response struct keeps the raw a ResponseWriter and the response data.
+// Response struct.
 type Response struct {
 	raw  http.ResponseWriter
 	data map[string]interface{}
 }
 
-// NewResponse creates a new response with the raw http.ResponseWriter data.
-func NewResponse(raw http.ResponseWriter) *Response {
+// newResponse initialization the Response struct.
+func newResponse(raw http.ResponseWriter) *Response {
 	return &Response{raw: raw, data: make(map[string]interface{})}
 }
 
-// AddData is used to add response data
-func (o *Response) AddData(key string, value interface{}) {
+// SetData by key and value.
+func (o *Response) SetData(key string, value interface{}) {
 	o.data[key] = value
 }
 
-// Data is returning the value by key if exists.
+// Data returned by the key.
+// If the key does not exist, nil will return.
 func (o *Response) Data(key string) interface{} {
 	if val, ok := o.data[key]; ok {
 		return val
@@ -29,37 +34,34 @@ func (o *Response) Data(key string) interface{} {
 	return nil
 }
 
-// Raw returns the *http.ResponseWriter
+// Raw returns the original *http.ResponseWriter
 func (o *Response) Raw() http.ResponseWriter {
 	return o.raw
 }
 
-// Render the response with the given renderType
+// Render the response with the given renderType.
+// TODO create a Interface render.Write. So that PDF,Excel and other Exporters can make use of it.
 func (o *Response) Render(renderType string) error {
 	var err error
 
 	switch renderType {
-	case "json":
-		err = o.renderJson()
 	default:
-		//TODO log type
+		//TODO: only JSON is defined at the moment
 		err = o.renderJson()
 	}
 
 	return err
 }
 
-//renderJson render the given data to json
+// renderJson render the given data to json.
+// It sets an content header and marshals the data.
+// TODO: this should also be done in the new render package.
 func (o *Response) renderJson() error {
-
 	o.Raw().Header().Set("Content-Type", "application/json")
-
 	js, err := json.Marshal(o.data)
-
 	if err != nil {
 		return err
 	}
-
 	_, err = o.Raw().Write(js)
 	return err
 }

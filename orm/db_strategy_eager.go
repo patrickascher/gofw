@@ -20,7 +20,7 @@ type EagerLoading struct {
 // Relations:
 // HasOne, BelongsTo: Handled in one request each
 // HasMany, ManyToMany: Handled in one request each
-func (e EagerLoading) First(m Interface, c *sqlquery.Condition) error {
+func (e EagerLoading) First(m Interface, c *sqlquery_.Condition) error {
 	b := m.Table().Builder
 
 	// get the struct variable for the scan
@@ -52,7 +52,7 @@ func (e EagerLoading) First(m Interface, c *sqlquery.Condition) error {
 	// handle relations
 	for field, relation := range m.Table().Relations(m.whiteBlacklist(), READALL) {
 
-		c := &sqlquery.Condition{}
+		c := &sqlquery_.Condition{}
 		if val, ok := m.RelationCondition()[field]; ok {
 			*c = *val
 		}
@@ -113,7 +113,7 @@ func (e EagerLoading) First(m Interface, c *sqlquery.Condition) error {
 // HasOne, BelongsTo and HasMany are handled in one sql statement.
 // ManyToMany: for each result a own sql statement is made.
 // TODO improvements, manyToMany
-func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery.Condition) error {
+func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) error {
 
 	// checking if the res is a ptr
 	if reflect.TypeOf(res).Kind() != reflect.Ptr {
@@ -179,7 +179,7 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery.Condition) e
 			for row := 0; row < reflectRes.Len(); row++ { //Parent result
 
 				// create condition
-				c := &sqlquery.Condition{}
+				c := &sqlquery_.Condition{}
 				if val, ok := m.RelationCondition()[field]; ok {
 					*c = *val
 				}
@@ -224,7 +224,7 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery.Condition) e
 		}
 
 		// create condition
-		c := &sqlquery.Condition{}
+		c := &sqlquery_.Condition{}
 		if val, ok := m.RelationCondition()[field]; ok {
 			*c = *val
 		}
@@ -503,7 +503,7 @@ func (e EagerLoading) Create(m Interface) error {
 // TODO ManyToMayn logic is the same as in create, DRY
 // TODO validate struct before update
 // TODO update pkey not possible atm!
-func (e EagerLoading) Update(m Interface, c *sqlquery.Condition) error {
+func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 	var err error
 	callRollbackOnErr := true
 
@@ -790,7 +790,7 @@ func (e EagerLoading) Update(m Interface, c *sqlquery.Condition) error {
 // BelongsTo - will be ignored
 // HasOne, HasMany are deleted by there reference
 // ManyToMany - deletes only the junction table. If you have to delete the associated table, use cascade in the db.
-func (e EagerLoading) Delete(m Interface, c *sqlquery.Condition) error {
+func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
 	var err error
 	callRollbackOnErr := true
 

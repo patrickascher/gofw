@@ -932,17 +932,17 @@ func TestEagerLoading_Create_Whitelist_Field(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1011,17 +1011,17 @@ func TestEagerLoading_Create_Blacklist_Field(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1088,17 +1088,17 @@ func TestEagerLoading_Create_Whitelist_Relation(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1169,17 +1169,17 @@ func TestEagerLoading_Create_Blacklist_Relation(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1246,17 +1246,17 @@ func TestEagerLoading_Create_Whitelist_RelationField(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1327,17 +1327,17 @@ func TestEagerLoading_Create_Blacklist_RelationField(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1408,17 +1408,17 @@ func TestEagerLoading_Create_Whitelist_AllFields(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1489,17 +1489,17 @@ func TestEagerLoading_Create_Blacklist_AllFields(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -1566,7 +1566,7 @@ func TestEagerLoading_Update_Whitelist_Field(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -1588,7 +1588,7 @@ func TestEagerLoading_Update_Whitelist_Field(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Name: null.StringFrom("updOnePlus")}
@@ -1658,7 +1658,7 @@ func TestEagerLoading_Update_Blacklist_Field(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -1680,7 +1680,7 @@ func TestEagerLoading_Update_Blacklist_Field(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -1748,7 +1748,7 @@ func TestEagerLoading_Update_Whitelist_Relation(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -1770,7 +1770,7 @@ func TestEagerLoading_Update_Whitelist_Relation(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Name: null.StringFrom("updOnePlus")}
@@ -1840,7 +1840,7 @@ func TestEagerLoading_Update_Blacklist_Relation(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -1862,7 +1862,7 @@ func TestEagerLoading_Update_Blacklist_Relation(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -1930,7 +1930,7 @@ func TestEagerLoading_Update_Whitelist_RelationField(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -1952,7 +1952,7 @@ func TestEagerLoading_Update_Whitelist_RelationField(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Name: null.StringFrom("updOnePlus")}
@@ -2021,7 +2021,7 @@ func TestEagerLoading_Update_Blacklist_RelationField(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				err = cust.First(&c)
 				assert.NoError(t, err)
@@ -2044,7 +2044,7 @@ func TestEagerLoading_Update_Blacklist_RelationField(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -2112,7 +2112,7 @@ func TestEagerLoading_Update_Whitelist_All(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -2134,7 +2134,7 @@ func TestEagerLoading_Update_Whitelist_All(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -2201,7 +2201,7 @@ func TestEagerLoading_Update_Blacklist_All(t *testing.T) {
 		if assert.NoError(t, err) {
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -2223,7 +2223,7 @@ func TestEagerLoading_Update_Blacklist_All(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -2291,7 +2291,7 @@ func TestEagerLoading_First(t *testing.T) {
 		if assert.NoError(t, err) {
 			eager, err := orm.NewStrategy("eager")
 			if assert.NoError(t, err) {
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 
 				err = eager.First(&cust, &c)
 				assert.NoError(t, err)
@@ -2359,7 +2359,7 @@ func TestEagerLoading_All(t *testing.T) {
 		if assert.NoError(t, err) {
 			eager, err := orm.NewStrategy("eager")
 			if assert.NoError(t, err) {
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 
 				// error because the result is no ptr
 				err := eager.All(result, &cust, &c)
@@ -2531,17 +2531,17 @@ func TestEagerLoading_Create(t *testing.T) {
 			cust.SetTx(tx)
 
 			// main entry
-			cust.FirstName = sqlquery.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
-			cust.LastName = sqlquery.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
+			cust.FirstName = sqlquery_.NullString{NullString: sql.NullString{String: "Trescha", Valid: true}}
+			cust.LastName = sqlquery_.NullString{NullString: sql.NullString{String: "Stoate", Valid: true}}
 			created, err := time.Parse("2006-01-02", "2019-02-23")
 			assert.NoError(t, err)
 			updated, err := time.Parse("2006-01-02", "2020-03-02")
 			assert.NoError(t, err)
 			deleted, err := time.Parse("2006-01-02", "2020-10-02")
 			assert.NoError(t, err)
-			cust.CreatedAt = &sqlquery.NullTime{Time: created, Valid: true}
-			cust.UpdatedAt = &sqlquery.NullTime{Time: updated, Valid: true}
-			cust.DeletedAt = &sqlquery.NullTime{Time: deleted, Valid: true}
+			cust.CreatedAt = &sqlquery_.NullTime{Time: created, Valid: true}
+			cust.UpdatedAt = &sqlquery_.NullTime{Time: updated, Valid: true}
+			cust.DeletedAt = &sqlquery_.NullTime{Time: deleted, Valid: true}
 
 			// has One
 			cust.Info = Contactfk{Phone: null.StringFrom("000-000-001")}
@@ -2570,7 +2570,7 @@ func TestEagerLoading_Create(t *testing.T) {
 
 			cust2 := Customerfk{}
 			cust2.Initialize(&cust2)
-			c := sqlquery.Condition{}
+			c := sqlquery_.Condition{}
 			err = eager.First(&cust2, &c)
 			assert.NoError(t, err)
 
@@ -2629,7 +2629,7 @@ func TestEagerLoading_Update(t *testing.T) {
 			eager, err := orm.NewStrategy("eager")
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -2651,7 +2651,7 @@ func TestEagerLoading_Update(t *testing.T) {
 				// hasMany (add one)
 				created, err := time.Parse("2006-01-02", "2019-02-23")
 				assert.NoError(t, err)
-				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery.NullTime{Time: created, Valid: true}})
+				cust.Orders = append(cust.Orders, Orderfk{CreatedAt: sqlquery_.NullTime{Time: created, Valid: true}})
 
 				// hasOne depth1 (edit)
 				cust.Orders[0].Product = Productfk{Price: null.FloatFrom(2.2), Name: null.StringFrom("updOnePlus")}
@@ -2722,7 +2722,7 @@ func TestEagerLoading_Update_MysqlErr(t *testing.T) {
 			eager, err := orm.NewStrategy("eager")
 			if assert.NoError(t, err) {
 
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				c.Where("id = ?", 1)
 				cust.First(&c)
 
@@ -2760,7 +2760,7 @@ func TestEagerLoading_Delete(t *testing.T) {
 		if assert.NoError(t, err) {
 			eager, err := orm.NewStrategy("eager")
 			if assert.NoError(t, err) {
-				c := sqlquery.Condition{}
+				c := sqlquery_.Condition{}
 				b, err := cust.Builder()
 				assert.NoError(t, err)
 				tx, err := b.Adapter.Begin()
@@ -2778,7 +2778,7 @@ func TestEagerLoading_Delete(t *testing.T) {
 				tx, err = b.Adapter.Begin()
 				assert.NoError(t, err)
 				cust.SetTx(tx)
-				c = sqlquery.Condition{}
+				c = sqlquery_.Condition{}
 				c.Where("id = ?", 100)
 				cust.ID = 100
 				err = eager.Delete(&cust, &c)

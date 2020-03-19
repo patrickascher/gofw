@@ -1,129 +1,80 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery_test
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"testing"
+
+	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestSqlInsert_Exec(t *testing.T) {
-	var values []map[string]interface{}
-	values = append(values, map[string]interface{}{"id": 10, "name": "Combot"})
-	values = append(values, map[string]interface{}{"id": 11, "name": "Uxptron"})
+// TestInsert is table driven and checks the render function for different delete stmts.
+func TestInsert(t *testing.T) {
+	test := assert.New(t)
 
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, HelperDeleteEntries(b))
+	b, err := sqlquery.New(sqlquery.Config{Driver: "test"}, nil)
+	test.NoError(err)
 
-	// Normal Insert
-	if assert.NoError(t, err) {
-		res, errInsert := b.Insert(TABLE).Columns("name").Values(values).Exec()
-		if assert.NoError(t, errInsert) {
-			num, errRows := res[0].RowsAffected()
-			if assert.NoError(t, errRows) {
-				assert.Equal(t, int64(2), num)
-			}
-		}
+	// table driven:
+	var tests = []struct {
+		expectedArgs [][]interface{}
+		expectedSql  string
+		into         string
+		value        []map[string]interface{}
+		columns      []string
+		batch        int
+		lastID       string
+
+		error    bool
+		errorMsg string
+	}{
+		// err: update without any values
+		{expectedSql: "", into: "users", error: true, errorMsg: sqlquery.ErrValueMissing.Error()},
+		// ok - testing value and order of it
+		{expectedArgs: [][]interface{}{{"John", "Doe"}}, expectedSql: "INSERT INTO 'users'('name', 'surname') VALUES (?, ?)", columns: []string{"name", "surname"}, into: "users", value: []map[string]interface{}{{"surname": "Doe", "name": "John"}}},
+		// err: value set name and surname but only name is allowed
+		{expectedArgs: [][]interface{}{{"John", "Doe"}}, expectedSql: "UPDATE 'users' SET 'surname' = ?, 'name' = ?", into: "users", columns: []string{"nameX"}, value: []map[string]interface{}{{"name": "John", "surname": "Doe"}}, error: true, errorMsg: fmt.Sprintf(sqlquery.ErrColumn.Error(), "nameX")},
+		// ok: multiple value
+		{expectedArgs: [][]interface{}{{"John", "Doe", "Bar", "Foo"}}, expectedSql: "INSERT INTO 'users'('name', 'surname') VALUES (?, ?), (?, ?)", columns: []string{"name", "surname"}, into: "users", value: []map[string]interface{}{{"surname": "Doe", "name": "John"}, {"surname": "Foo", "name": "Bar"}}},
+		// ok: batch value
+		{batch: 1, expectedArgs: [][]interface{}{{"John", "Doe"}, {"Bar", "Foo"}}, expectedSql: "INSERT INTO 'users'('name', 'surname') VALUES (?, ?)", columns: []string{"name", "surname"}, into: "users", value: []map[string]interface{}{{"surname": "Doe", "name": "John"}, {"surname": "Foo", "name": "Bar"}}},
+		// ok: batch default size 50 is used
+		{lastID: "ID", batch: 0, expectedArgs: [][]interface{}{{"John", "Doe", "Bar", "Foo"}}, expectedSql: "INSERT INTO 'batchcheck'('name', 'surname') VALUES (?, ?), (?, ?)", columns: []string{"name", "surname"}, into: "batchcheck", value: []map[string]interface{}{{"surname": "Doe", "name": "John"}, {"surname": "Foo", "name": "Bar"}}},
 	}
 
-	// Batched Insert
-	if assert.NoError(t, err) {
-		res, errInsert := b.Insert(TABLE).Columns("name").Batch(1).Values(values).Exec()
-		if assert.NoError(t, errInsert) {
-			num, errRows := res[0].RowsAffected()
-			if assert.NoError(t, errRows) {
-				assert.Equal(t, int64(1), num)
+	for _, tt := range tests {
+		t.Run(tt.expectedSql, func(t *testing.T) {
+
+			sel := b.Insert(tt.into).Values(tt.value)
+			if tt.columns != nil {
+				sel.Columns(tt.columns...)
+				// multiple call - to test if they are added correctly
+				sel.Columns(tt.columns...)
 			}
-			num, errRows = res[1].RowsAffected()
-			if assert.NoError(t, errRows) {
-				assert.Equal(t, int64(1), num)
+			if tt.batch != 0 || tt.into == "batchcheck" {
+				sel.Batch(tt.batch)
 			}
-		}
-	}
-
-	// Forgot to add a Value
-	if assert.NoError(t, err) {
-		_, errInsert := b.Insert(TABLE).Columns("name").Batch(1).Exec()
-		assert.Error(t, errInsert)
-	}
-
-	// Column mismatch
-	if assert.NoError(t, err) {
-		_, errInsert := b.Insert(TABLE).Columns("id", "name", "doesNotExist").Batch(1).Values(values).Exec()
-		assert.Error(t, errInsert)
-	}
-}
-
-func TestSqlInsert_ExecTx(t *testing.T) {
-	var values []map[string]interface{}
-	values = append(values, map[string]interface{}{"id": 10, "name": "Combot"})
-	values = append(values, map[string]interface{}{"id": 11, "name": "Uxptron"})
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	assert.NoError(t, HelperDeleteEntries(b))
-
-	// Normal Insert
-	tx, err := b.NewTx()
-	if assert.NoError(t, err) {
-		if assert.NoError(t, err) {
-			res, errInsert := b.Insert(TABLE).Columns("name").Values(values).ExecTx(tx)
-			if assert.NoError(t, errInsert) {
-				num, errRows := res[0].RowsAffected()
-				if assert.NoError(t, errRows) {
-					assert.Equal(t, int64(2), num)
-				}
+			if tt.lastID != "" {
+				id := 0
+				sel.LastInsertedID(tt.lastID, &id)
 			}
-		}
 
-		// Batched Insert
-		if assert.NoError(t, err) {
-			res, errInsert := b.Insert(TABLE).Columns("name").Batch(1).Values(values).ExecTx(tx)
-			if assert.NoError(t, errInsert) {
-				num, errRows := res[0].RowsAffected()
-				if assert.NoError(t, errRows) {
-					assert.Equal(t, int64(1), num)
-				}
-				num, errRows = res[1].RowsAffected()
-				if assert.NoError(t, errRows) {
-					assert.Equal(t, int64(1), num)
-				}
-			}
-		}
-
-		// Forgot to add a Value - argument mismatch (rollback)
-		if assert.NoError(t, err) {
-			_, errInsert := b.Insert(TABLE).Columns("name").Batch(1).ExecTx(tx)
-			assert.Error(t, errInsert)
-		}
-
-		// Column mismatch - argument mismatch (rollback)
-		if assert.NoError(t, err) {
-			_, errInsert := b.Insert(TABLE).Columns("id", "name", "doesNotExist").Batch(1).Values(values).ExecTx(tx)
-			assert.Error(t, errInsert)
-		}
-
-		// Error because of rollback already happened
-		err = b.CommitTx(tx)
-		assert.Error(t, err)
-	}
-}
-
-func TestSqlInsert_String(t *testing.T) {
-	var values []map[string]interface{}
-	values = append(values, map[string]interface{}{"id": 10, "name": "Combot"})
-	values = append(values, map[string]interface{}{"id": 11, "name": "Uxptron"})
-
-	b, err := HelperCreateBuilder()
-
-	// Normal Insert
-	if assert.NoError(t, err) {
-		stmt, args, errInsert := b.Insert(TABLE).Columns("name").Values(values).String()
-		if assert.NoError(t, errInsert) {
-			if b.Placeholder.Numeric {
-				assert.Equal(t, "INSERT INTO "+b.QuoteIdentifier(TABLE)+"("+b.QuoteIdentifier("name")+") VALUES ("+b.Placeholder.Char+"1), ("+b.Placeholder.Char+"2)", stmt)
+			sql, args, err := sel.String()
+			if tt.error {
+				test.Error(err)
+				test.Equal("", sql)
+				test.Nil(args)
+				test.Equal(tt.errorMsg, err.Error())
 			} else {
-				assert.Equal(t, "INSERT INTO "+b.QuoteIdentifier(TABLE)+"("+b.QuoteIdentifier("name")+") VALUES ("+b.Placeholder.Char+"), ("+b.Placeholder.Char+")", stmt)
+				test.NoError(err, sql)
+				test.Equal(tt.expectedSql, sql)
+				test.Equal(tt.expectedArgs, args)
+
 			}
-			assert.Equal(t, [][]interface{}([][]interface{}{{"Combot", "Uxptron"}}), args)
-		}
+		})
 	}
 }

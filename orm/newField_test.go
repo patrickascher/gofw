@@ -486,7 +486,7 @@ func TestNewField_Delete(t *testing.T) {
 	err := robot.Initialize(robot)
 	assert.NoError(t, err)
 
-	c := sqlquery.Condition{}
+	c := sqlquery_.Condition{}
 	c.Order("id desc")
 	err = robot.First(&c)
 	assert.NoError(t, err)
@@ -507,7 +507,7 @@ func TestNewFieldBot_Delete(t *testing.T) {
 	err := robot.Initialize(robot)
 	assert.NoError(t, err)
 
-	c := sqlquery.Condition{}
+	c := sqlquery_.Condition{}
 	c.Order("id desc")
 	err = robot.First(&c)
 	assert.NoError(t, err)

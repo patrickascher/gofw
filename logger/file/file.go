@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-// Package file implements the logger.Interface.
+// Package file implements the log.Interface.
 // The write process is done in a go routine. All operations are using a sync.RWMutex for synchronization.
 //
 // Check the file.Options for the available configurations.
@@ -23,7 +23,7 @@ import (
 
 // Error messages
 var (
-	ErrFilepath = errors.New("logger/file: option Filepath is mandatory")
+	ErrFilepath = errors.New("log/file: option Filepath is mandatory")
 )
 
 // Options of the file log provider.
@@ -37,18 +37,17 @@ type file struct {
 	options Options
 }
 
-// Write implements the logger.Interface.
+// Write implements the log.Interface.
 // For the write process, a new go routine is spawned to avoid performance issues.
 // TODO: how to handle errors, error on benchmark to delete the benchmark file?
 func (c *file) Write(e logger.LogEntry) {
-	go func(c *file, e logger.LogEntry) {
+	func(c *file, e logger.LogEntry) {
 		c.lock.Lock()
 		defer c.lock.Unlock()
 
 		f, _ := os.OpenFile(c.options.Filepath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
 		f.WriteString(fmt.Sprintf("%s %s %s:%d %s", e.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05"), e.Level.String(), filepath.Base(e.Filename), e.Line, e.Message) + "\n")
 		f.Close()
-
 	}(c, e)
 }
 

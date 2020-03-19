@@ -106,16 +106,16 @@ func (m *Model) addDBValidation() error {
 				col.Validator.appendConfig("omitempty") // needed that an empty string "" will not throw an error.
 			}
 			col.Validator.appendConfig("numeric")
-			opt := col.Information.Type.(*sqlquery.Int)
+			opt := col.Information.Type.(*sqlquery_.Int)
 			col.Validator.appendConfig(fmt.Sprintf("min=%d", opt.Min))
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Max))
 		case "Float":
 			col.Validator.appendConfig("numeric")
 		case "Text":
-			opt := col.Information.Type.(*sqlquery.Text)
+			opt := col.Information.Type.(*sqlquery_.Text)
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Size)) // TODO FIX it must be the byte size
 		case "TextArea":
-			opt := col.Information.Type.(*sqlquery.TextArea)
+			opt := col.Information.Type.(*sqlquery_.TextArea)
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Size)) // TODO FIX it must be the byte size
 		case "Time":
 			//TODO write my own

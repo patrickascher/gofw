@@ -1,26 +1,28 @@
-// Copyright 2018 (pat@fullhouse-productions.com)
-// TODO check license styles
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package context_test
 
 import (
-	"net/http"
-	"net/url"
-	"testing"
-
+	context2 "context"
 	"crypto/tls"
 	"fmt"
-	"github.com/julienschmidt/httprouter"
 	"github.com/patrickascher/gofw/controller/context"
+	"github.com/patrickascher/gofw/middleware/jwt"
 	"github.com/stretchr/testify/assert"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"testing"
 )
 
-func requestHelper() (http.Request, *context.Request) {
-	url, _ := url.Parse("https://test.com:8043/user?q=dotnet#test")
+func requestHelperHTTPS() (http.Request, *context.Context) {
+	url, _ := url.Parse("https://example.com:8080/user?id=12#test")
 
 	header := http.Header{}
-	header["Referer"] = []string{"TestSuit"}
+	header["Referer"] = []string{"GoTest"}
 	header["X-Forwarded-For"] = []string{"192.168.2.1"}
 	header["User-Agent"] = []string{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"}
 	header["X-Forwarded-Proto"] = []string{"https"}
@@ -30,42 +32,43 @@ func requestHelper() (http.Request, *context.Request) {
 		Proto:      "HTTP/2",
 		Header:     header,
 		Method:     "GET",
-		Host:       "test.com:8043",
+		Host:       "example.com:8080",
 		URL:        url,
-		RequestURI: "/user?q=dotnet#test"}
+		RequestURI: "/user?id=12#test"}
+	rw := &FakeResponse{}
 
-	req := context.NewRequest(&r)
-	return r, req
+	ctx := context.New(&r, rw)
+	return r, ctx
 }
 
-func requestHelperHTTP() (http.Request, *context.Request) {
-	url, _ := url.Parse("http://test.com/user?q=dotnet#test")
+func requestHelperHTTP() (http.Request, *context.Context) {
+	url, _ := url.Parse("http://example.com:8080/user?id=12#test")
 
 	header := http.Header{}
-	header["Remote Address"] = []string{"192.168.2.1"}
+	header["REMOTE_ADDR"] = []string{"192.168.2.2"}
 	header["User-Agent"] = []string{"Mozilla/5.0 Mobile (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"}
+	header["X-Forwarded-Proto"] = []string{"http"}
 
 	//Create a new request
 	r := http.Request{
 		Proto:      "HTTP/1.1",
 		Header:     header,
-		Method:     "POST",
-		Host:       "test.com",
+		Method:     "GET",
+		Host:       "example.com",
 		URL:        url,
-		RequestURI: "/user?q=dotnet"}
+		RequestURI: "/user?id=12#test"}
+	rw := &FakeResponse{}
 
-	r.RemoteAddr = "192.168.2.1:3000"
-
-	req := context.NewRequest(&r)
-	return r, req
+	ctx := context.New(&r, rw)
+	return r, ctx
 }
 
-func requestHelperIP() (http.Request, *context.Request) {
-	url, _ := url.Parse("http://test.com:8043/user?q=dotnet#test")
+func requestHelperIP() (http.Request, *context.Context) {
+	url, _ := url.Parse("http://exple.com:8043/user?id=12#test")
 
 	header := http.Header{}
 	header["Referer"] = []string{"TestSuit"}
-	header["Remote Address"] = []string{"192.168.2.1"}
+	header["Remote Address"] = []string{"192.168.2.3"}
 	header["User-Agent"] = []string{"Mozilla/5.0 Mobile (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"}
 
 	//Create a new request
@@ -73,181 +76,235 @@ func requestHelperIP() (http.Request, *context.Request) {
 		Proto:      "HTTP/1.1",
 		Header:     header,
 		Method:     "POST",
-		Host:       "test.com:8043",
+		Host:       "example.com:8080",
 		URL:        url,
-		RequestURI: "/user?q=dotnet"}
+		RequestURI: "/user?id=12#test"}
 
-	r.RemoteAddr = "192.168.2.1"
+	r.RemoteAddr = "192.168.2.3"
 
-	req := context.NewRequest(&r)
-	return r, req
+	rw := &FakeResponse{}
+
+	ctx := context.New(&r, rw)
+	return r, ctx
+}
+
+func requestHelperIPPort() (http.Request, *context.Context) {
+	url, _ := url.Parse("http://exple.com:8043/user?id=12#test")
+
+	header := http.Header{}
+	header["Referer"] = []string{"TestSuit"}
+	header["Remote Address"] = []string{"192.168.2.3"}
+	header["User-Agent"] = []string{"Mozilla/5.0 Mobile (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"}
+
+	//Create a new request
+	r := http.Request{
+		Proto:      "HTTP/1.1",
+		Header:     header,
+		Method:     "POST",
+		Host:       "example.com",
+		URL:        url,
+		RequestURI: "/user?id=12#test"}
+
+	r.RemoteAddr = "192.168.2.4:8080"
+
+	rw := &FakeResponse{}
+
+	ctx := context.New(&r, rw)
+	return r, ctx
 }
 
 func TestRequest_Method(t *testing.T) {
-	_, req := requestHelper()
-	_, req2 := requestHelperHTTP()
+	test := assert.New(t)
+	_, ctxHttps := requestHelperHTTPS()
+	_, ctxHttp := requestHelperHTTP()
 
 	// Method
-	assert.Equal(t, "GET", req.Method())
-	assert.Equal(t, "POST", req2.Method())
+	test.Equal("GET", ctxHttps.Request.Method())
 
 	// Is
-	assert.True(t, req.Is("get"))
-	assert.True(t, req.Is("GeT"))
-	assert.True(t, req.Is("GET"))
-	assert.False(t, req.Is("POST"))
-	assert.True(t, req2.Is("POST"))
-	assert.False(t, req2.Is("GET"))
+	test.True(ctxHttps.Request.Is("get"))
+	test.True(ctxHttps.Request.Is("GeT"))
+	test.True(ctxHttps.Request.Is("GET"))
+	test.False(ctxHttps.Request.Is("POST"))
 
 	// Is...
-	assert.True(t, req.IsGet())
-	assert.False(t, req.IsPost())
-	assert.False(t, req.IsPatch())
-	assert.False(t, req.IsPut())
-	assert.False(t, req.IsDelete())
-	assert.True(t, req2.IsPost())
-	assert.False(t, req2.IsGet())
-}
+	test.True(ctxHttps.Request.IsGet())
+	test.False(ctxHttps.Request.IsPost())
+	test.False(ctxHttps.Request.IsPatch())
+	test.False(ctxHttps.Request.IsPut())
+	test.False(ctxHttps.Request.IsDelete())
 
-func TestRequest_IsSecure(t *testing.T) {
-	_, req := requestHelper()
-	assert.True(t, req.IsSecure())
+	// IsSecure
+	test.False(ctxHttp.Request.IsSecure())
+	test.True(ctxHttps.Request.IsSecure())
 
-	_, req = requestHelperHTTP()
-	assert.False(t, req.IsSecure())
 }
 
 func TestRequest_UserAgent(t *testing.T) {
-	_, req := requestHelper()
-	agent := req.UserAgent()
+	_, ctxHttps := requestHelperHTTPS()
+	_, ctxHttp := requestHelperHTTP()
 
-	assert.Equal(t, context.OsInfo(context.OsInfo{Name: "Mac OS X", Version: "10.13.6"}), agent.OS())
-	assert.Equal(t, context.BrowserInfo(context.BrowserInfo{Name: "Chrome", Version: "69.0.3497.100"}), agent.Browser())
+	agent := ctxHttps.Request.UserAgent()
+	agentMobile := ctxHttp.Request.UserAgent()
+
+	// os
+	assert.Equal(t, "Mac OS X", agent.OS().Name)
+	assert.Equal(t, "10.13.6", agent.OS().Version)
+
+	// Browser
+	assert.Equal(t, "Chrome", agent.Browser().Name)
+	assert.Equal(t, "69.0.3497.100", agent.Browser().Version)
+
+	// Mobile
 	assert.False(t, agent.Mobile())
-
-	_, req2 := requestHelperHTTP()
-	agent = req2.UserAgent()
-	assert.True(t, agent.Mobile())
+	assert.True(t, agentMobile.Mobile())
 }
 
 func TestRequest_Raw(t *testing.T) {
-	r, req := requestHelper()
-	assert.Equal(t, &r, req.Raw())
+	r, ctx := requestHelperHTTP()
+	assert.Equal(t, &r, ctx.Request.Raw())
 }
 
 func TestRequest_IP(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "192.168.2.1", req.IP())
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, "192.168.2.1", ctxHttps.Request.IP()) // X-Forwarded first IP.
 
-	_, req2 := requestHelperHTTP()
-	assert.Equal(t, "192.168.2.1", req2.IP())
+	//_, ctxHttp := requestHelperHTTP()
+	//assert.Equal(t, "192.168.2.2", ctxHttp.Request.IP()) // REMOTE_ADDR by Header.
 
-	_, req3 := requestHelperIP()
-	assert.Equal(t, "192.168.2.1", req3.IP())
+	_, ctxIp := requestHelperIP()
+	assert.Equal(t, "192.168.2.3", ctxIp.Request.IP()) // Remote Addr set manually.
+
+	_, ctxIpPort := requestHelperIPPort()
+	assert.Equal(t, "192.168.2.4", ctxIpPort.Request.IP()) // Remote Addr set manually.
 }
 
 func TestRequest_Proxy(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, []string{"192.168.2.1"}, req.Proxy())
+	// existing X-Forwarted-For header
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, []string{"192.168.2.1"}, ctxHttps.Request.Proxy())
+
+	// header does not exist
+	_, ctxHttp := requestHelperHTTP()
+	assert.Equal(t, []string{}, ctxHttp.Request.Proxy())
 }
 
 func TestRequest_Scheme(t *testing.T) {
-	//X-Forwarded-Proto
-	header := http.Header{}
-	header["X-Forwarded-Proto"] = []string{"httpsx"}
-	r := http.Request{Header: header}
-	req := context.NewRequest(&r)
-	assert.Equal(t, "httpsx", req.Scheme())
 
-	//URL Scheme
-	url, _ := url.Parse("https://test.com:8043/user?q=dotnet")
-	url.Scheme = ""
-	r = http.Request{URL: url}
-	r.URL.Scheme = "httpsx"
-	req = context.NewRequest(&r)
-	assert.Equal(t, "httpsx", req.Scheme())
+	// Header X-Forwarded-Proto
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, "https", ctxHttps.Request.Scheme())
+
+	// Scheme URL.Scheme
+	_, ctxIP := requestHelperIP()
+	assert.Equal(t, "http", ctxIP.Request.Scheme())
 
 	//TLS
-	url, _ = url.Parse("https://test.com:8043/user?q=dotnet")
+	url, _ := url.Parse("https://test.com:8043/user?q=dotnet")
 	url.Scheme = ""
 	tls_ := tls.ConnectionState{}
-	r = http.Request{TLS: &tls_, URL: url}
-	req = context.NewRequest(&r)
-	assert.Equal(t, "https", req.Scheme())
+	r := http.Request{TLS: &tls_, URL: url}
+	rw := &FakeResponse{}
+	req := context.New(&r, rw)
+	assert.Equal(t, "https", req.Request.Scheme())
 
-	// else
+	//no TLS
 	url, _ = url.Parse("https://test.com:8043/user?q=dotnet")
 	url.Scheme = ""
-	header = http.Header{}
-	r = http.Request{Header: header, URL: url}
-	req = context.NewRequest(&r)
-	assert.Equal(t, "http", req.Scheme())
+	tls_ = tls.ConnectionState{}
+	r = http.Request{TLS: nil, URL: url}
+	rw = &FakeResponse{}
+	req = context.New(&r, rw)
+	assert.Equal(t, "http", req.Request.Scheme())
 }
 
 func TestRequest_Host(t *testing.T) {
 	r := http.Request{}
-	req := context.NewRequest(&r)
-	assert.Equal(t, "localhost", req.Host())
+	rw := &FakeResponse{}
 
-	r = http.Request{Host: "test.com"}
-	req = context.NewRequest(&r)
-	assert.Equal(t, "test.com", req.Host())
+	req := context.New(&r, rw)
+	assert.Equal(t, "localhost", req.Request.Host())
 
-	r = http.Request{Host: "test2.com:3000"}
-	req = context.NewRequest(&r)
-	assert.Equal(t, "test2.com", req.Host())
+	r = http.Request{Host: "example.com"}
+	req = context.New(&r, rw)
+	assert.Equal(t, "example.com", req.Request.Host())
+
+	r = http.Request{Host: "example.com:3000"}
+	req = context.New(&r, rw)
+	assert.Equal(t, "example.com", req.Request.Host())
 }
 
 func TestRequest_Protocol(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "HTTP/2", req.Protocol())
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, "HTTP/2", ctxHttps.Request.Protocol())
 
-	_, req2 := requestHelperHTTP()
-	assert.Equal(t, "HTTP/1.1", req2.Protocol())
+	_, ctxHttp := requestHelperHTTP()
+	assert.Equal(t, "HTTP/1.1", ctxHttp.Request.Protocol())
 }
 
 func TestRequest_URI(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "/user?q=dotnet#test", req.URI())
+	_, ctx := requestHelperHTTPS()
+	assert.Equal(t, "/user?id=12#test", ctx.Request.URI())
 }
 
 func TestRequest_URL(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "/user", req.URL())
+	_, ctx := requestHelperHTTPS()
+	assert.Equal(t, "/user", ctx.Request.URL())
 }
 
 func TestRequest_FullURL(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "https://test.com:8043/user?q=dotnet#test", req.FullURL())
+	_, ctx := requestHelperHTTPS()
+	assert.Equal(t, "https://example.com:8080/user?id=12#test", ctx.Request.FullURL())
 }
 
 func TestRequest_Site(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "https://test.com", req.Site())
+	_, ctx := requestHelperHTTPS()
+	assert.Equal(t, "https://example.com", ctx.Request.Site())
 }
 
 func TestRequest_Domain(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "test.com", req.Domain())
+	_, ctx := requestHelperHTTPS()
+	assert.Equal(t, "example.com", ctx.Request.Domain())
 }
 
 func TestRequest_Port(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, 8043, req.Port())
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, 8080, ctxHttps.Request.Port())
 
-	_, req2 := requestHelperHTTP()
-	assert.Equal(t, 80, req2.Port())
+	_, ctxHttp := requestHelperHTTP()
+	assert.Equal(t, 80, ctxHttp.Request.Port())
 }
 
 func TestRequest_Referer(t *testing.T) {
-	_, req := requestHelper()
-	assert.Equal(t, "TestSuit", req.Referer())
+	_, ctxHttps := requestHelperHTTPS()
+	assert.Equal(t, "GoTest", ctxHttps.Request.Referer())
 
-	_, req2 := requestHelperHTTP()
-	assert.Equal(t, "", req2.Referer())
+	_, ctxHttp := requestHelperHTTP()
+	assert.Equal(t, "", ctxHttp.Request.Referer())
+}
+
+func TestRequest_Token(t *testing.T) {
+	r := http.Request{Host: "example.com:3000"}
+	rw := &FakeResponse{}
+
+	req := context.New(r.WithContext(context2.WithValue(r.Context(), jwt.CLAIM, "abcd")), rw)
+	assert.Equal(t, "abcd", req.Request.Token())
+}
+
+func TestRequest_Pattern(t *testing.T) {
+	r := http.Request{Host: "example.com:3000"}
+	rw := &FakeResponse{}
+
+	req := context.New(&r, rw)
+	assert.Equal(t, "", req.Request.Pattern())
+
+	req = context.New(r.WithContext(context2.WithValue(r.Context(), "pattern", "/user/:id")), rw)
+	assert.Equal(t, "/user/:id", req.Request.Pattern())
 }
 
 func TestRequest_parseForm(t *testing.T) {
+	rw := &FakeResponse{}
+
 	header := http.Header{}
 	header["Content-Type"] = []string{"application/x-www-form-urlencoded"}
 
@@ -257,90 +314,49 @@ func TestRequest_parseForm(t *testing.T) {
 	r := httptest.NewRequest("POST", "https://test.com:8043/user?q=dotnet#test", strings.NewReader(form.Encode()))
 	r.Header = header
 
-	req := context.NewRequest(r)
+	req := context.New(r, rw)
 
-	params, err := req.Params()
+	params, err := req.Request.Params()
 	assert.NoError(t, err)
 	assert.Equal(t, map[string][]string{"username": {"Mike"}}, params)
+
+	param, err := req.Request.Param("username")
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"Mike"}, param)
+
+	param, err = req.Request.Param("password")
+	assert.Error(t, err)
+	assert.Nil(t, param)
 }
 
 func TestRequest_parseGet(t *testing.T) {
+	rw := &FakeResponse{}
+
 	header := http.Header{}
 	header["Content-Type"] = []string{"application/x-www-form-urlencoded"}
 
 	form := url.Values{}
 	form.Add("username", "Mike")
 
-	r := httptest.NewRequest("GET", "https://test.com:8043/user?q=dotnet#test", strings.NewReader(form.Encode()))
+	r := httptest.NewRequest("GET", "https://test.com:8043/user?id=12#test", strings.NewReader(form.Encode()))
 	r.Header = header
 
-	req := context.NewRequest(r)
+	req := context.New(r, rw)
 
-	params, err := req.Params()
+	params, err := req.Request.Params()
 	//recall render should not be called twice
-	_, _ = req.Params()
+	_, _ = req.Request.Params()
 
 	assert.NoError(t, err)
-	assert.Equal(t, map[string][]string{"q": {"dotnet#test"}}, params)
+	assert.Equal(t, map[string][]string{"id": {"12#test"}}, params)
 
-	param, err := req.Param("q")
+	// id
+	param, err := req.Request.Param("id")
 	assert.NoError(t, err)
-	assert.Equal(t, []string{"dotnet#test"}, param)
+	assert.Equal(t, []string{"12#test"}, param)
 
 	//parameter does not exist
-	_, err2 := req.Param("userXXX")
+	_, err2 := req.Request.Param("password")
 	assert.Error(t, err2)
-	assert.Equal(t, err2, fmt.Errorf(context.ErrParameter.Error(), "userXXX"))
+	assert.Equal(t, err2, fmt.Errorf(context.ErrParameter.Error(), "password"))
 }
-
-func TestRequest_AddJulienSchmidtRouterParams(t *testing.T) {
-	url, _ := url.Parse("http://test.com:8043/delete/root")
-	r := http.Request{URL: url}
-	req := context.NewRequest(&r)
-
-	// check URL
-	assert.Equal(t, "/delete/root", req.URL())
-
-	params := httprouter.Params{}
-	params = append(params, httprouter.Param{Key: "user", Value: "root"})
-	req.AddJulienSchmidtRouterParams(params)
-
-	// check param and router pattern
-	param, err := req.Param("user")
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"root"}, param)
-	assert.Equal(t, "/delete/:user", req.Pattern())
-
-	//parameter does not exist
-	_, err2 := req.Param("userXXX")
-	assert.Error(t, err2)
-	assert.Equal(t, err2, fmt.Errorf(context.ErrParameter.Error(), "userXXX"))
-}
-
-// TODO when we have a working example again
-/*func TestRequest_AddJulienSchmidtRouterWildcard(t *testing.T) {
-	url, _ := url.Parse("http://test.com:8043/delete/edit/user/1")
-	r := http.Request{URL: url}
-	req := context.NewRequest(&r)
-
-	// check URL
-	assert.Equal(t, "/delete/edit/user/1", req.URL())
-
-	params := httprouter.Params{}
-	params = append(params, httprouter.Param{"1", "edit"})
-	params = append(params, httprouter.Param{"2", "user"})
-	params = append(params, httprouter.Param{"3", "1"})
-
-	req.AddJulienSchmidtRouterParams(params)
-
-	// check param and router pattern
-	param, err := req.Param("user")
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"root"}, param)
-	assert.Equal(t, "/delete/:user", req.Pattern())
-
-	//parameter does not exist
-	param, err = req.Param("userXXX")
-	assert.Error(t, err)
-	assert.Equal(t, err, fmt.Errorf(context.ErrParameter.Error(),"userXXX"))
-}*/

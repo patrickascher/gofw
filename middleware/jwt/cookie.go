@@ -1,3 +1,7 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package jwt
 
 import (
@@ -5,12 +9,19 @@ import (
 	"time"
 )
 
-// Cookie is used to transfer the jwt
+// Cookie constants
+const (
+	CookieJwt     = "JWT_TOKEN"
+	CookieRefresh = "REFRESH_TOKEN"
+)
+
+// Cookie to set or fetch the data.
 type Cookie struct {
 }
 
 // Create a new cookie with the given name and value.
-// Additionally some default security is added.
+// Cookie is set HttpOnly and Secure.
+// TODO : set secure, set Expire to a correct time!?
 func (c *Cookie) Create(name string, v string) *http.Cookie {
 	cookie := &http.Cookie{}
 	cookie.Name = name

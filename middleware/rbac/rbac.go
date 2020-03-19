@@ -1,101 +1,66 @@
-// Package rbac is offering a Role based access control list.
-// It is based on the JWT middleware and checks the request context for the jwt.Claim.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package rbac provides a role based access control list.
+// It is build on top of the JWT middleware.
+// A roleService must be set, to check against your business logic.
+//
+//		rs := &RoleService{} // custom implementation
+// 		rbac := New(rs)
+// 		middleware.Add(jwt.MW,rbac.MW) // jwt.MW must be set before the rbac.MW middleware.
 package rbac
 
 import (
-	"github.com/julienschmidt/httprouter"
-	"github.com/patrickascher/gofw/middleware/jwt"
 	"net/http"
-	"reflect"
-	"strings"
+
+	"github.com/patrickascher/gofw/middleware/jwt"
+	"github.com/patrickascher/gofw/router"
 )
 
 // RoleService interface
 type RoleService interface {
-	Allowed(resource string, action string, claims interface{}) bool
+	// Allowed returns a boolean if the access is granted.
+	// For the given url, HTTP method and jwt claim which includes specific user information.
+	Allowed(url string, HTTPMethod string, claims interface{}) bool
 }
 
-// Rbac main type
+// Rbac type
 type Rbac struct {
 	roleService RoleService
 }
 
-// SetRoleService set your own RoleService
-func (rb *Rbac) SetRoleService(r RoleService) {
-	rb.roleService = r
+// New returns a rbac.
+func New(r RoleService) *Rbac {
+	return &Rbac{roleService: r}
 }
 
-// MiddlewareJR for the julienschmidt router
-func (rb *Rbac) MiddlewareJR(h httprouter.Handle) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		rb.rbac(h, w, r, ps)
-	}
-}
-
-//Middleware for a normal http.HandlerFunc
-func (rb *Rbac) Middleware(h http.HandlerFunc) http.HandlerFunc {
+// MW will be passed to the middleware.
+func (rb *Rbac) MW(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rb.rbac(h, w, r)
-	}
-}
 
-// rbac middleware helper
-func (rb *Rbac) rbac(handler interface{}, args ...interface{}) {
+		// checking the request context for the required keys
+		claim := r.Context().Value(jwt.CLAIM)
+		urlPattern := r.Context().Value(router.PATTERN)
 
-	var w http.ResponseWriter
-	var r *http.Request
-	var ps httprouter.Params
-	var hJR httprouter.Handle
-	var h http.HandlerFunc
-
-	for k, arg := range args {
-		switch k {
-		case 0:
-			w = arg.(http.ResponseWriter)
-		case 1:
-			r = arg.(*http.Request)
-		case 2:
-			ps = arg.(httprouter.Params)
+		// application or configuration errors
+		if rb.roleService == nil || urlPattern == nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
-	}
-
-	// checking if ctx exist
-	ctx := r.Context().Value(jwt.ContextName)
-	if ctx == nil {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	//TODO this logic exists also in controller.SetParams -> controller.pattern.
-	// move this in the controller or at least write a helper function there
-	var uri string
-	uri = r.RequestURI
-	if len(ps) > 0 {
-		uri = r.RequestURI
-		for _, val := range ps {
-			uri = strings.Replace(uri, val.Value, ":"+val.Key, 1)
+		// normally the jwt.MW is taking care of this.
+		// Its just here if a developer forgot to add the jwt.MW.
+		if claim == nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
 
-		// check if the param is a wildcard.
-		// if there is no slash between the key param, then it is a wildcard
-		// its only working with rules like /roles/*grid = /roles/param1/param2... not with /roles/?param1=xxx
-		if !strings.Contains(uri, "/:"+ps[len(ps)-1].Key) {
-			uri = strings.Replace(uri, ":"+ps[len(ps)-1].Key, "/*"+ps[len(ps)-1].Key, 1)
+		if !rb.roleService.Allowed(urlPattern.(string), r.Method, claim) {
+			w.WriteHeader(http.StatusForbidden)
+			return
 		}
-	}
 
-	// check if permission is granted
-	if rb.roleService == nil || !rb.roleService.Allowed(uri, r.Method, ctx) {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	if reflect.TypeOf(handler).String() == "httprouter.Handle" {
-		hJR = handler.(httprouter.Handle)
-		hJR(w, r, ps)
-	} else {
-		h = handler.(http.HandlerFunc)
 		h(w, r)
 	}
 }

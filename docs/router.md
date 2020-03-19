@@ -20,7 +20,7 @@ go get github.com/fullhouse-productions/go-router
 
 ```go
 import "github.com/fullhouse-productions/go-router"
-import _ "github.com/fullhouse-productions/go-router/julienschmidt"
+import _ "github.com/fullhouse-productions/go-router/httprouter"
 
 // custom not found handler
 type vue struct {
@@ -30,7 +30,7 @@ func (v *vue) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	http.ServeFile(rw, r, "client/dist/index.html")
 }
 
-rm,err := Get("julienschmidt");
+rm,err := Get("httprouter");
 if err != nil{
 	//...
 }
@@ -74,7 +74,7 @@ defer server.Close()
 Get will return a new Router-Manger with the requested router backend.
 If the router backend does not exist, an error will return.
 ```go
-rm,err := Get("julienschmidt")
+rm,err := Get("httprouter")
 ```
 
 ## Register
@@ -86,14 +86,14 @@ It returns an error if the router-name or the router-backend itself is empty or 
 ```go
 // init registers a json reader
 func init() {
-	Register("julienschmidt", &Julienschmidt{})
+	Register("httprouter", &Julienschmidt{})
 }
 ```
 
 **Usage**
 ```go
 import "github.com/fullhouse-productions/go-router"
-import _ "github.com/fullhouse-productions/go-router/julienschmidt"
+import _ "github.com/fullhouse-productions/go-router/httprouter"
 ```
 
 

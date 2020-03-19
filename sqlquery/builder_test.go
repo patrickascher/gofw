@@ -1,82 +1,92 @@
 package sqlquery_test
 
 import (
+	"fmt"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/stretchr/testify/assert"
 	"testing"
-
-	"database/sql"
-	_ "github.com/patrickascher/gofw/sqlquery/mysql"
-	_ "github.com/patrickascher/gofw/sqlquery/postgres"
-	"reflect"
 )
 
-func TestNewBuilderFromConfig(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-
-	assert.IsType(t, &sqlquery.Config{}, b.Config())
-	if assert.NoError(t, err) {
-		assert.IsType(t, &sqlquery.Builder{}, b)
-	}
+func init() {
+	// ok: register successful
+	_ = sqlquery.Register("test", mockMock)
 }
 
-// TestNewBuilderFromConfig2 should fail because of a wrong adapter config
-func TestNewBuilderFromConfig2(t *testing.T) {
-	conf := sqlquery.Config{}
-	_, err := sqlquery.NewBuilderFromConfig(&conf)
-	assert.Error(t, err)
+func TestRegister(t *testing.T) {
+	test := assert.New(t)
+
+	// error: no provider-name and provider is given
+	err := sqlquery.Register("", nil)
+	test.Error(err)
+	test.Equal(err.Error(), sqlquery.ErrNoProvider.Error())
+
+	// error: no provider is given
+	err = sqlquery.Register("mock", nil)
+	test.Error(err)
+	test.Equal(err.Error(), sqlquery.ErrNoProvider.Error())
+
+	// error: no provider-name is given
+	err = sqlquery.Register("", mockMock)
+	test.Error(err)
+	test.Equal(err.Error(), sqlquery.ErrNoProvider.Error())
+
+	// ok: register successful
+	err = sqlquery.Register("mock", mockMock)
+	test.NoError(err)
+
+	// error: multiple registration
+	err = sqlquery.Register("mock", mockMock)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(sqlquery.ErrProviderAlreadyExists.Error(), "mock"), err.Error())
 }
 
-func TestNewBuilderFromAdapter(t *testing.T) {
-	cfg, err := sqlquery.HelperParseConfig()
-	if assert.NoError(t, err) {
-		db, errDb := sql.Open("mysql", cfg.DSN())
-		if assert.NoError(t, errDb) {
-			assert.IsType(t, &sql.DB{}, db)
+func TestNew(t *testing.T) {
+	test := assert.New(t)
 
-			b := sqlquery.NewBuilderFromAdapter(db, cfg)
-			assert.IsType(t, &sqlquery.Builder{}, b)
-		}
-	}
+	// error: no config driver -> unregistered empty driver
+	b, err := sqlquery.New(sqlquery.Config{Driver: "mock2"}, nil)
+	test.Equal(sqlquery.Builder{}, b)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(sqlquery.ErrUnknownProvider.Error(), "mock2"), err.Error())
+
+	// error: no registered dummy cache provider
+	b, err = sqlquery.New(sqlquery.Config{Driver: "mock2"}, nil)
+	test.Equal(sqlquery.Builder{}, b)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(sqlquery.ErrUnknownProvider.Error(), "mock2"), err.Error())
+
+	// ok
+	b, err = sqlquery.New(sqlquery.Config{Driver: "mock"}, nil)
+	test.NoError(err)
+	test.NotNil(b)
+}
+
+func TestBuilder_Information(t *testing.T) {
+	test := assert.New(t)
+
+	b, err := sqlquery.New(sqlquery.Config{Driver: "mock", Database: "company"}, nil)
+	test.NoError(err)
+
+	_, err = b.Information("user").Describe("name", "surname")
+	test.NoError(err)
+	test.Equal("company", mockProvider.describeDb)
+	test.Equal("user", mockProvider.describeTable)
+
+	// ok - columns (name,surname) will be described in c.user
+	_, err = b.Information("c.user").Describe("name", "surname")
+	test.NoError(err)
+	test.Equal("c", mockProvider.describeDb)
+	test.Equal("user", mockProvider.describeTable)
 }
 
 func TestBuilder_Select(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		assert.Equal(t, "*sqlquery.Select", reflect.TypeOf(b.Select(sqlquery.TABLE)).String())
-	}
-}
+	test := assert.New(t)
 
-func TestBuilder_Insert(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		assert.Equal(t, "*sqlquery.Insert", reflect.TypeOf(b.Insert(sqlquery.TABLE)).String())
-	}
-}
+	b, err := sqlquery.New(sqlquery.Config{Driver: "mock", Database: "company"}, nil)
+	test.NoError(err)
 
-func TestBuilder_Update(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		assert.Equal(t, "*sqlquery.Update", reflect.TypeOf(b.Update(sqlquery.TABLE)).String())
-	}
-}
+	sel := b.Select("user")
 
-func TestBuilder_Delete(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		assert.Equal(t, "*sqlquery.Delete", reflect.TypeOf(b.Delete(sqlquery.TABLE)).String())
-	}
-}
-
-// more test for the transaction is handled in the builder_internal_tests.go
-func TestBuilder_BeginnTx_CommitTx(t *testing.T) {
-	b, err := sqlquery.HelperCreateBuilder()
-	if assert.NoError(t, err) {
-		tx, err := b.NewTx()
-		if assert.NoError(t, err) {
-			assert.IsType(t, &sql.Tx{}, tx)
-			err = b.CommitTx(tx)
-			assert.NoError(t, err)
-		}
-	}
+	test.NoError(err)
+	test.IsType(&sqlquery.Select{}, sel)
 }

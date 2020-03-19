@@ -23,8 +23,8 @@ var (
 
 // conditionAll creates a condition for the VIEW_GRID.
 // Used in readAll.
-func conditionAll(g *Grid) (*sqlquery.Condition, error) {
-	c := &sqlquery.Condition{}
+func conditionAll(g *Grid) (*sqlquery_.Condition, error) {
+	c := &sqlquery_.Condition{}
 
 	if g.srcCondition != nil {
 		*c = *g.srcCondition
@@ -37,7 +37,7 @@ func conditionAll(g *Grid) (*sqlquery.Condition, error) {
 
 	for key, param := range params {
 		if key == "sort" {
-			c.Reset(sqlquery.ORDER)
+			c.Reset(sqlquery_.ORDER)
 			err := addSortCondition(g, param[0], c)
 			if err != nil {
 				return nil, err
@@ -56,7 +56,7 @@ func conditionAll(g *Grid) (*sqlquery.Condition, error) {
 
 // addSortCondition adds an order by condition with the given params.
 // If the field is not allowed to sort or the field does not exist, an error will return.
-func addSortCondition(g *Grid, params string, c *sqlquery.Condition) error {
+func addSortCondition(g *Grid, params string, c *sqlquery_.Condition) error {
 	sortFields := strings.Split(params, ConditionSeparator)
 	var orderFields []string
 
@@ -85,7 +85,7 @@ func addSortCondition(g *Grid, params string, c *sqlquery.Condition) error {
 // addFilterCondition adds a where condition with the given params.
 // If the field is not allowed to filter or the field does not exist, an error will return.
 // If there are more than one argument, its converting it in a WHERE IN condition.
-func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
+func addFilterCondition(g *Grid, field string, params []string, c *sqlquery_.Condition) error {
 	field, err := isFilterAllowed(g, field)
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func (g *Grid) getFieldByStructName(name string) (Interface, error) {
 // if one is empty, a error will return.
 // if everything is correct, a condition will return.
 // Used in read one, update, delete.
-func checkPrimaryParams(g *Grid) (*sqlquery.Condition, error) {
+func checkPrimaryParams(g *Grid) (*sqlquery_.Condition, error) {
 
 	// if no params exist
 	params, err := g.controller.Context().Request.Params()
@@ -166,7 +166,7 @@ func checkPrimaryParams(g *Grid) (*sqlquery.Condition, error) {
 		return nil, ErrPrimaryKeys
 	}
 
-	c := &sqlquery.Condition{}
+	c := &sqlquery_.Condition{}
 
 	// looping all fields
 	for _, field := range g.fields {

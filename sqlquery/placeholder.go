@@ -1,17 +1,21 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
 	"strconv"
 )
 
-// PLACEHOLDER character used in this package
+// PLACEHOLDER character.
 const PLACEHOLDER = "?"
 
-// Placeholder is used to ensure an unique placeholder with different database adapters.
+// Placeholder is used to ensure an unique placeholder for different database adapters.
 type Placeholder struct {
-	Numeric bool   `json:"numeric"` //must be true if the database uses something like $1,$2,...
-	counter int    //internal counter for numeric placeholder
-	Char    string `json:"char"` //database placeholder character
+	Numeric bool   // must be true if the database uses something like $1,$2,...
+	counter int    // internal counter for numeric placeholder
+	Char    string // database placeholder character
 }
 
 // reset the placeholder counter

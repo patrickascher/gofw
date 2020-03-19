@@ -4,7 +4,7 @@ import (
 	"database/sql"
 )
 
-// Delete provides some features for a sql delete
+// Delete type.
 type Delete struct {
 	builder   *Builder
 	from      string
@@ -18,7 +18,8 @@ func (s *Delete) Where(stmt string, args ...interface{}) *Delete {
 	return s
 }
 
-// Condition adds a ptr to a existing condition.
+// Condition adds your own condition to the stmt.
+// Only WHERE conditions are allowed.
 func (s *Delete) Condition(c *Condition) *Delete {
 	c.Reset(HAVING, LIMIT, ORDER, OFFSET, GROUP, ON)
 	s.condition = c
@@ -28,17 +29,25 @@ func (s *Delete) Condition(c *Condition) *Delete {
 // render generates the sql query.
 // An error will return if the arguments and placeholders mismatch.
 func (s *Delete) render() (stmt string, args []interface{}, err error) {
-	selectStmt := "DELETE FROM " + s.builder.QuoteIdentifier(s.from)
-	conditionStmt, err := s.condition.render(s.builder.Placeholder)
+	selectStmt := "DELETE FROM " + s.builder.quoteColumns(s.from)
+	conditionStmt, err := s.condition.render(s.builder.driver.Placeholder())
+	if err != nil {
+		return "", nil, err
+	}
+	if conditionStmt != "" {
+		conditionStmt = " " + conditionStmt
+	}
+
 	return selectStmt + conditionStmt, s.condition.arguments(), err
 }
 
-// String returns the statement and arguments
+// String returns the statement and arguments.
 // An error will return if the arguments and placeholders mismatch.
 func (s *Delete) String() (stmt string, args []interface{}, err error) {
 	return s.render()
 }
 
+// TODO: stmtAndArgs wraps the result in an extra slice because of insert batch?
 func (s *Delete) stmtAndArgs() (string, [][]interface{}, error) {
 	var args [][]interface{}
 	stmt, arg, err := s.render()
@@ -57,23 +66,6 @@ func (s *Delete) Exec() (sql.Result, error) {
 		return nil, err
 	}
 	r, err := s.builder.exec(stmt, args)
-	if err != nil {
-		return nil, err
-	}
-	return r[0], err
-}
-
-// ExecTx is executing the query with a transaction.
-// An error will return if the arguments and placeholders mismatch or the sql.Exec creates with an error.
-func (s *Delete) ExecTx(tx *sql.Tx) (sql.Result, error) {
-	stmt, args, err := s.stmtAndArgs()
-	if err != nil {
-		if errTx := tx.Rollback(); errTx != nil {
-			return nil, errTx
-		}
-		return nil, err
-	}
-	r, err := s.builder.execTx(tx, stmt, args)
 	if err != nil {
 		return nil, err
 	}

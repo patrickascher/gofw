@@ -17,7 +17,7 @@ type Column struct {
 	SqlSelect  string
 	Permission Permission
 
-	Information *sqlquery.Column
+	Information *sqlquery_.Column
 
 	Validator *Validator
 }
