@@ -20,9 +20,9 @@ func TestTable_getDatabaseAndTableByString(t *testing.T) {
 }
 
 func TestTable_columnNames_columnByName_columnNamesWithoutAutoincrement(t *testing.T) {
-	a := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery_.Column{Name: "a", PrimaryKey: true}}
-	b := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery_.Column{Name: "b", Autoincrement: true}}
-	c := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery_.Column{Name: "c", PrimaryKey: true}}
+	a := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery.Column{Name: "a", PrimaryKey: true}}
+	b := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery.Column{Name: "b", Autoincrement: true}}
+	c := &Column{Permission: Permission{Read: true, Write: true}, Information: &sqlquery.Column{Name: "c", PrimaryKey: true}}
 	table := Table{Cols: []*Column{
 		a,
 		b,
@@ -62,13 +62,13 @@ func TestTable_columnNames_columnByName_columnNamesWithoutAutoincrement(t *testi
 
 func TestTable_describe(t *testing.T) {
 
-	a := &Column{Permission: Permission{Write: false, Read: false}, StructField: "ID", Information: &sqlquery_.Column{Name: "id", PrimaryKey: true}}
-	b := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "first_name", Autoincrement: true}}
-	c := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "last_name", PrimaryKey: true}}
-	d := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "created_at", PrimaryKey: true}}
-	e := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "updated_at", PrimaryKey: true}}
-	f := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "deleted_at", PrimaryKey: true}}
-	g := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery_.Column{Name: "not_existing", PrimaryKey: true}}
+	a := &Column{Permission: Permission{Write: false, Read: false}, StructField: "ID", Information: &sqlquery.Column{Name: "id", PrimaryKey: true}}
+	b := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "first_name", Autoincrement: true}}
+	c := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "last_name", PrimaryKey: true}}
+	d := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "created_at", PrimaryKey: true}}
+	e := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "updated_at", PrimaryKey: true}}
+	f := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "deleted_at", PrimaryKey: true}}
+	g := &Column{Permission: Permission{Write: false, Read: false}, Information: &sqlquery.Column{Name: "not_existing", PrimaryKey: true}}
 
 	builder, err := HelperCreateBuilder()
 	assert.NoError(t, err)

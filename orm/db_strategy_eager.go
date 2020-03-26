@@ -2,6 +2,7 @@ package orm
 
 import (
 	"fmt"
+	"github.com/guregu/null"
 	"github.com/patrickascher/gofw/sqlquery"
 	"reflect"
 	"strings"
@@ -20,7 +21,7 @@ type EagerLoading struct {
 // Relations:
 // HasOne, BelongsTo: Handled in one request each
 // HasMany, ManyToMany: Handled in one request each
-func (e EagerLoading) First(m Interface, c *sqlquery_.Condition) error {
+func (e EagerLoading) First(m Interface, c *sqlquery.Condition) error {
 	b := m.Table().Builder
 
 	// get the struct variable for the scan
@@ -31,9 +32,9 @@ func (e EagerLoading) First(m Interface, c *sqlquery_.Condition) error {
 
 	// build select for the main struct
 	schema := ""
-	if b.Config().Driver() == "postgres" {
-		schema = ".public"
-	}
+	//if b.Config().Driver() == "postgres" {
+	//	schema = ".public"
+	//}
 
 	row, err := b.Select(m.Table().Database + schema + "." + m.Table().Name).Columns(m.Table().columnNames(READDB, !m.disableCustomSql())...).Condition(c).First()
 	if err != nil {
@@ -52,9 +53,9 @@ func (e EagerLoading) First(m Interface, c *sqlquery_.Condition) error {
 	// handle relations
 	for field, relation := range m.Table().Relations(m.whiteBlacklist(), READALL) {
 
-		c := &sqlquery_.Condition{}
+		c := &sqlquery.Condition{}
 		if val, ok := m.RelationCondition()[field]; ok {
-			*c = *val
+			c = &val
 		}
 
 		rel, err := initRelation(m, field)
@@ -113,7 +114,7 @@ func (e EagerLoading) First(m Interface, c *sqlquery_.Condition) error {
 // HasOne, BelongsTo and HasMany are handled in one sql statement.
 // ManyToMany: for each result a own sql statement is made.
 // TODO improvements, manyToMany
-func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) error {
+func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery.Condition) error {
 
 	// checking if the res is a ptr
 	if reflect.TypeOf(res).Kind() != reflect.Ptr {
@@ -124,9 +125,9 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) 
 	b := m.Table().Builder
 	// build select for the main struct
 	schema := ""
-	if b.Config().Driver() == "postgres" {
-		schema = ".public"
-	}
+	//if b.Config().Driver() == "postgres" {
+	//	schema = ".public"
+	//}
 	rows, err := b.Select(m.Table().Database + schema + "." + m.Table().Name).Columns(m.Table().columnNames(READDB, !m.disableCustomSql())...).Condition(c).All()
 	if err != nil {
 		return err
@@ -179,12 +180,11 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) 
 			for row := 0; row < reflectRes.Len(); row++ { //Parent result
 
 				// create condition
-				c := &sqlquery_.Condition{}
+				c := sqlquery.Condition{}
 				if val, ok := m.RelationCondition()[field]; ok {
-					*c = *val
+					c = val
 				}
-
-				c.Where(b.QuoteIdentifier(relation.AssociationTable.Information.Name)+" IN (SELECT "+b.QuoteIdentifier(relation.JunctionTable.AssociationColumn)+" FROM "+b.QuoteIdentifier(relation.JunctionTable.Table)+" WHERE "+b.QuoteIdentifier(relation.JunctionTable.StructColumn)+" = ?)", reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Interface())
+				c.Where(b.QuoteIdentifier(relation.AssociationTable.Information.Table+"."+relation.AssociationTable.Information.Name)+" IN (SELECT "+b.QuoteIdentifier(relation.JunctionTable.AssociationColumn)+" FROM "+b.QuoteIdentifier(relation.JunctionTable.Table)+" WHERE "+b.QuoteIdentifier(relation.JunctionTable.StructColumn)+" = ?)", reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Interface())
 
 				// create a new result set for the query
 				resultSet := reflect.New(reflect.MakeSlice(reflect.SliceOf(newValueInstanceFromType(reflectField(m, field).Type()).Type()), 0, 0).Type()).Interface()
@@ -202,7 +202,7 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) 
 				relationModel.setLoopMap(m.getLoopMap())
 				relationModel.setParent(m)
 
-				err = relationModel.All(resultSet, c)
+				err = relationModel.All(resultSet, &c)
 				if err != nil {
 					return err
 				}
@@ -217,48 +217,74 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) 
 		f := relation.StructTable.StructField
 		if _, ok := in[f]; !ok {
 			for n := 0; n < reflectRes.Len(); n++ {
-				if !inSlice(reflectRes.Index(n).FieldByName(f).Interface().(int), in[f]) {
-					in[f] = append(in[f], reflectRes.Index(n).FieldByName(f).Interface().(int))
+				reflectRes.Index(n).FieldByName(f).Interface()
+
+				switch reflectRes.Index(n).FieldByName(f).Interface().(type) {
+				case int:
+					if !inSlice(reflectRes.Index(n).FieldByName(f).Interface().(int), in[f]) {
+						in[f] = append(in[f], reflectRes.Index(n).FieldByName(f).Interface().(int))
+					}
+				case null.Int:
+					if reflectRes.Index(n).FieldByName(f).Interface().(null.Int).Valid == true && !inSlice(int(reflectRes.Index(n).FieldByName(f).Interface().(null.Int).Int64), in[f]) {
+						in[f] = append(in[f], int(reflectRes.Index(n).FieldByName(f).Interface().(null.Int).Int64))
+					}
 				}
+
 			}
 		}
 
-		// create condition
-		c := &sqlquery_.Condition{}
-		if val, ok := m.RelationCondition()[field]; ok {
-			*c = *val
-		}
-		c.Where(b.QuoteIdentifier(relation.AssociationTable.Information.Name)+" IN (?)", in[f])
+		if len(in[f]) > 0 {
 
-		// Create an empty slice for resultSet
-		resultSet := reflect.New(reflect.MakeSlice(reflect.SliceOf(newValueInstanceFromType(reflectField(m, field).Type()).Type()), 0, 0).Type()).Interface()
+			// create condition
+			c := &sqlquery.Condition{}
+			if val, ok := m.RelationCondition()[field]; ok {
+				c = &val
+			}
+			c.Where(b.QuoteIdentifier(relation.AssociationTable.Information.Name)+" IN (?)", in[f])
 
-		// create model
-		relationModel, err := initRelation(m, field)
-		if err != nil {
-			return err
-		}
-		// set white- blacklist from parent
-		relationModel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
-		relationModel.setLoopMap(m.getLoopMap())
-		relationModel.setParent(m)
-		relField, _ := reflect.TypeOf(m).Elem().FieldByName(field)
-		relationModel.callback().setRelField(relField)
+			// Create an empty slice for resultSet
+			resultSet := reflect.New(reflect.MakeSlice(reflect.SliceOf(newValueInstanceFromType(reflectField(m, field).Type()).Type()), 0, 0).Type()).Interface()
 
-		err = relationModel.All(resultSet, c)
-		if err != nil {
-			return err
-		}
+			// create model
+			relationModel, err := initRelation(m, field)
+			if err != nil {
+				return err
+			}
+			// set white- blacklist from parent
+			relationModel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
+			relationModel.setLoopMap(m.getLoopMap())
+			relationModel.setParent(m)
+			relField, _ := reflect.TypeOf(m).Elem().FieldByName(field)
+			relationModel.callback().setRelField(relField)
 
-		// loop over all parent results to add the correct data
-		res := reflect.ValueOf(resultSet).Elem()
-		for row := 0; row < reflectRes.Len(); row++ { //Parent result
-			for y := 0; y < res.Len(); y++ { //result set
-				if reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Int() == res.Index(y).FieldByName(relation.AssociationTable.StructField).Int() {
-					switch relation.Type {
-					case HasOne, BelongsTo, HasMany, CustomStruct, CustomSlice:
-						setValue(reflectRes.Index(row).FieldByName(field), res.Index(y))
+			err = relationModel.All(resultSet, c)
+			if err != nil {
+				return err
+			}
+
+			// loop over all parent results to add the correct data
+			res := reflect.ValueOf(resultSet).Elem()
+			for row := 0; row < reflectRes.Len(); row++ { //Parent result
+				for y := 0; y < res.Len(); y++ { //result set
+
+					int64 := int64(0)
+					switch reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Interface().(type) {
+					case int:
+						int64 = reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Int()
+					case null.Int:
+						nullInt := reflectRes.Index(row).FieldByName(relation.StructTable.StructField).Interface().(null.Int)
+						if nullInt.Valid == true {
+							int64 = nullInt.Int64
+						}
 					}
+
+					if int64 == res.Index(y).FieldByName(relation.AssociationTable.StructField).Int() {
+						switch relation.Type {
+						case HasOne, BelongsTo, HasMany, CustomStruct, CustomSlice:
+							setValue(reflectRes.Index(row).FieldByName(field), res.Index(y))
+						}
+					}
+
 				}
 			}
 		}
@@ -273,17 +299,6 @@ func (e EagerLoading) All(res interface{}, m Interface, c *sqlquery_.Condition) 
 // TODO improvements, HasMany and ManyToMany are creating a sql statement for each entry - batch?
 func (e EagerLoading) Create(m Interface) error {
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	// handling belongsTo relations before the main entry
 	for field, relation := range m.Table().Relations(m.whiteBlacklist(), WRITEDB) {
@@ -297,7 +312,6 @@ func (e EagerLoading) Create(m Interface) error {
 				return err
 			}
 
-			rel.SetTx(m.Tx())
 			// set white- blacklist from parent
 			rel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 			rel.setLoopMap(m.getLoopMap())
@@ -309,8 +323,8 @@ func (e EagerLoading) Create(m Interface) error {
 			} else {
 				err = rel.Update()
 			}
+
 			if err != nil {
-				callRollbackOnErr = false // already handled Create or Update
 				return err
 			}
 
@@ -344,17 +358,16 @@ func (e EagerLoading) Create(m Interface) error {
 	// build insert
 	b := m.Table().Builder
 	schema := ""
-	if b.Config().Driver() == "postgres" {
-		schema = ".public"
-	}
+	//if b.Config().Driver() == "postgres" {
+	//	schema = ".public"
+	//}
 
 	insert := b.Insert(m.Table().Database + schema + "." + m.Table().Name).Columns(cols...).Values(values)
 	if autoincrement != nil {
 		insert.LastInsertedID(autoincrement.Information.Name, reflectField(m, autoincrement.StructField).Addr().Interface())
 	}
-	_, err = insert.ExecTx(m.Tx())
+	_, err = insert.Exec()
 	if err != nil {
-		callRollbackOnErr = false // already handled in ExecTx
 		return err
 	}
 
@@ -368,7 +381,6 @@ func (e EagerLoading) Create(m Interface) error {
 				err = errTmp
 				return err
 			}
-			rel.SetTx(m.Tx())
 			// set white- blacklist from parent
 			rel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 			rel.setLoopMap(m.getLoopMap())
@@ -379,7 +391,6 @@ func (e EagerLoading) Create(m Interface) error {
 			// create the entry
 			err = rel.Create()
 			if err != nil {
-				callRollbackOnErr = false // already handled Create
 				return err
 			}
 		case HasMany, CustomSlice:
@@ -413,7 +424,6 @@ func (e EagerLoading) Create(m Interface) error {
 				if err != nil {
 					return err
 				}
-				r.SetTx(m.Tx())
 				// set white- blacklist from parent
 				r.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 				r.setLoopMap(m.getLoopMap())
@@ -422,7 +432,6 @@ func (e EagerLoading) Create(m Interface) error {
 				// create the entries
 				err = r.Create()
 				if err != nil {
-					callRollbackOnErr = false // already handled Create
 					return err
 				}
 			}
@@ -453,7 +462,6 @@ func (e EagerLoading) Create(m Interface) error {
 				if err != nil {
 					return err
 				}
-				r.SetTx(m.Tx())
 				// set white- blacklist from parent
 				r.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 				r.setLoopMap(m.getLoopMap())
@@ -463,7 +471,6 @@ func (e EagerLoading) Create(m Interface) error {
 				if checkPrimaryFieldsEmpty(r) {
 					err = r.Create()
 					if err != nil {
-						callRollbackOnErr = false // already handled Create
 						return err
 					}
 				}
@@ -482,9 +489,8 @@ func (e EagerLoading) Create(m Interface) error {
 				// insert into junction table
 				_, err = b.Insert(relation.JunctionTable.Table).
 					Columns(relation.JunctionTable.StructColumn, relation.JunctionTable.AssociationColumn).
-					Values(val).ExecTx(m.Tx())
+					Values(val).Exec()
 				if err != nil {
-					callRollbackOnErr = false // already handled Create
 					return err
 				}
 			}
@@ -503,19 +509,8 @@ func (e EagerLoading) Create(m Interface) error {
 // TODO ManyToMayn logic is the same as in create, DRY
 // TODO validate struct before update
 // TODO update pkey not possible atm!
-func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
+func (e EagerLoading) Update(m Interface, c *sqlquery.Condition) error {
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	// handling belongsTo relations before the main entry
 	for field, relation := range m.Table().Relations(m.whiteBlacklist(), WRITEDB) {
@@ -528,7 +523,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				err = errTmp
 				return errTmp
 			}
-			rel.SetTx(m.Tx())
 			// set white- blacklist from parent
 			rel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 			rel.setLoopMap(m.getLoopMap())
@@ -541,7 +535,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				err = rel.Update()
 			}
 			if err != nil {
-				callRollbackOnErr = false // already handled Create or Update
 				return err
 			}
 
@@ -565,9 +558,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 	if len(value) > 0 {
 		// exec
 		update := b.Update(m.Table().Name).Condition(c).Columns(m.Table().columnNames(WRITEDB, false)...).Set(value)
-		res, errTmp := update.ExecTx(m.Tx())
+		res, errTmp := update.Exec()
 		if errTmp != nil {
-			callRollbackOnErr = false // already handled in ExecTx
 			err = errTmp
 			return err
 		}
@@ -594,7 +586,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				err = errTmp
 				return errTmp
 			}
-			rel.SetTx(m.Tx())
 			// set white- blacklist from parent
 			rel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 			rel.setLoopMap(m.getLoopMap())
@@ -604,8 +595,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 			reflect.Indirect(reflectField(m, field)).FieldByName(relation.AssociationTable.StructField).Set(reflectField(m, relation.StructTable.StructField))
 
 			if relation.Type == CustomStruct {
-				err = rel.Update()
-				fmt.Println(relation.Type, field, reflect.TypeOf(rel.Table().strategy), err)
+				//err = rel.Update()
+				//fmt.Println(relation.Type, field, reflect.TypeOf(rel.Table().strategy), err)
 
 				return rel.Update()
 			}
@@ -622,7 +613,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				err = rel.Update()
 			}
 			if err != nil {
-				callRollbackOnErr = false // already handled in Create or Update
 				return err
 			}
 		case HasMany, CustomSlice: // TODO at the moment for each entry there is a sql statement.
@@ -630,9 +620,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 			if relation.Type != CustomSlice {
 				// delete all entries
 				// TODO not working with depth > 1 relations ....
-				_, err = b.Delete(relation.AssociationTable.Information.Table).Where(relation.AssociationTable.Information.Name+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).ExecTx(m.Tx())
+				_, err = b.Delete(relation.AssociationTable.Information.Table).Where(relation.AssociationTable.Information.Name+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).Exec()
 				if err != nil {
-					callRollbackOnErr = false // already handled in ExecTx
 					return err
 				}
 			}
@@ -688,7 +677,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				if err != nil {
 					return err
 				}
-				entry.SetTx(m.Tx())
 				// set white- blacklist from parent
 				entry.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 				entry.setLoopMap(m.getLoopMap())
@@ -700,7 +688,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 
 				err = entry.Create()
 				if err != nil {
-					callRollbackOnErr = false // already handled in Create
 					return err
 				}
 			}
@@ -709,9 +696,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 			// MANY-TO-MANY: Delete * from junction, add secondary (create or update), add to junction again
 
 			// delete all entries from junction table
-			_, err = b.Delete(relation.JunctionTable.Table).Where(relation.JunctionTable.StructColumn+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).ExecTx(m.Tx())
+			_, err = b.Delete(relation.JunctionTable.Table).Where(relation.JunctionTable.StructColumn+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).Exec()
 			if err != nil {
-				callRollbackOnErr = false // already handled in ExecTx
 				return err
 			}
 
@@ -745,7 +731,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				if err != nil {
 					return err
 				}
-				entry.SetTx(m.Tx())
 				// set white- blacklist from parent
 				entry.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 				entry.setLoopMap(m.getLoopMap())
@@ -755,7 +740,6 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 				if checkPrimaryFieldsEmpty(entry) {
 					err = entry.Create()
 					if err != nil {
-						callRollbackOnErr = false // already handled in Create
 						return err
 					}
 				}
@@ -772,9 +756,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 
 			// insert into junction table
 			if len(val) > 0 {
-				_, err = b.Insert(relation.JunctionTable.Table).Columns(relation.JunctionTable.StructColumn, relation.JunctionTable.AssociationColumn).Values(val).ExecTx(m.Tx())
+				_, err = b.Insert(relation.JunctionTable.Table).Columns(relation.JunctionTable.StructColumn, relation.JunctionTable.AssociationColumn).Values(val).Exec()
 				if err != nil {
-					callRollbackOnErr = false // already handled in ExecTx
 					return err
 				}
 			}
@@ -790,19 +773,8 @@ func (e EagerLoading) Update(m Interface, c *sqlquery_.Condition) error {
 // BelongsTo - will be ignored
 // HasOne, HasMany are deleted by there reference
 // ManyToMany - deletes only the junction table. If you have to delete the associated table, use cascade in the db.
-func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
+func (e EagerLoading) Delete(m Interface, c *sqlquery.Condition) error {
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	// then the main entry
 	b := m.Table().Builder
@@ -849,7 +821,6 @@ func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
 				if err != nil {
 					return err
 				}
-				entry.SetTx(m.Tx())
 				entry.setLoopMap(m.getLoopMap())
 				entry.setParent(m)
 
@@ -863,23 +834,20 @@ func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
 			// ignore - belongsTo - stays untouched
 		case HasOne:
 			// hasOne - delete - ignore softDelete if the main struct has none.
-			_, err = b.Delete(relation.AssociationTable.Information.Table).Where(relation.AssociationTable.Information.Name+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).ExecTx(m.Tx())
+			_, err = b.Delete(relation.AssociationTable.Information.Table).Where(relation.AssociationTable.Information.Name+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).Exec()
 			if err != nil {
-				callRollbackOnErr = false // already called in ExecTx
 				return err
 			}
 		case HasMany:
 			// hasMany - delete - ignore softDelete if the main struct has none.
-			_, err = b.Delete(relation.AssociationTable.Information.Table).Where(b.QuoteIdentifier(relation.AssociationTable.Information.Name)+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).ExecTx(m.Tx())
+			_, err = b.Delete(relation.AssociationTable.Information.Table).Where(b.QuoteIdentifier(relation.AssociationTable.Information.Name)+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).Exec()
 			if err != nil {
-				callRollbackOnErr = false // already called in ExecTx
 				return err
 			}
 		case ManyToMany, ManyToManySR:
 			// hasManyToMany - only junction table entries are getting deleted - for the association table use SQL CASCADE or a callbacks
-			_, err = b.Delete(relation.JunctionTable.Table).Where(relation.JunctionTable.StructColumn+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).ExecTx(m.Tx())
+			_, err = b.Delete(relation.JunctionTable.Table).Where(relation.JunctionTable.StructColumn+" = ?", reflectField(m, relation.StructTable.StructField).Interface()).Exec()
 			if err != nil {
-				callRollbackOnErr = false // already called in ExecTx
 				return err
 			}
 		}
@@ -887,10 +855,9 @@ func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
 
 	// exec
 	deleteSql := b.Delete(m.Table().Name).Condition(c)
-	res, errTmp := deleteSql.ExecTx(m.Tx())
+	res, errTmp := deleteSql.Exec()
 	if errTmp != nil {
 		err = errTmp
-		callRollbackOnErr = false // already called in ExecTx
 		return err
 	}
 
@@ -902,7 +869,7 @@ func (e EagerLoading) Delete(m Interface, c *sqlquery_.Condition) error {
 	}
 	if i != 1 {
 		stmt, args, _ := deleteSql.String()
-		err = fmt.Errorf(ErrDeleteNotFound.Error()+" - "+strings.Replace(stmt, b.Placeholder.Char, "%v", 1), args...)
+		err = fmt.Errorf(ErrDeleteNotFound.Error()+" - "+strings.Replace(stmt, b.Driver().Placeholder().Char, "%v", 1), args...)
 		return err
 	}
 

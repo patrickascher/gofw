@@ -1,30 +1,41 @@
-// Package sqlquery is a simple SQL generator.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// sqlquery is a simple programmatically sql query builder.
+// The idea was to create a unique Builder which can be used with any database driver in go.
 //
-// See https://github.com/patrickascher/go-sql for more information and examples.
+// Features: Unique Placeholder for all database drivers, Batching function for large Inserts, Whitelist, Quote Identifiers, SQL queries and durations log debugging
 package sqlquery
 
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"github.com/patrickascher/gofw/logger"
 	"strings"
+	"time"
 )
 
+// Error messages.
 var (
 	ErrNoTx = errors.New("sqlquery: no tx exists")
 )
 
-// Builder stores the *sql.DB and the Placeholder information.
-// This information is needed to translate and execute the query.
+// Builder type.
 type Builder struct {
-	driver Driver
+	driver DriverI
 	tx     *sql.Tx
 	txAuto bool
 	conf   Config
+
+	logger *logger.Logger
 }
 
 // New Builder instance with the given configuration.
 // If the db argument is nil, a new db connection will be created.
 // It is highly recommended to use one open connection to avoid overhead.
+// TODO: Idea: only one interface argument, in a type select we can figure out if it was a config or *sql.DB.
 func New(cfg Config, db *sql.DB) (Builder, error) {
 	d, err := newDriver(cfg, db)
 	if err != nil {
@@ -33,10 +44,27 @@ func New(cfg Config, db *sql.DB) (Builder, error) {
 	return Builder{driver: d, conf: cfg}, nil
 }
 
+// Raw can be used if the identifier should not be quoted.
 func Raw(c string) string {
 	return "!" + c
 }
 
+func (b *Builder) SetLogger(l *logger.Logger) {
+	b.logger = l
+}
+
+func (b *Builder) log(stmt string, d time.Duration, args ...interface{}) {
+	if b.conf.Debug && b.logger != nil {
+		b.logger.Debug(fmt.Sprintf("%s with the arguments %v took %s", stmt, args, d))
+	}
+}
+
+func (b *Builder) Driver() DriverI {
+	return b.driver
+}
+
+// Tx creates a new transaction for the builder.
+// If a tx exists, all requests (select, update, insert, delete) will be handled in that transaction.
 func (b *Builder) Tx() error {
 	tx, err := b.driver.Connection().Begin()
 	if err != nil {
@@ -46,6 +74,8 @@ func (b *Builder) Tx() error {
 	return nil
 }
 
+// Commit the builder transaction.
+// Error will return if no transaction was created or there is a commit error.
 func (b *Builder) Commit() error {
 	if b.tx == nil {
 		return ErrNoTx
@@ -53,6 +83,8 @@ func (b *Builder) Commit() error {
 	return b.tx.Commit()
 }
 
+// Rollback the builder transaction.
+// Error will return if no transaction was created or there is a rollback error.
 func (b *Builder) Rollback() error {
 	if b.tx == nil {
 		return ErrNoTx
@@ -86,7 +118,7 @@ func (b *Builder) Delete(from string) *Delete {
 	return &Delete{builder: b, from: from, condition: &Condition{}}
 }
 
-// splitDatabaseAndTableName is a helper to split "db.table" into
+// splitDatabaseAndTableName is a helper to split "db.table" into two strings.
 func splitDatabaseAndTable(db string, s string) (database string, table string) {
 	identifier := strings.Split(s, ".")
 	if len(identifier) == 1 {
@@ -95,7 +127,15 @@ func splitDatabaseAndTable(db string, s string) (database string, table string) 
 	return identifier[0], identifier[1]
 }
 
-// quoteColumns is a helper to quote all identifiers
+// QuoteIdentifier by the driver quote character.
+func (b *Builder) QuoteIdentifier(col string) string {
+	return b.quoteColumns(col)
+}
+
+// quoteColumns is a helper to quote all identifiers.
+// One or more columns can be added as argument.
+// If the column was wrapped in sqlquery.Raw, it will not get escaped.
+// "gofw.users AS u" will be converted to `gofw`.`users` AS `u`
 func (b *Builder) quoteColumns(columns ...string) string {
 	colStmt := ""
 	for _, c := range columns {
@@ -134,8 +174,8 @@ func (b *Builder) quoteColumns(columns ...string) string {
 	return colStmt
 }
 
-// addColumns adding columns from a key/value pair if they were not added manually before
-// needed in update and insert
+// addColumns adding columns from a key/value pair. This is used in INSERT and UPDATE if no Columns are set, and the
+// columns are added out of the key/value pairs.
 func (b *Builder) addColumns(columns []string, values map[string]interface{}) []string {
 	if len(columns) == 0 {
 		for column := range values {
@@ -145,7 +185,9 @@ func (b *Builder) addColumns(columns []string, values map[string]interface{}) []
 	return columns
 }
 
-func (b *Builder) replacePlaceholders(stmt string, p *Placeholder) string {
+// replacePlaceholders switches the sqlquery placeholder to the needed driver placeholder.
+// BUG(patrick): condition/render this logic fails if the placeholder is numeric and has the same char as placeholder.
+func replacePlaceholders(stmt string, p *Placeholder) string {
 	n := strings.Count(stmt, PLACEHOLDER)
 	for i := 1; i <= n; i++ {
 		stmt = strings.Replace(stmt, PLACEHOLDER, p.placeholder(), 1)
@@ -154,19 +196,54 @@ func (b *Builder) replacePlaceholders(stmt string, p *Placeholder) string {
 	return stmt
 }
 
+// convertArgumentsExtraSlice is needed because Insert uses a slice of an slice if interface because of the batching function.
+// That Update and Delete can use the same exec function, the result will also get wrapped.
+func convertArgumentsExtraSlice(stmt string, arg []interface{}, err error) (string, [][]interface{}, error) {
+	var args [][]interface{}
+	if err != nil {
+		return "", nil, err
+	}
+	args = append(args, arg)
+	return stmt, args, err
+}
+
 // first queries one Row by using the *db.QueryRow method.
 func (b *Builder) first(stmt string, args []interface{}) *sql.Row {
-	// TODO TX
-	return b.driver.Connection().QueryRow(stmt, args...)
+
+	start := time.Now()
+
+	// if tx exists
+	if b.tx != nil {
+		return b.tx.QueryRow(stmt, args...)
+	}
+	row := b.driver.Connection().QueryRow(stmt, args...)
+
+	b.log(stmt, time.Since(start), args)
+
+	return row
+
 }
 
-// all queries all rows by using the *db.Query method.
+// all, queries all rows by using the *db.Query method.
+// If a builder tx is existing, it will be used.
 func (b *Builder) all(stmt string, args []interface{}) (*sql.Rows, error) {
-	// TODO TX
-	return b.driver.Connection().Query(stmt, args...)
+	start := time.Now()
+
+	// if tx exists
+	if b.tx != nil {
+		return b.tx.Query(stmt, args...)
+	}
+
+	rows, err := b.driver.Connection().Query(stmt, args...)
+	b.log(stmt, time.Since(start), args)
+
+	return rows, err
+
 }
 
-// exec executes the rendered sql query.
+// exec, executes the rendered sql query.
+// If a builder tx is existing, it will be used.
+// If its a batch function and the builder tx is nil, a tx will be created in background and it will be committed/rolled back automatically.
 func (b *Builder) exec(stmt string, args [][]interface{}) ([]sql.Result, error) {
 
 	var res []sql.Result
@@ -182,10 +259,10 @@ func (b *Builder) exec(stmt string, args [][]interface{}) ([]sql.Result, error) 
 	}
 
 	for _, arg := range args {
-		// start timer for debug
-
 		var r sql.Result
 		var err error
+
+		start := time.Now()
 
 		if b.tx != nil {
 			r, err = b.tx.Exec(stmt, arg...)
@@ -194,13 +271,24 @@ func (b *Builder) exec(stmt string, args [][]interface{}) ([]sql.Result, error) 
 		}
 
 		if err != nil {
+			// checking against batch tx
+			if b.txAuto {
+				b.txAuto = false
+				err = b.Rollback()
+				if err != nil {
+					return nil, err
+				}
+			}
 			return nil, err
 		}
+		b.log(stmt, time.Since(start), args)
+
 		res = append(res, r)
 	}
 
 	// batch auto commit
 	if b.txAuto {
+		b.txAuto = false
 		err = b.Commit()
 		if err != nil {
 			return nil, err

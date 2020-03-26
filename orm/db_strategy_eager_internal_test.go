@@ -60,8 +60,10 @@ func TestEagerLoading_isZeroOfUnderlyingType(t *testing.T) {
 }
 
 func TestEagerLoading_initRelation(t *testing.T) {
-	GlobalBuilder, _ = HelperCreateBuilder()
+	//GlobalBuilder, err := HelperCreateBuilder()
 	cust := Customerfk{}
+	err := cust.Initialize(&cust)
+	assert.NoError(t, err)
 
 	assert.True(t, cust.Info.Table() == nil)
 	rel, err := initRelation(&cust, "Info")
@@ -74,7 +76,11 @@ func TestEagerLoading_initRelation(t *testing.T) {
 	assert.True(t, rel.Table() != nil)
 	assert.Equal(t, 0, len(cust.Orders))
 
+	// tabled does not exist
 	custPtr := Customerptr{}
+	err = custPtr.Initialize(&custPtr)
+	assert.Error(t, err)
+
 	assert.True(t, custPtr.Info == nil)
 	rel, err = initRelation(&custPtr, "Info")
 	assert.NoError(t, err)

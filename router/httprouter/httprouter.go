@@ -35,6 +35,87 @@ func init() {
 	_ = router.Register("httprouter", New)
 }
 
+// httpRouterExtended was created because the original httprouter
+// it is not possible to add ctxt before the HandlerFunc is called.
+type httpRouterExtended struct {
+	httprouter.Router
+	additionalData map[string]string
+	router         *httpRouter
+}
+
+// HandlerFunc - overwrite the original HandlerFunc - this function is the same as original but needed here.
+func (h *httpRouterExtended) HandlerFunc(method, path string, handler http.HandlerFunc) {
+	h.Handler(method, path, handler)
+}
+
+// Handler is adding the Pattern and Params as context.request params.
+func (h *httpRouterExtended) Handler(method, path string, handler http.Handler) {
+	h.Handle(method, path,
+		func(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+			if len(p) > 0 {
+				ctx := req.Context()
+				ctx = context.WithValue(ctx, router.PATTERN, p.MatchedRoutePath())
+				ctx = context.WithValue(ctx, router.PARAMS, h.paramsToMap(p, w))
+				req = req.WithContext(ctx)
+			}
+			handler.ServeHTTP(w, req)
+		},
+	)
+}
+
+// paramsToMap are mapping all router params to the the request context.
+func (h *httpRouterExtended) paramsToMap(params httprouter.Params, w http.ResponseWriter) map[string][]string {
+	rv := make(map[string][]string)
+
+	// check if its a catch-all route
+	route := params.MatchedRoutePath()
+	catchAllRoute := false
+	if strings.Contains(route, "*") {
+		catchAllRoute = true
+	}
+
+	for _, p := range params {
+		if p.Key == httprouter.MatchedRoutePathParam {
+			continue
+		}
+
+		if catchAllRoute {
+			urlParam := strings.Split(strings.Trim(p.Value, "/"), "/")
+			for i := 0; i < len(urlParam); i++ {
+				if h.router.options.CatchAllKeyValuePair {
+
+					if i+1 >= len(urlParam) {
+						w.WriteHeader(http.StatusInternalServerError)
+						_, _ = w.Write([]byte(ErrKeyValuePair.Error()))
+						return nil
+					}
+
+					rv[urlParam[i]] = []string{urlParam[i+1]}
+					i++
+					continue
+				}
+				rv[strconv.Itoa(i)] = []string{urlParam[i]}
+			}
+			continue
+		}
+		rv[p.Key] = []string{p.Value}
+	}
+	return rv
+}
+
+// newHttpRouterExtended creates the new extended httprouter.
+// TODO create a OPTION function to add all httprouter options here.
+func newHttpRouterExtended(ro *httpRouter) *httpRouterExtended {
+	r := &httpRouterExtended{}
+	r.RedirectTrailingSlash = true
+	r.RedirectFixedPath = true
+	r.HandleMethodNotAllowed = true
+	r.HandleOPTIONS = true
+	r.SaveMatchedRoutePath = true
+	r.router = ro
+	return r
+}
+
 // New configured instance.
 func New(options interface{}) router.Interface {
 	r := &httpRouter{}
@@ -56,6 +137,27 @@ type httpRouter struct {
 	options  Options
 }
 
+type route struct {
+	pattern    string
+	public     bool
+	controller controller.Interface
+	mws        *middleware.Chain
+}
+
+func (r *route) Pattern() string {
+	return r.pattern
+}
+
+func (r *route) Public() bool {
+	return r.public
+}
+func (r *route) Controller() controller.Interface {
+	return r.controller
+}
+func (r *route) MW() *middleware.Chain {
+	return r.mws
+}
+
 // Options for the router provider
 type Options struct {
 	// CatchAllKeyValuePair will convert /user/*user routes param to key/value pairs
@@ -64,15 +166,19 @@ type Options struct {
 	CatchAllKeyValuePair bool
 }
 
-type route struct {
-	pattern    string
-	controller controller.Interface
-	mws        *middleware.Chain
+// Routes returns all defined routes.
+func (hr *httpRouter) Routes() []router.Route {
+	var rv []router.Route
+	for _, r := range hr.routes {
+		r := r
+		rv = append(rv, &r)
+	}
+	return rv
 }
 
 // AddRoute to the provider
-func (hr *httpRouter) AddRoute(p string, c controller.Interface, m *middleware.Chain) {
-	r := route{pattern: p, controller: c, mws: m}
+func (hr *httpRouter) AddRoute(p string, public bool, c controller.Interface, m *middleware.Chain) {
+	r := route{pattern: p, public: public, controller: c, mws: m}
 	hr.routes = append(hr.routes, r)
 }
 
@@ -99,8 +205,7 @@ func (hr *httpRouter) Handler() http.Handler {
 
 	fmt.Print("Loading Routes...")
 	//add files in a directory
-	ro := httprouter.New()
-	ro.SaveMatchedRoutePath = true
+	ro := newHttpRouterExtended(hr)
 
 	mw := middleware.Chain{}
 
@@ -134,18 +239,10 @@ func (hr *httpRouter) Handler() http.Handler {
 	for _, r := range hr.routes {
 		fmt.Printf("\n\x1b[32m %#v :name \x1b[49m\x1b[39m ", r.pattern)
 		for method, fn := range r.controller.MappingBy(r.pattern) {
-
-			h := func(w http.ResponseWriter, req *http.Request) {
-				params := httprouter.ParamsFromContext(req.Context())
-				ctx := context.WithValue(req.Context(), router.PATTERN, params.MatchedRoutePath())
-				ctx = context.WithValue(ctx, router.PARAMS, hr.paramsToMap(params, w))
-				r.controller.ServeHTTP(w, req.WithContext(ctx))
-			}
-
 			if r.mws != nil {
-				ro.HandlerFunc(strings.ToUpper(method), r.pattern, r.mws.Handle(h))
+				ro.HandlerFunc(strings.ToUpper(method), r.pattern, r.mws.Handle(r.controller.ServeHTTP)) //TODO ????? error no url pattern
 			} else {
-				ro.HandlerFunc(strings.ToUpper(method), r.pattern, h)
+				ro.HandlerFunc(strings.ToUpper(method), r.pattern, r.controller.ServeHTTP)
 			}
 			fmt.Printf("\x1b[32m [%v]%v name \x1b[49m\x1b[39m ", method, fn)
 		}
@@ -157,46 +254,6 @@ func (hr *httpRouter) Handler() http.Handler {
 	}
 
 	return ro
-}
-
-// paramsToMap are mapping all router params to the the request context.
-func (hr *httpRouter) paramsToMap(params httprouter.Params, w http.ResponseWriter) map[string]string {
-	rv := make(map[string]string)
-
-	// check if its a catch-all route
-	route := params.MatchedRoutePath()
-	catchAllRoute := false
-	if strings.Contains(route, "*") {
-		catchAllRoute = true
-	}
-
-	for _, p := range params {
-		if p.Key == httprouter.MatchedRoutePathParam {
-			continue
-		}
-
-		if catchAllRoute {
-			urlParam := strings.Split(strings.Trim(p.Value, "/"), "/")
-			for i := 0; i < len(urlParam); i++ {
-				if hr.options.CatchAllKeyValuePair {
-
-					if i+1 >= len(urlParam) {
-						w.WriteHeader(http.StatusInternalServerError)
-						_, _ = w.Write([]byte(ErrKeyValuePair.Error()))
-						return nil
-					}
-
-					rv[urlParam[i]] = urlParam[i+1]
-					i++
-					continue
-				}
-				rv[strconv.Itoa(i)] = urlParam[i]
-			}
-			continue
-		}
-		rv[p.Key] = p.Value
-	}
-	return rv
 }
 
 //NotFound is a function to add a custom not found handler if a route does not math

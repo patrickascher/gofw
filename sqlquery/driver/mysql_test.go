@@ -1,9 +1,14 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package driver
 
 import (
+	"testing"
+
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestMysql_TypeMapping(t *testing.T) {

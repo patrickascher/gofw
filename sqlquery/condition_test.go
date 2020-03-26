@@ -5,10 +5,11 @@
 package sqlquery_test
 
 import (
-	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
+
+	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCondition_ConfigAndReset(t *testing.T) {

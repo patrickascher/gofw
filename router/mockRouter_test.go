@@ -49,7 +49,7 @@ func (tm *mockMiddleware) Logger(h http.HandlerFunc) http.HandlerFunc {
 
 // Test router backend
 type mockRouter struct {
-	routes   []mockRoute
+	routes   []*mockRoute
 	static   map[string]string
 	notFound http.Handler
 	options  interface{}
@@ -69,13 +69,17 @@ func newMock(opt interface{}) router.Interface {
 	return DummyTestRouter
 }
 
+func (t *mockRouter) Routes() []router.Route {
+	return t.routes
+}
+
 func (t *mockRouter) NotFound(h http.Handler) {
 	t.notFound = h
 }
 
-func (t *mockRouter) AddRoute(p string, c controller.Interface, m *middleware.Chain) {
+func (t *mockRouter) AddRoute(p string, public bool, c controller.Interface, m *middleware.Chain) {
 	r := mockRoute{pattern: p, controller: c, mws: m}
-	t.routes = append(t.routes, r)
+	t.routes = append(t.routes, &r)
 }
 
 func (t *mockRouter) AddPublicDir(url string, source string) {

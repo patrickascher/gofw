@@ -84,13 +84,13 @@ func hasManyToMany(mainModel Interface, relationModel Interface) bool {
 // getManyToMany returns the foreign keys of the relations.
 // At the moment no junctionTable name or FK can be set by Tag.
 // Returns an error if field does not exist in struct or table does not exist (builder).
-func getManyToMany(mainModel Interface, relationModel Interface) ([]*sqlquery_.ForeignKey, error) {
+func getManyToMany(mainModel Interface, relationModel Interface) ([]*sqlquery.ForeignKey, error) {
 	junctionTable := snaker.CamelToSnake(inflection.Plural(structName(mainModel, false) + structName(relationModel, false)))
 	_, err := mainModel.Table().Builder.Information(junctionTable).Describe()
 	if err != nil {
 		return nil, err
 	}
-	var fks []*sqlquery_.ForeignKey
+	var fks []*sqlquery.ForeignKey
 
 	// check if its a self-reference
 	if structName(mainModel, true) == structName(relationModel, true) {
@@ -111,6 +111,7 @@ func getManyToMany(mainModel Interface, relationModel Interface) ([]*sqlquery_.F
 
 	// junction table - relation model
 	fk2, err := getForeignKeyByDb(relationModel, mainModel, junctionTable)
+
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func getRelation(mainModel Interface, relationModel Interface, relation reflect.
 // If no fk tag is set, a nil pointer will return.
 // If the defined field is not found in the underlying struct, an error will return.
 // If the FK is set by TAG the name of the foreign key will be "tag" as identifier for a user added fks.
-func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery_.ForeignKey, error) {
+func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery.ForeignKey, error) {
 
 	// if tag is empty
 	fk := relation.Tag.Get(TagFK)
@@ -158,7 +159,7 @@ func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation r
 	}
 
 	// declarations
-	foreignKey := &sqlquery_.ForeignKey{}
+	foreignKey := &sqlquery.ForeignKey{}
 
 	// if only a single field is defined in the tag
 	if !strings.Contains(fk, TagSeparator) {
@@ -179,8 +180,8 @@ func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation r
 			if err != nil {
 				return nil, err
 			}
-			foreignKey.Primary = &sqlquery_.Relation{Table: mainModel.Table().Name, Column: col}
-			foreignKey.Secondary = &sqlquery_.Relation{Table: relationModel.Table().Name, Column: relCol}
+			foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
+			foreignKey.Secondary = sqlquery.Relation{Table: relationModel.Table().Name, Column: relCol}
 			return foreignKey, nil
 		}
 
@@ -199,12 +200,12 @@ func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation r
 				return nil, err
 			}
 		}
-		foreignKey.Primary = &sqlquery_.Relation{Table: mainModel.Table().Name, Column: col}
+		foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
 		tn := "" // needed for custom types - set an empty Table name otherwise stategy will break
 		if relationModel.Table() != nil {
 			tn = relationModel.Table().Name
 		}
-		foreignKey.Secondary = &sqlquery_.Relation{Table: tn, Column: relCol}
+		foreignKey.Secondary = sqlquery.Relation{Table: tn, Column: relCol}
 		return foreignKey, nil
 
 	}
@@ -232,12 +233,12 @@ func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation r
 	if strings.HasPrefix(parsedFK["field"], structName(relationModel, false)) {
 		foreignKey.Name = BelongsTo //TODO create tests for belongsTo TAG
 	}
-	foreignKey.Primary = &sqlquery_.Relation{Table: mainModel.Table().Name, Column: col}
+	foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
 	tn := "" // needed for custom types - set an empty Table name otherwise stategy will break
 	if relationModel.Table() != nil {
 		tn = relationModel.Table().Name
 	}
-	foreignKey.Secondary = &sqlquery_.Relation{Table: tn, Column: relCol}
+	foreignKey.Secondary = sqlquery.Relation{Table: tn, Column: relCol}
 	return foreignKey, nil
 
 }
@@ -246,7 +247,7 @@ func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation r
 // A third parameter can be used for other table names like to check a junction table for example.
 // It will return an error if the struct field does not exist. (checked in both models (Interfaces)).
 // Will return no error if the foreign key was not found - is done in addRelation for a better error message.
-func getForeignKeyByDb(mainModel Interface, relationModel Interface, specialTable string) (*sqlquery_.ForeignKey, error) {
+func getForeignKeyByDb(mainModel Interface, relationModel Interface, specialTable string) (*sqlquery.ForeignKey, error) {
 
 	db, mainTable := mainModel.Table().Database, mainModel.Table().Name
 	relationTable := relationModel.Table().Name
@@ -286,7 +287,7 @@ func getForeignKeyByDb(mainModel Interface, relationModel Interface, specialTabl
 
 // getForeignKey combines getForeignKeyByTag and getForeignKeyByDb.
 // Will return errors of getForeignKeyByTag / getForeignKeyByDb.
-func getForeignKey(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery_.ForeignKey, error) {
+func getForeignKey(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery.ForeignKey, error) {
 	// checking fk tag
 	fk, err := getForeignKeyByTag(mainModel, relationModel, relation)
 	if err != nil {
@@ -355,12 +356,12 @@ RelationLoop:
 				// structCol always exists, because the ID field is mandatory in the orm.
 				structCol = &Column{}
 				structCol.StructField = "ID"
-				structCol.Information = &sqlquery_.Column{Name: "ID"}
+				structCol.Information = &sqlquery.Column{Name: "ID"}
 
 				// checking if the Field "NameOfMainStructID" exists.
 				associationCol = &Column{}
 				associationCol.StructField = structName(model, false) + "ID"
-				associationCol.Information = &sqlquery_.Column{Name: associationCol.StructField}
+				associationCol.Information = &sqlquery.Column{Name: associationCol.StructField}
 				f := relationModel.FieldByName(associationCol.StructField)
 				if !f.IsValid() {
 					return fmt.Errorf(ErrForeignKeyNotFound.Error(), custType, relation.Name, structName(model, true))
@@ -373,7 +374,7 @@ RelationLoop:
 
 				associationCol = &Column{}
 				associationCol.StructField = fk.Secondary.Column
-				associationCol.Information = &sqlquery_.Column{Name: fk.Secondary.Column}
+				associationCol.Information = &sqlquery.Column{Name: fk.Secondary.Column}
 			}
 
 			m.table.Associations[relation.Name] = &Association{Type: custType, StructTable: structCol, AssociationTable: associationCol}
@@ -451,6 +452,7 @@ RelationLoop:
 			if err != nil {
 				return err
 			}
+
 			if len(fks) != 2 || fks[0] == nil || fks[1] == nil {
 				return fmt.Errorf(ErrForeignKeyNotFound.Error(), ManyToMany, relation.Name, structName(model, true))
 			}

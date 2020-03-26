@@ -1,3 +1,7 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
@@ -59,8 +63,7 @@ func (s *Update) addArguments() error {
 	return nil
 }
 
-// Where is a wrapper for Condition.Where.
-// See: Condition.Where
+// Where - please see the Condition.Where documentation.
 func (s *Update) Where(stmt string, args ...interface{}) *Update {
 	s.condition.Where(stmt, args...)
 	return s
@@ -95,7 +98,7 @@ func (s *Update) render() (stmt string, args []interface{}, err error) {
 
 	selectStmt := "UPDATE " + s.builder.quoteColumns(s.table) + " SET " + columns
 	p := s.builder.driver.Placeholder()
-	selectStmt = s.builder.replacePlaceholders(selectStmt, p)
+	selectStmt = replacePlaceholders(selectStmt, p)
 	conditionStmt, err := s.condition.render(p)
 	if err != nil {
 		return "", []interface{}(nil), err
@@ -113,20 +116,10 @@ func (s *Update) String() (stmt string, args []interface{}, err error) {
 	return s.render()
 }
 
-func (s *Update) stmtAndArgs() (string, [][]interface{}, error) {
-	var args [][]interface{}
-	stmt, arg, err := s.render()
-	if err != nil {
-		return "", nil, err
-	}
-	args = append(args, arg)
-	return stmt, args, err
-}
-
 // Exec the sql query through the Builder.
-// An error will return if the arguments and placeholders mismatch, no value was set or the sql query returns one
+// An error will return if the arguments and placeholders mismatch, no value was set or the sql query returns one.
 func (s *Update) Exec() (sql.Result, error) {
-	stmt, args, err := s.stmtAndArgs()
+	stmt, args, err := convertArgumentsExtraSlice(s.render())
 	if err != nil {
 		return nil, err
 	}

@@ -222,9 +222,8 @@ func (r *Bot) OrmBefore(cbk *Callback) error {
 
 func (r *Robot) OrmBefore(cbk *Callback) error {
 	fmt.Println("called ROBOT BEFORE", cbk.Mode())
-	p := cbk.Relation()
-	p.
-		r.FieldNotExisting += "added Before" + cbk.Mode()
+	//p := cbk.Relation()
+	r.FieldNotExisting += "added Before" + cbk.Mode()
 
 	//result := cbk.ResultSet().(*[]File)
 	//*result = append(*result, File{ID:1})
@@ -270,10 +269,10 @@ func TestNewField_First(t *testing.T) {
 		fmt.Println("Relations VIEW: ", rel, relModel.StructTable, relModel.Type)
 	}
 
-	fmt.Println(robot.ID, "-", robot.FieldNotExisting)
-	fmt.Println(robot.ID, "-", len(robot.Files), robot.Files)
+	//fmt.Println(robot.ID, "-", robot.FieldNotExisting)
+	//fmt.Println(robot.ID, "-", len(robot.Files), robot.Files)
 
-	fmt.Printf("%p %p\n", robot.cbk.caller, robot)
+	//fmt.Printf("%p %p\n", robot.cbk.caller, robot)
 
 }
 
@@ -321,7 +320,7 @@ func TestNewField_All(t *testing.T) {
 
 	var robots []Robot
 	err = robot.All(&robots, nil)
-	assert.NoError(t, err)
+	assert.NoError(t, err) //here should be no error but ROBOTID appiers
 
 	fmt.Println("DB Columns: ", robot.Table().columnNames(READDB, false))
 	fmt.Println("View Columns: ", robot.Table().columnNames(READVIEW, false))
@@ -354,7 +353,7 @@ func TestNewFieldBot_All(t *testing.T) {
 
 	var robots []Robot
 	err = robot.All(&robots, nil)
-	assert.NoError(t, err)
+	assert.NoError(t, err) // Error 1054: Unknown column 'BotID' in 'where clause'
 
 	fmt.Println("DB Columns: ", robot.Table().columnNames(READDB, false))
 	fmt.Println("View Columns: ", robot.Table().columnNames(READVIEW, false))
@@ -486,12 +485,12 @@ func TestNewField_Delete(t *testing.T) {
 	err := robot.Initialize(robot)
 	assert.NoError(t, err)
 
-	c := sqlquery_.Condition{}
+	c := sqlquery.Condition{}
 	c.Order("id desc")
 	err = robot.First(&c)
 	assert.NoError(t, err)
 
-	err = robot.Delete()
+	err = robot.Delete() // entry could not be found (delete) - DELETE FROM `files` WHERE `id` = 12
 	assert.NoError(t, err)
 
 	fmt.Println(robot.ID, "-", robot.FieldNotExisting)
@@ -507,16 +506,15 @@ func TestNewFieldBot_Delete(t *testing.T) {
 	err := robot.Initialize(robot)
 	assert.NoError(t, err)
 
-	c := sqlquery_.Condition{}
+	c := sqlquery.Condition{}
 	c.Order("id desc")
 	err = robot.First(&c)
 	assert.NoError(t, err)
 
 	err = robot.Delete()
-	assert.NoError(t, err)
+	assert.NoError(t, err) //entry could not be found (delete) - DELETE FROM `files` WHERE `id` = 12
 
-	fmt.Println(robot.ID, "-", robot.FieldNotExisting)
-	fmt.Println(robot.ID, "-", robot.Files)
-
-	fmt.Printf("%p %p\n", robot.cbk.caller, robot)
+	//fmt.Println(robot.ID, "-", robot.FieldNotExisting)
+	//fmt.Println(robot.ID, "-", robot.Files)
+	//fmt.Printf("%p %p\n", robot.cbk.caller, robot)
 }

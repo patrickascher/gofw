@@ -54,9 +54,9 @@ func (c *console) colorFormat(e logger.LogEntry) string {
 func (c *console) Write(e logger.LogEntry) {
 	c.lock.Lock()
 	if c.options.Color {
-		fmt.Println(c.colorFormat(e))
+		fmt.Println(c.colorFormat(e), e.Arguments)
 	} else {
-		fmt.Println(fmt.Sprintf("%s %s %s:%d %s", e.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05"), e.Level.String(), filepath.Base(e.Filename), e.Line, e.Message))
+		fmt.Println(fmt.Sprintf("%s %s %s:%d %s", e.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05"), e.Level.String(), filepath.Base(e.Filename), e.Line, e.Message), e.Arguments)
 	}
 	c.lock.Unlock()
 }

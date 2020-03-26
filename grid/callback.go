@@ -332,8 +332,6 @@ func (g *Grid) callback(res interface{}) ([]map[string]interface{}, error) {
 						}
 					}
 
-					fmt.Println(":::CALLBACK", c.name, len(c.args), len(cfn))
-
 					err := setCallbackValueByString(c.name, cfn, 0, in, row, s.Index(i))
 					if err != nil {
 						return nil, err

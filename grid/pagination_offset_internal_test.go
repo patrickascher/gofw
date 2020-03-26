@@ -74,10 +74,12 @@ func TestPagination_generate(t *testing.T) {
 			r := httptest.NewRequest("GET", "https://localhost/users", body)
 			g := defaultGrid(r)
 
-			orm.GlobalBuilder, _ = HelperCreateBuilder()
+			b, err := HelperCreateBuilder()
+			orm.GlobalBuilder = &b
+			assert.NoError(t, err)
 
 			cust := Customerfk{}
-			err := g.Source(&cust)
+			err = g.SetSource(&cust, nil)
 			assert.NoError(t, err)
 
 			p := paginationOffset{}

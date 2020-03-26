@@ -33,9 +33,13 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+
+	b, err := HelperCreateBuilder()
+	assert.NoError(t, err)
+
+	orm.GlobalBuilder = &b
 	custom := Customerfk{}
-	err := g.Source(&custom)
+	err = g.SetSource(&custom, nil)
 	assert.NoError(t, err)
 
 	//remove LastName
@@ -57,16 +61,16 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	assert.NoError(t, err)
 	rel.SetPosition(11)
 
-	head := headerFieldsLoop(g.fields)
+	head := headerFieldsLoop(g.fields, false)
 
 	assert.Equal(t, "ID", head[0].Title)
 	assert.Equal(t, "", head[0].Description)
 	//assert.Equal(t, 1, head[0].Position)
-	assert.Equal(t, "Int", head[0].FieldType)
+	//assert.Equal(t, "Int", head[0].FieldType)
 	assert.Equal(t, true, head[0].Filter)
 	assert.Equal(t, true, head[0].Sort)
 	assert.Equal(t, false, head[0].Remove)
-	assert.Equal(t, false, head[0].Hide)
+	assert.Equal(t, true, head[0].Hide)
 	assert.Equal(t, 0, len(head[0].Fields))
 	assert.Equal(t, true, head[0].FieldPrimary)
 	assert.Equal(t, "", head[0].FieldDefault)
@@ -74,7 +78,7 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	assert.Equal(t, "FirstName", head[1].Title)
 	assert.Equal(t, "", head[1].Description)
 	//assert.Equal(t, 2, head[1].Position)
-	assert.Equal(t, "Text", head[1].FieldType)
+	//	assert.Equal(t, "Text", head[1].FieldType)
 	assert.Equal(t, true, head[1].Filter)
 	assert.Equal(t, true, head[1].Sort)
 	assert.Equal(t, false, head[1].Remove)
@@ -86,32 +90,23 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	// check if LastName was removed
 	assert.True(t, head[2].Title != "LastName")
 
-	assert.Equal(t, "CreatedAt", head[2].Title)
+	assert.Equal(t, "Info", head[2].Title)
+	assert.Equal(t, 3, len(head[2].Fields))
+
 	//assert.Equal(t, 3, head[2].Position)
 
-	assert.Equal(t, "UpdatedAt", head[3].Title)
+	assert.Equal(t, "Orders", head[3].Title)
+	assert.Equal(t, 3, len(head[3].Fields))
+
 	//assert.Equal(t, 4, head[3].Position)
 
-	assert.Equal(t, "DeletedAt", head[4].Title)
+	assert.Equal(t, "Service", head[4].Title)
+	assert.Equal(t, 2, len(head[4].Fields))
+
 	//assert.Equal(t, 5, head[4].Position)
 
-	assert.Equal(t, "AccountId", head[5].Title)
+	assert.Equal(t, "Account", head[5].Title)
+	assert.Equal(t, 2, len(head[5].Fields))
+
 	//assert.Equal(t, 6, head[5].Position)
-
-	assert.Equal(t, "Info", head[6].Title) // Info relation
-	//assert.Equal(t, 7, head[6].Position)
-	assert.Equal(t, 3, len(head[6].Fields))
-
-	assert.Equal(t, "Orders", head[7].Title) // Order relation
-	//assert.Equal(t, 8, head[7].Position)
-	assert.Equal(t, 3, len(head[7].Fields))
-
-	assert.Equal(t, "Service", head[8].Title) // Service relation
-	//assert.Equal(t, 9, head[8].Position)
-	assert.Equal(t, 2, len(head[8].Fields))
-
-	assert.Equal(t, "Account", head[9].Title) // Orders relation
-	//assert.Equal(t, 10, head[9].Position)
-	assert.Equal(t, 2, len(head[9].Fields))
-
 }

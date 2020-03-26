@@ -257,6 +257,8 @@ func TestManager_AddPublicRoute_AddSecureRoute(t *testing.T) {
 		{test: "ok: specific route(uppercase/lowercase) is added + multiple methods", public: true, pattern: "/", controller: &mockController{}, config: router.RouteConfig{"POST:Login;Get:Logout", nil}, controllerMap: map[string]string{"POST": "Login", "GET": "Logout"}},
 		{test: "ok: specific route is added, Multiple methods", public: true, pattern: "/", controller: &mockController{}, config: router.RouteConfig{"post:Login", nil}, controllerMap: map[string]string{"POST": "Login"}},
 		{test: "ok: middleware added", public: true, pattern: "/", controller: &mockController{}, config: router.RouteConfig{"post:Login", mwc}, controllerMap: map[string]string{"POST": "Login"}},
+		{test: "ok: methods with spaces in between", public: true, pattern: "/", controller: &mockController{}, config: router.RouteConfig{"post, get , option:Login", mwc}, controllerMap: map[string]string{"POST": "Login"}},
+
 		// secure middleware (err: no secure middleware defined must be at the beginning)
 		{test: "err: no secure middleware defined", public: false, pattern: "/", controller: &mockController{}, config: router.RouteConfig{"post:Login", nil}, error: true, errorMsg: router.ErrNoSecureMiddleware.Error()},
 		{test: "err: url no prefix /", public: false, pattern: "test", controller: &mockController{}, config: router.RouteConfig{"post:Login", nil}, error: true, errorMsg: router.ErrUrl.Error()},

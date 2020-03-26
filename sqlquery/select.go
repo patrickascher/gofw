@@ -80,7 +80,7 @@ type Select struct {
 	condition *Condition
 }
 
-// Columns appending new columns to the select stmt.
+// Columns set new columns to the select stmt.
 // If no columns are added, the * will be used.
 func (s *Select) Columns(cols ...string) *Select {
 	s.columns = []string{}
@@ -88,8 +88,7 @@ func (s *Select) Columns(cols ...string) *Select {
 	return s
 }
 
-// Join is a wrapper for Condition.Join.
-// See: Condition.Join
+// Join - please see the Condition.Join documentation.
 func (s *Select) Join(joinType int, table string, condition *Condition) *Select {
 	if joinType == 0 || table == "" {
 		return s
@@ -98,43 +97,37 @@ func (s *Select) Join(joinType int, table string, condition *Condition) *Select 
 	return s
 }
 
-// Where is a wrapper for Condition.Where.
-// See: Condition.Where
+// Where - please see the Condition.Where documentation.
 func (s *Select) Where(stmt string, args ...interface{}) *Select {
 	s.condition.Where(stmt, args...)
 	return s
 }
 
-// Group is a wrapper for Condition.Group.
-// See: Condition.Group
+// Group - please see the Condition.Group documentation.
 func (s *Select) Group(group ...string) *Select {
 	s.condition.Group(group...)
 	return s
 }
 
-// Having is a wrapper for Condition.Having.
-// See: Condition.Having
+// Having - please see the Condition.Having documentation.
 func (s *Select) Having(stmt string, args ...interface{}) *Select {
 	s.condition.Having(stmt, args...)
 	return s
 }
 
-// Order is a wrapper for Condition.Order.
-// See: Condition.Order
+// Order - please see the Condition.Order documentation.
 func (s *Select) Order(order ...string) *Select {
 	s.condition.Order(order...)
 	return s
 }
 
-// Limit is a wrapper for Condition.Limit.
-// See: Condition.Limit
+// Limit - please see the Condition.Limit documentation.
 func (s *Select) Limit(l int) *Select {
 	s.condition.Limit(l)
 	return s
 }
 
-// Offset is a wrapper for Condition.Offset.
-// See: Condition.Offset
+// Offset - please see the Condition.Offset documentation.
 func (s *Select) Offset(l int) *Select {
 	s.condition.Offset(l)
 	return s
@@ -181,7 +174,6 @@ func (s *Select) render() (string, []interface{}, error) {
 // First will return only one row.
 // Its a wrapper for DB.QueryRow
 func (s Select) First() (*sql.Row, error) {
-	//s.Limit(1).Offset(0)
 	stmt, args, err := s.render()
 	if err != nil {
 		return nil, err
@@ -190,6 +182,7 @@ func (s Select) First() (*sql.Row, error) {
 }
 
 // All returns the found rows by using the *db.Query method.
+// All returns a *sql.Rows, dont forget to Close it!
 // An error will return if the arguments and placeholders mismatch.
 func (s Select) All() (*sql.Rows, error) {
 	stmt, args, err := s.render()

@@ -89,13 +89,15 @@ type Interface interface {
 	NotFound(http.Handler)
 	// AddRoute to the router.
 	// pattern is already checked to start with a slash.
-	AddRoute(pattern string, c controller.Interface, m *middleware.Chain)
+	AddRoute(pattern string, public bool, c controller.Interface, m *middleware.Chain)
 	// AddPublicDir to the router
 	// Dir is not allowed on url root level.
 	AddPublicDir(url string, path string)
 	// AddPublicFile to the router
 	// Files are allowed on url root level.
 	AddPublicFile(url string, path string)
+	// Routes return all defined routes.
+	Routes() []Route
 }
 
 // provider is a function which returns the router interface.
@@ -147,6 +149,18 @@ type Manager struct {
 	allowedHTTPMethod map[string]bool
 }
 
+type Route interface {
+	Pattern() string
+	Public() bool
+	Controller() controller.Interface
+	MW() *middleware.Chain
+}
+
+// Routes return all defined routes.
+func (m *Manager) Routes() []Route {
+	return m.router.Routes()
+}
+
 // SetCache will pass the cache to the controllers.
 // TODO check if this should be done in the request.Context or global?
 func (m *Manager) SetCache(c cache.Interface) {
@@ -176,14 +190,13 @@ func (m *Manager) AllowHTTPMethod(httpMethod string, allow bool) error {
 // An error will return if the pattern is misspelt, the controller method does not exist or the HTTP Method is not allowed.
 func (m *Manager) AddPublicRoute(pattern string, c controller.Interface, conf RouteConfig) error {
 	// initialize the controller with the mapping.
-	fmt.Println(pattern, conf)
 	c, err := m.controllerMapping(pattern, c, conf)
 	if err != nil {
 		return err
 	}
 
 	//add to the router provider
-	m.router.AddRoute(pattern, c, conf.Middleware)
+	m.router.AddRoute(pattern, true, c, conf.Middleware)
 	return nil
 }
 
@@ -215,7 +228,7 @@ func (m *Manager) AddSecureRoute(pattern string, c controller.Interface, conf Ro
 	}
 
 	// adding to the router provider
-	m.router.AddRoute(pattern, c, mw)
+	m.router.AddRoute(pattern, false, c, mw)
 	return nil
 }
 
@@ -298,7 +311,6 @@ func (m *Manager) controllerMapping(pattern string, c controller.Interface, conf
 		return nil, err
 	}
 
-	fmt.Println(pattern, httpMapping)
 	err = c.Initialize(c, httpMapping, true)
 	c.SetCache(m.cache)
 	if err != nil {
@@ -347,6 +359,7 @@ valueLoop:
 		//Splitting single http methods or handling the wildcard
 		httpMethods := strings.Split(keyValue[0], separatorHTTPMethods)
 		for _, httpMethod := range httpMethods {
+			httpMethod = strings.Trim(httpMethod, " ")
 			// wildcard - add all allowed HTTP methods to it
 			if httpMethod == wildcardTag {
 				for method, allowed := range m.allowedHTTPMethod {

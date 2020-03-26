@@ -432,7 +432,7 @@ func TestRelation_getForeignKey_TAG(t *testing.T) {
 
 	order := Order{}
 	err = order.Initialize(&order)
-	assert.NoError(t, err)
+	assert.NoError(t, err) // model: field CustomerID not found in columns of orm.Customer
 
 	serviceField, exists := reflect.TypeOf(customer).FieldByName("Orders")
 	assert.True(t, exists)
@@ -461,7 +461,7 @@ func TestRelation_addRelation(t *testing.T) {
 
 	order := Order{}
 	err = order.Initialize(&order)
-	assert.NoError(t, err)
+	assert.NoError(t, err) // model: field CustomerID not found in columns of orm.Customer
 
 	assert.Equal(t, 2, len(customer.Table().Associations))
 	assert.Equal(t, HasOne, customer.Table().Associations["Info"].Type)

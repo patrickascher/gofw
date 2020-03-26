@@ -16,7 +16,7 @@ const (
 
 // Table is representing a db table.
 type Table struct {
-	Builder *sqlquery_.Builder
+	Builder *sqlquery.Builder
 
 	Name         string
 	Database     string
@@ -105,7 +105,7 @@ func (t *Table) columnNames(privilege int, customSelects bool) []string {
 	for i, cols := range columns {
 		tmpName := cols.Information.Name
 		if customSelects && cols.SqlSelect != "" {
-			tmpName = sqlquery_.Raw("(" + cols.SqlSelect + ") AS " + t.Builder.QuoteIdentifier(cols.Information.Name))
+			tmpName = sqlquery.Raw("(" + cols.SqlSelect + ") AS " + t.Builder.QuoteIdentifier(cols.Information.Name))
 		}
 		names[i] = tmpName
 	}

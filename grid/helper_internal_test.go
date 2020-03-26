@@ -1,8 +1,9 @@
 package grid
 
 import (
+	"github.com/guregu/null"
 	"github.com/patrickascher/gofw/config"
-	"github.com/patrickascher/gofw/config/reader"
+	"github.com/patrickascher/gofw/config/json"
 	"github.com/patrickascher/gofw/orm"
 	"github.com/patrickascher/gofw/sqlquery"
 	"os"
@@ -244,36 +245,30 @@ func insertAll() error {
 	return nil
 }
 
-func HelperParseConfig() (*sqlquery_.Config, error) {
-	var cfg sqlquery_.Config
+func HelperParseConfig() (sqlquery.Config, error) {
+	var cfg sqlquery.Config
 	var err error
 
 	if os.Getenv("TRAVIS") != "" {
-		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/travis." + os.Getenv("DB") + ".json"})
+		err = config.New("json", &cfg, json.Options{Filepath: "tests/travis." + os.Getenv("DB") + ".json"})
 	} else {
-		err = config.Parse("json", &cfg, &json.JsonOptions{File: "tests/db.json"})
+		err = config.New("json", &cfg, json.Options{Filepath: "tests/db.json"})
 	}
 
 	if err != nil {
-		return nil, err
+		return cfg, err
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
-func HelperCreateBuilder() (*sqlquery_.Builder, error) {
+func HelperCreateBuilder() (sqlquery.Builder, error) {
 	cfg, err := HelperParseConfig()
 
 	if err != nil {
-		return nil, err
+		return sqlquery.Builder{}, err
 	}
-	return sqlquery_.NewBuilderFromConfig(cfg)
-}
-
-type CommonX struct {
-	CreatedAt sqlquery_.NullTime
-	UpdatedAt sqlquery_.NullTime
-	DeletedAt sqlquery_.NullTime
+	return sqlquery.New(cfg, nil)
 }
 
 type Customerfk struct {
@@ -282,9 +277,8 @@ type Customerfk struct {
 	unexp int
 
 	ID        int
-	FirstName sqlquery_.NullString
-	LastName  sqlquery_.NullString
-	CommonX
+	FirstName null.String
+	LastName  null.String
 	AccountId int
 
 	Info    Contactfk   // hasOne
@@ -305,7 +299,7 @@ type Orderfk struct {
 
 	ID         int
 	CustomerID int
-	CreatedAt  sqlquery_.NullTime
+	CreatedAt  null.Time
 }
 
 type Contactfk struct {
@@ -313,12 +307,12 @@ type Contactfk struct {
 
 	ID         int
 	CustomerID int
-	Phone      sqlquery_.NullString
+	Phone      null.String
 }
 
 type Servicefk struct {
 	orm.Model
 
 	ID   int
-	Name sqlquery_.NullString
+	Name null.String
 }

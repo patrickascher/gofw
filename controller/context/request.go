@@ -332,6 +332,11 @@ func (req *Request) parse() error {
 		return nil
 	}
 
+	// adding router params
+	if req.Raw().Context().Value("params") != nil { // could not use ROUTER.PARAMS because of import cycle.
+		req.params = req.Raw().Context().Value("params").(map[string][]string)
+	}
+
 	// Handling GET Params
 	if req.IsGet() || req.IsDelete() {
 		getParams := req.Raw().URL.Query()

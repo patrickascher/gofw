@@ -3,7 +3,7 @@ package orm
 import (
 	"database/sql/driver"
 	"fmt"
-	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/patrickascher/gofw/sqlquery/types"
 	"gopkg.in/go-playground/validator.v9"
 	"reflect"
 	"strings"
@@ -96,8 +96,9 @@ func (m *Model) addDBValidation() error {
 		// required if null is not allowed and its not an autoincrement
 		req := false
 		if !col.Information.NullAble && !col.Information.Autoincrement && !skipBelongsToRelation {
-			col.Validator.appendConfig("required")
-			req = true
+			// BUG(patrick): what if notnull but 0 values are required?
+			//col.Validator.appendConfig("required")
+			//req = true
 		}
 
 		switch col.Information.Type.Kind() {
@@ -106,16 +107,16 @@ func (m *Model) addDBValidation() error {
 				col.Validator.appendConfig("omitempty") // needed that an empty string "" will not throw an error.
 			}
 			col.Validator.appendConfig("numeric")
-			opt := col.Information.Type.(*sqlquery_.Int)
+			opt := col.Information.Type.(*types.Int)
 			col.Validator.appendConfig(fmt.Sprintf("min=%d", opt.Min))
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Max))
 		case "Float":
 			col.Validator.appendConfig("numeric")
 		case "Text":
-			opt := col.Information.Type.(*sqlquery_.Text)
+			opt := col.Information.Type.(*types.Text)
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Size)) // TODO FIX it must be the byte size
 		case "TextArea":
-			opt := col.Information.Type.(*sqlquery_.TextArea)
+			opt := col.Information.Type.(*types.TextArea)
 			col.Validator.appendConfig(fmt.Sprintf("max=%d", opt.Size)) // TODO FIX it must be the byte size
 		case "Time":
 			//TODO write my own

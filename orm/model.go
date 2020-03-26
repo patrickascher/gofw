@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/guregu/null"
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/serenize/snaker"
@@ -18,7 +19,8 @@ import (
 )
 
 // GlobalBuilder for a global db connection
-var GlobalBuilder *sqlquery_.Builder
+var GlobalBuilder *sqlquery.Builder
+var GlobalCache cache.Interface
 var validate *validator.Validate
 
 // Error for Model
@@ -104,17 +106,17 @@ type Interface interface {
 	// defaults
 	TableName() string
 	DatabaseName() string
-	Builder() (*sqlquery_.Builder, error)
-	DefaultCache() (cache.Cache, time.Duration, error)
+	Builder() (*sqlquery.Builder, error)
+	DefaultCache() (cache.Interface, time.Duration, error)
 	Custom() bool
 
 	// orm
-	First(c *sqlquery_.Condition) error
-	All(result interface{}, c *sqlquery_.Condition) error
+	First(c *sqlquery.Condition) error
+	All(result interface{}, c *sqlquery.Condition) error
 	Create() error
 	Update() error
 	Delete() error
-	Count(c *sqlquery_.Condition) (int, error)
+	Count(c *sqlquery.Condition) (int, error)
 
 	DisableSnapshot(bool)
 	DisableCallback(bool)
@@ -124,21 +126,17 @@ type Interface interface {
 	disableCustomSql() bool
 
 	// cache
-	Cache() (cache.Cache, time.Duration, error)
-	SetCache(cache.Cache, time.Duration) error
+	Cache() (cache.Interface, time.Duration, error)
+	SetCache(cache.Interface, time.Duration) error
 	HasCache() bool
-
-	// Transaction
-	Tx() *sql.Tx
-	SetTx(tx *sql.Tx)
 
 	// helper for strategy
 	Table() *Table
 	SetStrategy(string) error
 
 	// condition for relations
-	SetRelationCondition(string, *sqlquery_.Condition) error
-	RelationCondition() map[string]*sqlquery_.Condition
+	SetRelationCondition(string, sqlquery.Condition) error
+	RelationCondition() map[string]sqlquery.Condition
 
 	// White and Blacklist
 	SetWhitelist(...string) *Model
@@ -164,9 +162,9 @@ type Interface interface {
 
 // Model struct contains all fields and relations of the database table.
 type Model struct {
-	CreatedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	UpdatedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	DeletedAt *sqlquery_.NullTime `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	CreatedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	UpdatedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
+	DeletedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
 
 	caller Interface // for result
 	table  *Table
@@ -181,12 +179,11 @@ type Model struct {
 
 	whiteOrBlackList *WhiteBlackList
 
-	relationCondition map[string]*sqlquery_.Condition
+	relationCondition map[string]sqlquery.Condition
 
-	cache    cache.Cache
+	cache    cache.Interface
 	cacheTTL time.Duration
-	tx       *sql.Tx
-	customTx bool
+
 	strategy string
 
 	disableCb       bool //TODO create a better disable solution
@@ -273,13 +270,14 @@ func (m *Model) checkLoopMap(args string) error {
 }
 
 // SetRelationCondition adds a special condition for a relation.
-func (m *Model) SetRelationCondition(name string, c *sqlquery_.Condition) error {
+func (m *Model) SetRelationCondition(name string, c sqlquery.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
 
 	for relName := range m.Table().Associations {
 		if relName == name {
+			fmt.Println("added------>", c)
 			m.relationCondition[relName] = c
 			return nil
 		}
@@ -288,7 +286,7 @@ func (m *Model) SetRelationCondition(name string, c *sqlquery_.Condition) error 
 	return ErrModelFieldNotFound
 }
 
-func (m *Model) RelationCondition() map[string]*sqlquery_.Condition {
+func (m *Model) RelationCondition() map[string]sqlquery.Condition {
 	return m.relationCondition
 }
 
@@ -331,22 +329,9 @@ func (m *Model) setWhiteBlacklist(wb *WhiteBlackList) {
 	}
 }
 
-// Tx returns the transaction of the model.
-// returns nil if none is existing.
-func (m *Model) Tx() *sql.Tx {
-	return m.tx
-}
-
-// SetTx to set your own transaction.
-// Keep in mind you also have to commit it on your own.
-func (m *Model) SetTx(tx *sql.Tx) {
-	m.tx = tx
-	m.customTx = true
-}
-
 // Cache returns the current cache.
 // If no cache is set, the default cache gets called.
-func (m *Model) Cache() (cache.Cache, time.Duration, error) {
+func (m *Model) Cache() (cache.Interface, time.Duration, error) {
 	if m.cache == nil {
 		c, ttl, err := m.caller.DefaultCache()
 		return c, ttl, err
@@ -359,7 +344,7 @@ func (m *Model) HasCache() bool {
 }
 
 // SetCache to add some custom cache for the model
-func (m *Model) SetCache(c cache.Cache, d time.Duration) error {
+func (m *Model) SetCache(c cache.Interface, d time.Duration) error {
 	if m.isInitialized {
 		return ErrSetCache
 	}
@@ -406,7 +391,7 @@ func CloneValue(source interface{}, destin interface{}) {
 func (m *Model) Initialize(caller Interface) error {
 	// set caller
 	m.caller = caller
-	m.relationCondition = make(map[string]*sqlquery_.Condition)
+	m.relationCondition = make(map[string]sqlquery.Condition)
 	m.loopDetection = true
 	m.loopMap = make(map[string][]string) // TODO define size of relations
 
@@ -466,7 +451,7 @@ func (m *Model) Initialize(caller Interface) error {
 	// add validation to the model
 	validate = validator.New()       // TODO global?
 	validate.SetTagName(TagValidate) // TODO global?
-	validate.RegisterCustomTypeFunc(ValidateValuer, sqlquery_.NullInt64{}, sqlquery_.NullFloat64{}, sqlquery_.NullBool{}, sqlquery_.NullString{}, sqlquery_.NullTime{})
+	validate.RegisterCustomTypeFunc(ValidateValuer, sql.NullInt64{}, sql.NullFloat64{}, sql.NullBool{}, sql.NullString{}, sql.NullTime{})
 
 	err = m.addDBValidation()
 	if err != nil {
@@ -492,7 +477,7 @@ func (m *Model) Initialize(caller Interface) error {
 // First will check the first founded row by its condition and adds it values to the struct fields.
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
-func (m *Model) First(c *sqlquery_.Condition) error {
+func (m *Model) First(c *sqlquery.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
@@ -509,7 +494,7 @@ func (m *Model) First(c *sqlquery_.Condition) error {
 
 	// create sql condition
 	if c == nil {
-		c = &sqlquery_.Condition{}
+		c = &sqlquery.Condition{}
 	}
 
 	// configure white or blacklist, if set
@@ -520,12 +505,15 @@ func (m *Model) First(c *sqlquery_.Condition) error {
 		}
 	}
 
-	err = m.checkLoopMap(c.Config(sqlquery_.WHERE))
+	err = m.checkLoopMap(c.Config(true, sqlquery.WHERE))
 	if err != nil {
 		return err
 	}
 
 	err = m.table.strategy.First(m.caller, c)
+	if err != nil {
+		return err
+	}
 
 	// callback after
 	// no tx.rollback is needed because there are only selects.
@@ -588,7 +576,7 @@ func CallMethodIfExist(model Interface, callbacks []string, args ...interface{})
 // All will return all rows by its condition and puts it in the given result.
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
-func (m *Model) All(result interface{}, c *sqlquery_.Condition) error {
+func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 	if !m.isInit() {
 		return ErrModelNotInitialized
 	}
@@ -604,7 +592,7 @@ func (m *Model) All(result interface{}, c *sqlquery_.Condition) error {
 	}
 
 	if c == nil {
-		c = &sqlquery_.Condition{}
+		c = &sqlquery.Condition{}
 	}
 
 	// configure white or blacklist, if set
@@ -615,7 +603,7 @@ func (m *Model) All(result interface{}, c *sqlquery_.Condition) error {
 		}
 	}
 
-	err = m.checkLoopMap(c.Config(sqlquery_.WHERE))
+	err = m.checkLoopMap(c.Config(true, sqlquery.WHERE))
 	if err != nil {
 		return err
 	}
@@ -665,7 +653,7 @@ func (m *Model) setTimestampOn(field string) error {
 	}
 	col.Permission.Write = true
 
-	t := sqlquery_.NullTime{Time: time.Now(), Valid: true}
+	t := null.Time{Time: time.Now(), Valid: true}
 	switch timestamp.Kind() {
 	case reflect.Ptr:
 		timestamp.Set(reflect.ValueOf(&t))
@@ -733,35 +721,14 @@ func (m *Model) setTimestampOn(field string) error {
 // It will return an error if the model is not initialized, tx  error, the strategy returns an error or a commit error happens.
 func (m *Model) Create() error {
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	if !m.isInit() {
-		if m.tx == nil {
-			callRollbackOnErr = false
-		}
 		err = ErrModelNotInitialized
 		return err
 	}
 
 	// reset resultSet
 	m.resSet = nil
-
-	// transaction
-	err = m.addTx()
-	if err != nil {
-		callRollbackOnErr = false
-		return err
-	}
 
 	// callback before
 	err = m.cbk.callIfExists("Create", true)
@@ -794,7 +761,6 @@ func (m *Model) Create() error {
 	// call create on strategy
 	err = m.table.strategy.Create(m.caller)
 	if err != nil {
-		callRollbackOnErr = false // rollback is already done in strategy
 		return err
 	}
 
@@ -802,13 +768,6 @@ func (m *Model) Create() error {
 	// its before the TX, that the transaction can still fail and rollback
 	err = m.cbk.callIfExists("Create", false)
 	if err != nil {
-		return err
-	}
-
-	// commit if tx was not added manually
-	err = m.commit()
-	if err != nil {
-		callRollbackOnErr = false // no rollback needed
 		return err
 	}
 
@@ -821,22 +780,8 @@ func (m *Model) Create() error {
 // It will return an error if the model is not initialized, tx  error, the strategy returns an error or a commit error happens.
 func (m *Model) Update() error {
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	if !m.isInit() {
-		if m.tx == nil {
-			callRollbackOnErr = false
-		}
 		return ErrModelNotInitialized
 	}
 
@@ -845,23 +790,14 @@ func (m *Model) Update() error {
 
 	// check if primary fields exist
 	if checkPrimaryFieldsEmpty(m.caller) {
-		if m.tx == nil {
-			callRollbackOnErr = false
-		}
 		err = ErrDeletePk
 		return err
 	}
 
 	// create where condition
-	c := &sqlquery_.Condition{}
+	c := &sqlquery.Condition{}
 	for _, col := range m.Table().PrimaryKeys() {
 		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
-	}
-
-	// transaction
-	err = m.addTx()
-	if err != nil {
-		return err
 	}
 
 	// callback before
@@ -881,7 +817,7 @@ func (m *Model) Update() error {
 
 	// snapshot
 	if !m.hasParent() && !m.disableSnapshot {
-		fmt.Println("############# SNAP SNAP START ###############")
+		//fmt.Println("############# SNAP SNAP START ###############")
 		snapshot := newValueInstanceFromType(reflect.TypeOf(m.caller)).Addr().Interface().(Interface)
 
 		cache2, ttl, errTmp := m.caller.Cache()
@@ -950,7 +886,7 @@ func (m *Model) Update() error {
 
 		if changesKeys == nil || len(changesKeys) == 0 {
 			//TODO - error no data was changed???
-			fmt.Println("#### SNAPSHOT #### no data was changed", m.equalWith(snapshot, ""))
+			//fmt.Println("#### SNAPSHOT #### no data was changed", m.equalWith(snapshot, ""))
 			return nil
 		}
 
@@ -960,7 +896,7 @@ func (m *Model) Update() error {
 			return err
 		}
 
-		fmt.Println(m.getFieldsFromChanges(changes), changesKeys, "############# SNAP SNAP END###############")
+		//fmt.Println(m.getFieldsFromChanges(changes), changesKeys, "############# SNAP SNAP END###############")
 	}
 
 	// set the UpdatedAt info if exists
@@ -980,7 +916,6 @@ func (m *Model) Update() error {
 	// call update on strategy
 	err = m.table.strategy.Update(m.caller, c)
 	if err != nil {
-		callRollbackOnErr = false // rollback is already done in strategy
 		return err
 	}
 
@@ -988,13 +923,6 @@ func (m *Model) Update() error {
 	// its before the TX that the default/custom transactions can be used in callbacks as well.
 	err = m.cbk.callIfExists("Update", false)
 	if err != nil {
-		return err
-	}
-
-	// commit if tx was not added manually
-	err = m.commit()
-	if err != nil {
-		callRollbackOnErr = false // no rollback needed
 		return err
 	}
 
@@ -1148,22 +1076,8 @@ func (m *Model) equalWith(snapshot Interface, parent string) []ChangedValues {
 func (m *Model) Delete() error {
 
 	var err error
-	callRollbackOnErr := true
-
-	defer func() {
-		if p := recover(); p != nil {
-			_ = m.Tx().Rollback()
-			panic(p) // re-throw panic after Rollback
-		} else if err != nil && callRollbackOnErr {
-			_ = m.Tx().Rollback() // err is non-nil; don't change it
-		}
-		return
-	}()
 
 	if !m.isInit() {
-		if m.tx == nil {
-			callRollbackOnErr = false
-		}
 		err = ErrModelNotInitialized
 		return err
 	}
@@ -1177,16 +1091,13 @@ func (m *Model) Delete() error {
 	}
 
 	// create where condition
-	c := &sqlquery_.Condition{}
+	c := &sqlquery.Condition{}
 	for _, col := range m.Table().PrimaryKeys() {
 		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
 	}
 
 	// set the DeletedAt info if exists
 	if m.timestampFieldExists(DELETE) {
-		if m.tx == nil {
-			callRollbackOnErr = false
-		}
 		err = m.setTimestampOn(DELETE)
 		if err != nil {
 			return err
@@ -1196,13 +1107,6 @@ func (m *Model) Delete() error {
 			return err
 		}
 	} else {
-
-		// transaction
-		err = m.addTx()
-		if err != nil {
-			return err
-		}
-
 		// callback before
 		// its after the TX that the default/custom transactions can be used in callbacks as well.
 		err = m.cbk.callIfExists("Delete", true)
@@ -1213,7 +1117,6 @@ func (m *Model) Delete() error {
 		// call delete on strategy
 		err = m.table.strategy.Delete(m.caller, c)
 		if err != nil {
-			callRollbackOnErr = false // rollback is already done in strategy
 			return err
 		}
 
@@ -1223,42 +1126,20 @@ func (m *Model) Delete() error {
 		if err != nil {
 			return err
 		}
-
-		// commit if tx was not added manually
-		err = m.commit()
-		if err != nil {
-			callRollbackOnErr = false // no rollback needed anymore
-			return err
-		}
-	}
-
-	return nil
-}
-
-// commit the transaction
-func (m *Model) commit() error {
-	if !m.customTx {
-		if err := m.tx.Commit(); err != nil {
-			if errR := m.tx.Rollback(); errR != nil {
-				return errR
-			}
-			return err
-		}
-		m.tx = nil
 	}
 
 	return nil
 }
 
 // Count the existing rows by the given condition.
-func (m *Model) Count(c *sqlquery_.Condition) (int, error) {
+func (m *Model) Count(c *sqlquery.Condition) (int, error) {
 	if !m.isInit() {
 		return 0, ErrModelNotInitialized
 	}
 
 	b := m.Table().Builder
 	if c == nil {
-		c = &sqlquery_.Condition{}
+		c = &sqlquery.Condition{}
 	}
 	row, err := b.Select(m.Table().Name).Condition(c).Columns("!COUNT(*)").First()
 	if err != nil {
@@ -1283,22 +1164,6 @@ func (m *Model) Table() *Table {
 // isInit checks if the model got already initialized.
 func (m Model) isInit() bool {
 	return m.isInitialized
-}
-
-// addTx adds a new transaction to the model.
-// It sets customTX to false as identifier.
-func (m *Model) addTx() error {
-	// add tx only if it was not added manually already
-	if m.tx == nil {
-		tx, err := m.Table().Builder.NewTx()
-		if err != nil {
-			return err
-		}
-
-		m.tx = tx
-		m.customTx = false
-	}
-	return nil
 }
 
 // SetStrategy to the model
@@ -1339,7 +1204,7 @@ func (m *Model) initTable() error {
 	// check if user defined his own database, otherwise take database from config
 	db := m.caller.DatabaseName()
 	if db == "" {
-		db = b.Config().DbName()
+		db = b.Driver().Config().Database
 	}
 
 	// get struct table name
@@ -1371,7 +1236,7 @@ func (m *Model) initTable() error {
 }
 
 // initBuilder checks if a builder is given, otherwise an error will return.
-func (m *Model) initBuilder() (*sqlquery_.Builder, error) {
+func (m *Model) initBuilder() (*sqlquery.Builder, error) {
 	//checking default config
 	b, err := m.caller.Builder()
 	if err != nil {

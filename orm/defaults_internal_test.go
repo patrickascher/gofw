@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"database/sql"
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/sqlquery"
@@ -13,8 +14,8 @@ type Users struct {
 	Model
 
 	Id        int
-	FirstName sqlquery_.NullString
-	LastName  sqlquery_.NullString
+	FirstName sql.NullString
+	LastName  sql.NullString
 }
 
 type Person struct {
@@ -37,13 +38,14 @@ func (c *Custom) DatabaseName() string {
 	return "robots"
 }
 
-func (c *Custom) Builder() (*sqlquery_.Builder, error) {
+func (c *Custom) Builder() (*sqlquery.Builder, error) {
 	return HelperCreateBuilder()
 }
 
-func (c *Custom) DefaultCache() (cache.Cache, time.Duration, error) {
-	ca, err := cache.Get("memory", 5*time.Minute)
-	return ca, 1 * time.Hour, err
+func (c *Custom) DefaultCache() (cache.Interface, time.Duration, error) {
+
+	ca, err := cache.New(cache.MEMORY, memory.Options{GCInterval: 3600})
+	return ca, 3600, err
 }
 
 func Test_structName(t *testing.T) {
@@ -87,18 +89,16 @@ func TestModel_DatabaseName(t *testing.T) {
 func TestModel_Cache(t *testing.T) {
 	u := &Users{}
 	u.caller = u
-	c, ttl, err := u.Cache()
+	_, ttl, err := u.Cache()
 	if assert.NoError(t, err) {
-		assert.Equal(t, 6*time.Hour, ttl)
-		assert.IsType(t, &memory.Memory{}, c)
+		assert.Equal(t, time.Duration(21600000000000), ttl)
 	}
 
 	custom := &Custom{}
 	custom.caller = custom
-	ca, ttl, err := custom.Cache()
+	_, ttl, err = custom.Cache()
 	if assert.NoError(t, err) {
-		assert.Equal(t, 1*time.Hour, ttl)
-		assert.IsType(t, &memory.Memory{}, ca)
+		assert.Equal(t, time.Duration(3600), ttl)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestModel_Builder(t *testing.T) {
 	cust := &Customerfk{}
 	b, err := cust.Builder()
 	if assert.Error(t, err) {
-		assert.Equal(t, (*sqlquery_.Builder)(nil), b)
+		assert.Equal(t, (*sqlquery.Builder)(nil), b)
 	}
 
 	custom := &Custom{}

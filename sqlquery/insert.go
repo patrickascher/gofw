@@ -1,3 +1,7 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
@@ -7,6 +11,7 @@ import (
 	"strings"
 )
 
+// BATCH - default value for batching the insert stmt.
 const BATCH = 50
 
 // Insert type.
@@ -25,26 +30,26 @@ type Insert struct {
 	valueSets []map[string]interface{}
 }
 
-// Values set the column/value pair
+// Values set the column/value pair.
 func (s *Insert) Values(values []map[string]interface{}) *Insert {
 	s.valueSets = values
 	return s
 }
 
-// LastInsertedID gets the last id over different drivers
+// LastInsertedID gets the last id over different drivers.
 func (s *Insert) LastInsertedID(column string, ID interface{}) *Insert {
 	s.lastIDColumn = column
 	s.lastIDPtr = ID
 	return s
 }
 
-// Batch sets the batch counter
+// Batch sets the batching size.
 func (s *Insert) Batch(b int) *Insert {
 	s.batch = b
 	return s
 }
 
-// Columns define a fixed column order
+// Columns define a fixed column order for the insert.
 func (s *Insert) Columns(c ...string) *Insert {
 	s.columns = []string{}
 	s.columns = append(s.columns, c...)
@@ -58,7 +63,7 @@ func (s *Insert) String() (stmt string, args [][]interface{}, err error) {
 }
 
 // Exec the sql query through the Builder.
-// If its batching, a transaction is called.
+// If a LastInsertedID is set, the ptr will be set.
 // An error will return if the arguments and placeholders mismatch or no value was set.
 func (s *Insert) Exec() ([]sql.Result, error) {
 	stmt, args, err := s.render()
@@ -74,7 +79,7 @@ func (s *Insert) Exec() ([]sql.Result, error) {
 }
 
 // execQueryWithLastId is modifying the query to get the lastInsertId over different drivers.
-// Postgres for example is not returning the result.LastInsertId()
+// TODO this should be covered by the driver.
 func (s *Insert) execQueryWithLastId(stmt string, args [][]interface{}) error {
 	var err error
 	if s.builder.conf.Driver == "postgres" {
@@ -129,10 +134,10 @@ func (s *Insert) render() (stmt string, args [][]interface{}, err error) {
 		selectStmt += valueStmt + strings.Repeat(", "+valueStmt, len(s.valueSets)-1)
 	}
 
-	return s.builder.replacePlaceholders(selectStmt, s.builder.driver.Placeholder()), s.arguments, nil
+	return replacePlaceholders(selectStmt, s.builder.driver.Placeholder()), s.arguments, nil
 }
 
-// isBatched checks if a batching is needed
+// isBatched checks if a batching is needed.
 func (s *Insert) isBatched() bool {
 	if s.batch == 0 {
 		s.batch = BATCH
@@ -140,7 +145,7 @@ func (s *Insert) isBatched() bool {
 	return len(s.valueSets) > s.batch
 }
 
-// batching the arguments
+// batching the arguments.
 func (s *Insert) batching() [][]interface{} {
 
 	batchCount := s.batch * len(s.columns)

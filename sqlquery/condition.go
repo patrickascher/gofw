@@ -1,12 +1,15 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
-	"strconv"
-	"strings"
-
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 )
 
 // Allowed conditions
@@ -26,9 +29,7 @@ var (
 	ErrPlaceholderMismatch = errors.New("sqlquery: %v placeholder(%v) and arguments(%v) does not fit")
 )
 
-// Condition is holding all condition statements and arguments.
-// Arguments of ON,WHERE and HAVING are stored in the args variable.
-// GROUP, ORDER, LIMIT, OFFSET are set directly as string.
+// Condition type.
 type Condition struct {
 	where  string
 	having string
@@ -100,7 +101,7 @@ func (c *Condition) Config(values bool, condition ...int) string {
 	return strings.Join(stmt, " ")
 }
 
-// Reset the condition by one or more conditions or all of them.
+// Reset the condition by one or more conditions.
 // If the argument is empty, all conditions are reset.
 //		c.Reset() // all will be reset
 // 		c.Reset(WHERE,HAVING) // only WHERE and HAVING are reset.
@@ -184,9 +185,6 @@ func (c *Condition) Having(stmt string, args ...interface{}) *Condition {
 	return c
 }
 
-// Order by condition.
-// Usage con.Order("id DESC")
-
 // Order condition.
 // If a column has a `-` prefix, DESC order will get set.
 // Order should only be called once. If its called more often, the last values count.
@@ -239,9 +237,6 @@ func (c *Condition) Offset(o int) *Condition {
 }
 
 // On condition for sql joins.
-// Usage: c.On("company.id = employee.id",nil)
-
-// On condition for sql joins.
 // On should only be called once. If its called more often, the last values count.
 // Arrays and slices can be passed as argument.
 //		c.On("user.company = company.id AND user.id > ?",100)
@@ -255,15 +250,15 @@ func (c *Condition) On(stmt string, args ...interface{}) *Condition {
 // It manipulates the statement ex.: `Where("id IN (?)",[1,2,3]` into `id IN (?,?,?)` and it appends all given arguments.
 func stmtMapManipulation(c *Condition, stmt string, args []interface{}, conditionType int) string {
 
-	//initialize arguments
+	// initialize arguments
 	if len(c.args) == 0 {
 		c.args = make(map[int][]interface{})
 	}
 
-	//manipulate statement
+	// manipulate statement
 	if len(args) >= 1 {
 		for i := 0; i < len(args); i++ {
-			//handel array arguments
+			// handel array arguments
 			if reflect.ValueOf(args[i]).Kind() == reflect.Array || reflect.ValueOf(args[i]).Kind() == reflect.Slice {
 				//split after placeholder and only replace the map placeholder
 				spStmt := strings.SplitAfter(stmt, PLACEHOLDER)
@@ -283,7 +278,7 @@ func stmtMapManipulation(c *Condition, stmt string, args []interface{}, conditio
 // Only int and string types are allowed.
 func (c *Condition) addArgument(conditionType int, args interface{}) {
 
-	//Array/Slice arguments
+	// Array/Slice arguments
 	if reflect.ValueOf(args).Kind() == reflect.Array || reflect.ValueOf(args).Kind() == reflect.Slice {
 		for n := 0; n < reflect.ValueOf(args).Len(); n++ {
 			switch reflect.ValueOf(args).Index(n).Kind() {
@@ -300,7 +295,7 @@ func (c *Condition) addArgument(conditionType int, args interface{}) {
 		return
 	}
 
-	//single argument
+	// single argument
 	c.args[conditionType] = append(c.args[conditionType], args)
 }
 
@@ -325,7 +320,7 @@ func (c *Condition) conditionHelper(conditionType int, stmt string, args []inter
 
 	sqlStmt := ""
 
-	//compare placeholders and arguments length, return error if there is a mismatch
+	// compare placeholders and arguments length, return error if there is a mismatch
 	if strings.Count(stmt, PLACEHOLDER) != len(args) {
 		c.error = fmt.Errorf(ErrPlaceholderMismatch.Error(), stmt, strings.Count(stmt, PLACEHOLDER), len(args))
 		return
@@ -333,7 +328,7 @@ func (c *Condition) conditionHelper(conditionType int, stmt string, args []inter
 
 	stmt = stmtMapManipulation(c, stmt, args, conditionType)
 
-	//building statement
+	// building statement
 	switch conditionType {
 	case WHERE:
 		if c.where == "" {
@@ -365,13 +360,5 @@ func (c *Condition) render(p *Placeholder) (string, error) {
 		return "", c.error
 	}
 
-	//replace the package placeholder with the driver placeholder
-	condition := c.Config(false, WHERE, GROUP, HAVING, ORDER, LIMIT, OFFSET)
-	n := strings.Count(condition, PLACEHOLDER)
-	// BUG(patrick): condition/render this logic fails if the placeholder is numeric and has the same char as placeholder.
-	for i := 1; i <= n; i++ {
-		condition = strings.Replace(condition, PLACEHOLDER, p.placeholder(), 1)
-	}
-
-	return condition, nil
+	return replacePlaceholders(c.Config(false, WHERE, GROUP, HAVING, ORDER, LIMIT, OFFSET), p), nil
 }

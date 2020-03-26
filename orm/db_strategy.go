@@ -9,11 +9,11 @@ var strategyStore = make(map[string]Strategy)
 
 // Strategy interface
 type Strategy interface {
-	First(m Interface, c *sqlquery_.Condition) error
-	All(res interface{}, m Interface, c *sqlquery_.Condition) error
+	First(m Interface, c *sqlquery.Condition) error
+	All(res interface{}, m Interface, c *sqlquery.Condition) error
 	Create(m Interface) error
-	Update(m Interface, c *sqlquery_.Condition) error
-	Delete(m Interface, c *sqlquery_.Condition) error
+	Update(m Interface, c *sqlquery.Condition) error
+	Delete(m Interface, c *sqlquery.Condition) error
 }
 
 // Register the strategy

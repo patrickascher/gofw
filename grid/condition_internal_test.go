@@ -13,13 +13,14 @@ func TestCondition_conditionAll(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName&filter_ID=1", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 	c, err := conditionAll(g)
 	assert.NoError(t, err)
-	cExp := sqlquery_.Condition{}
+	cExp := sqlquery.Condition{}
 	cExp.Order("id", "-first_name")
 	cExp.Where("id = ?", "1") // TODO fix params types
 	assert.Equal(t, &cExp, c)
@@ -28,18 +29,18 @@ func TestCondition_conditionAll(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://localhost/users", body)
 	g = defaultGrid(r)
 	cust2 := Customerfk{}
-	err = g.Source(&cust2)
+	err = g.SetSource(&cust2, nil)
 	assert.NoError(t, err)
 	c, err = conditionAll(g)
 	assert.NoError(t, err)
-	cExp = sqlquery_.Condition{}
+	cExp = sqlquery.Condition{}
 	assert.Equal(t, &cExp, c)
 
 	// sort field does not exist
 	r = httptest.NewRequest("GET", "https://localhost/users?sort=xxx", body)
 	g = defaultGrid(r)
 	cust3 := Customerfk{}
-	err = g.Source(&cust3)
+	err = g.SetSource(&cust3, nil)
 	assert.NoError(t, err)
 	c, err = conditionAll(g)
 	assert.Error(t, err)
@@ -49,7 +50,7 @@ func TestCondition_conditionAll(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://localhost/users?filter_xxx=1", body)
 	g = defaultGrid(r)
 	cust4 := Customerfk{}
-	err = g.Source(&cust4)
+	err = g.SetSource(&cust4, nil)
 	assert.NoError(t, err)
 	c, err = conditionAll(g)
 	assert.Error(t, err)
@@ -60,26 +61,27 @@ func TestCondition_addSortCondition(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
 	// single param
-	c := &sqlquery_.Condition{}
-	cExp := &sqlquery_.Condition{}
+	c := &sqlquery.Condition{}
+	cExp := &sqlquery.Condition{}
 	cExp.Order("id", "-first_name") // TODO: why is here no fqdn?
 	err = addSortCondition(g, "ID,-FirstName", c)
 	assert.NoError(t, err)
 	assert.Equal(t, cExp, c)
 
 	// field does not exist
-	c = &sqlquery_.Condition{}
+	c = &sqlquery.Condition{}
 	err = addSortCondition(g, "ID,-Name", c)
 	assert.Error(t, err)
 
 	// no params
-	c = &sqlquery_.Condition{}
+	c = &sqlquery.Condition{}
 	err = addSortCondition(g, "", c)
 	assert.NoError(t, err)
 }
@@ -88,14 +90,15 @@ func TestCondition_addFilterCondition(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users?filter_id=1", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
 	// single param
-	c := &sqlquery_.Condition{}
-	cExp := &sqlquery_.Condition{}
+	c := &sqlquery.Condition{}
+	cExp := &sqlquery.Condition{}
 	cExp.Where("id = ?", "1") // TODO: why is here no fqdn?
 	err = addFilterCondition(g, "ID", []string{"1"}, c)
 	assert.NoError(t, err)
@@ -105,11 +108,11 @@ func TestCondition_addFilterCondition(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://localhost/users?filter_id=1,2,3", body)
 	g = defaultGrid(r)
 	cust2 := Customerfk{} //TODO FIX: why is a redeclaring not working?
-	err = g.Source(&cust2)
+	err = g.SetSource(&cust2, nil)
 	assert.NoError(t, err)
 	// multiple params
-	c = &sqlquery_.Condition{}
-	cExp = &sqlquery_.Condition{}
+	c = &sqlquery.Condition{}
+	cExp = &sqlquery.Condition{}
 	cExp.Where("id IN(?)", []string{"1", "2", "3"}) // TODO: why is here no fqdn?
 	err = addFilterCondition(g, "ID", []string{"1,2,3"}, c)
 	assert.NoError(t, err)
@@ -120,9 +123,10 @@ func TestCondition_isSortAllowed(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
 	// allowed
@@ -143,9 +147,10 @@ func TestCondition_isFilterAllowed(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
 	// allowed
@@ -165,9 +170,10 @@ func TestCondition_getFieldByDbName(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
 	// exists
@@ -185,9 +191,10 @@ func TestCondition_checkPrimaryParams(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
-	orm.GlobalBuilder, _ = HelperCreateBuilder()
+	b, err := HelperCreateBuilder()
+	orm.GlobalBuilder = &b
 	cust := Customerfk{}
-	err := g.Source(&cust)
+	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 	// err no params are set
 	c, err := checkPrimaryParams(g)
@@ -198,7 +205,7 @@ func TestCondition_checkPrimaryParams(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://localhost/users?test=1", body)
 	g = defaultGrid(r)
 	cust2 := Customerfk{}
-	err = g.Source(&cust2)
+	err = g.SetSource(&cust2, nil)
 	assert.NoError(t, err)
 	// err pkey is not set
 	c, err = checkPrimaryParams(g)
@@ -209,12 +216,12 @@ func TestCondition_checkPrimaryParams(t *testing.T) {
 	r = httptest.NewRequest("GET", "https://localhost/users?ID=1", body)
 	g = defaultGrid(r)
 	cust3 := Customerfk{}
-	err = g.Source(&cust3)
+	err = g.SetSource(&cust3, nil)
 	assert.NoError(t, err)
 	// everything ok
 	c, err = checkPrimaryParams(g)
 	assert.NoError(t, err)
-	con := sqlquery_.Condition{}
+	con := sqlquery.Condition{}
 	con.Where("customerfks.id = ?", "1") // TODO fix?
 	assert.Equal(t, &con, c)
 }

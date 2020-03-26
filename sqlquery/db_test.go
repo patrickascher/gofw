@@ -1,13 +1,17 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery_test
 
 import (
 	"database/sql"
 	"fmt"
+	"testing"
+
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/patrickascher/gofw/sqlquery/driver"
-	_ "github.com/patrickascher/gofw/sqlquery/driver"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func getBuilder() (sqlquery.Builder, error) {
@@ -55,11 +59,16 @@ func insertDummyData() error {
 	return nil
 }
 
-func countRows() int {
-	b, err := getBuilder()
-	if err != nil {
-		return 0
+func countRows(b *sqlquery.Builder) int {
+	var err error
+	if b == nil {
+		b1, err := getBuilder()
+		if err != nil {
+			return 0
+		}
+		b = &b1
 	}
+
 	rows, err := b.Select("users").All()
 	if err != nil {
 		return 0
@@ -81,6 +90,8 @@ func TestDb_FirstAll(t *testing.T) {
 	test.NoError(err)
 	b, err := getBuilder()
 	test.NoError(err)
+
+	test.Equal("mysql", b.Driver().Config().Driver)
 
 	// ok: first with no entries - empty row
 	r, err := b.Select("users").First()
@@ -154,7 +165,7 @@ func TestDb_InsertAndBatch(t *testing.T) {
 	// ok: insert entry
 	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
 	test.NoError(err)
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 
 	// err: wrong syntax (values are missing)
 	_, err = b.Insert("users").Exec()
@@ -181,7 +192,7 @@ func TestDb_InsertAndBatch(t *testing.T) {
 	_, err = b.Insert("users").Batch(1).Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
 	test.NoError(err)
 	// check if two entries were made
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 }
 
 func TestDb_InsertTx(t *testing.T) {
@@ -204,15 +215,32 @@ func TestDb_InsertTx(t *testing.T) {
 	err = b.Tx()
 	test.NoError(err)
 
-	// ok: insert entry not commited, no entries.
+	// ok: insert entry not committed, no entries.
 	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
 	test.NoError(err)
-	test.Equal(0, countRows())
+	// check outside the tx
+	test.Equal(0, countRows(nil))
+	// check all inside the tx
+	test.Equal(2, countRows(&b))
+	// check first inside the tx
+	row, err := b.Select("users").First()
+	test.NoError(err)
+	user := struct {
+		id      int
+		name    string
+		surname string
+		company sql.NullInt64
+	}{}
+	err = row.Scan(&user.id, &user.name, &user.surname, &user.company)
+	test.NoError(err)
+	test.Equal(1, user.id)
+	test.Equal("John", user.name)
+	test.Equal("Doe", user.surname)
 
 	err = b.Rollback()
 	test.NoError(err)
 
-	test.Equal(0, countRows())
+	test.Equal(0, countRows(nil))
 
 	// -----------------------------------------
 
@@ -226,14 +254,14 @@ func TestDb_InsertTx(t *testing.T) {
 
 	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
 	test.NoError(err)
-	test.Equal(0, countRows())
+	test.Equal(0, countRows(nil))
 
-	test.Equal(0, countRows())
+	test.Equal(0, countRows(nil))
 
 	err = b.Commit()
 	test.NoError(err)
 
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 
 }
 
@@ -250,7 +278,7 @@ func TestDb_Delete(t *testing.T) {
 	test.NoError(err)
 	_, err = b.Delete("users").Exec()
 	test.NoError(err)
-	test.Equal(0, countRows())
+	test.Equal(0, countRows(nil))
 
 	// ok: check delete where
 	err = truncateTables()
@@ -259,7 +287,7 @@ func TestDb_Delete(t *testing.T) {
 	test.NoError(err)
 	_, err = b.Delete("users").Where("id = "+sqlquery.PLACEHOLDER, 1).Exec()
 	test.NoError(err)
-	test.Equal(1, countRows())
+	test.Equal(1, countRows(nil))
 
 	// error: table does not exist
 	err = truncateTables()
@@ -268,7 +296,7 @@ func TestDb_Delete(t *testing.T) {
 	test.NoError(err)
 	_, err = b.Delete("userx").Exec()
 	test.Error(err)
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 
 	// error: where syntax error
 	err = truncateTables()
@@ -277,7 +305,7 @@ func TestDb_Delete(t *testing.T) {
 	test.NoError(err)
 	_, err = b.Delete("users").Where("id = "+sqlquery.PLACEHOLDER+" AND "+sqlquery.PLACEHOLDER, 1).Exec()
 	test.Error(err)
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 
 }
 
@@ -294,7 +322,7 @@ func TestDb_Update(t *testing.T) {
 	test.NoError(err)
 	_, err = b.Update("users").Where("id = "+sqlquery.PLACEHOLDER, 1).Set(map[string]interface{}{"name": "John_", "surname": "Doe_"}).Exec()
 	test.NoError(err)
-	test.Equal(2, countRows())
+	test.Equal(2, countRows(nil))
 	r, err := b.Select("users").Where("id = "+sqlquery.PLACEHOLDER, 1).First()
 	test.NoError(err)
 	user := struct {

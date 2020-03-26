@@ -8,9 +8,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/sqlquery/types"
 )
 
-// Error messages
+// Error messages.
 var (
 	ErrUnknownProvider       = errors.New("sqlquery/driver: unknown driver %q")
 	ErrNoProvider            = errors.New("sqlquery/driver: empty driver-name or driver is nil")
@@ -24,10 +25,10 @@ var registry = make(map[string]driver)
 // The first argument is the config struct, followed by an open connection.
 // If the opened connection is nil, a connection will get created by the driver.
 // Like this the driver is getting initialized only when its called.
-type driver func(config Config, db *sql.DB) (Driver, error)
+type driver func(config Config, db *sql.DB) (DriverI, error)
 
 // Driver interface.
-type Driver interface {
+type DriverI interface {
 	// Connection should return an open connection. The implementation depends on the driver.
 	// As proposal, a connection should be unique to avoid overhead. Store it in on package level if its created.
 	Connection() *sql.DB
@@ -44,13 +45,16 @@ type Driver interface {
 	// Placeholder for the go driver.
 	Placeholder() *Placeholder
 
+	// Config returns the given configuration of the driver.
+	Config() Config
+
 	// TypeMapping should unify the different column types of different database types.
-	TypeMapping(string, Column) Type
+	TypeMapping(string, Column) types.Interface
 }
 
 // newDriver returns a sqlquery driver.
 // Error will return if the diver is not registered.
-func newDriver(cfg Config, connection *sql.DB) (Driver, error) {
+func newDriver(cfg Config, connection *sql.DB) (DriverI, error) {
 	instanceFn, ok := registry[cfg.Driver]
 	if !ok {
 		return nil, fmt.Errorf(ErrUnknownProvider.Error(), cfg.Driver)

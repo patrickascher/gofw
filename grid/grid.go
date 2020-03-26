@@ -49,7 +49,7 @@ var (
 // Grid is holding all information.
 type Grid struct {
 	src          orm.Interface
-	srcCondition *sqlquery_.Condition
+	srcCondition *sqlquery.Condition
 
 	fields     map[string]Interface
 	controller controller.Interface
@@ -121,7 +121,7 @@ func (g *Grid) Source() orm.Interface {
 
 // Source connects a model to the grid.
 // The controller must have a cache otherwise an error will return.
-func (g *Grid) SetSource(m orm.Interface, condition *sqlquery_.Condition) error {
+func (g *Grid) SetSource(m orm.Interface, condition *sqlquery.Condition) error {
 	// init model
 	if g.controller.HasCache() {
 		err := m.SetCache(g.controller.Cache(), 0) //infinity cache
@@ -368,7 +368,7 @@ func (g *Grid) Render() {
 		resultSet := reflect.New(reflect.MakeSlice(reflect.SliceOf(modelType.Type()), 0, 0).Type()).Interface()
 		model.SetWhitelist(valueKey[0], textKey[0])
 
-		c := sqlquery_.Condition{}
+		c := sqlquery.Condition{}
 		pkey := g.src.Table().PrimaryKeys() // TODO: what if more pkeys? not possible in M2M?
 		id, err := g.controller.Context().Request.Param(pkey[0].StructField)
 		if err == nil {
@@ -739,7 +739,7 @@ func (g *Grid) unmarshalModel() error {
 }
 
 // readOne fetches only one db entry by its primary key
-func (g *Grid) readOne(c *sqlquery_.Condition) error {
+func (g *Grid) readOne(c *sqlquery.Condition) error {
 
 	// request data
 	err := g.src.First(c)
@@ -764,6 +764,7 @@ func (g *Grid) readAll() error {
 	resultSlice := modelSliceNew.Interface()
 
 	// check if header information is disabled
+
 	if h, err := g.controller.Context().Request.Param("head"); err != nil || h[0] == "0" {
 		err = g.Disable(HEADER)
 		if err != nil {
@@ -787,7 +788,6 @@ func (g *Grid) readAll() error {
 	}
 
 	// request all data
-	fmt.Println("WILL GET BLACKLISTED:::", g.blacklistedFields(nil, ""))
 	g.src.SetBlacklist(g.blacklistedFields(nil, "")...)
 	err = g.src.All(resultSlice, c)
 	if err != nil {
@@ -861,7 +861,7 @@ func (g *Grid) update() error {
 }
 
 // delete an db entry by its primary
-func (g *Grid) delete(c *sqlquery_.Condition) error {
+func (g *Grid) delete(c *sqlquery.Condition) error {
 	err := g.src.First(c)
 	if err != nil {
 		return err

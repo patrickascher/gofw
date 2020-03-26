@@ -6,14 +6,17 @@ package sqlquery_test
 
 import (
 	"database/sql"
+	"github.com/patrickascher/gofw/sqlquery/types"
+
 	"github.com/patrickascher/gofw/sqlquery"
 )
 
 var mockProvider *mockDriver
 
 // New creates a in-memory cache by the given options.
-func mockMock(cfg sqlquery.Config, db *sql.DB) (sqlquery.Driver, error) {
+func mockMock(cfg sqlquery.Config, db *sql.DB) (sqlquery.DriverI, error) {
 	mockProvider = &mockDriver{}
+	mockProvider.cfg = cfg
 	return mockProvider, nil
 }
 
@@ -24,6 +27,12 @@ type mockDriver struct {
 
 	fkTable string
 	fkDb    string
+
+	cfg sqlquery.Config
+}
+
+func (m *mockDriver) Config() sqlquery.Config {
+	return m.cfg
 }
 
 func (m *mockDriver) Connection() *sql.DB {
@@ -52,6 +61,6 @@ func (m *mockDriver) Placeholder() *sqlquery.Placeholder {
 	return &sqlquery.Placeholder{Char: "?", Numeric: false}
 }
 
-func (m *mockDriver) TypeMapping(s string, column sqlquery.Column) sqlquery.Type {
+func (m *mockDriver) TypeMapping(s string, column sqlquery.Column) types.Interface {
 	return nil
 }

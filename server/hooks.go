@@ -1,6 +1,9 @@
 package server
 
 import (
+	"github.com/patrickascher/gofw/cache/memory"
+	"github.com/patrickascher/gofw/logger/console"
+	"github.com/patrickascher/gofw/router/httprouter"
 	"time"
 
 	"github.com/patrickascher/gofw/cache"
@@ -11,8 +14,8 @@ import (
 
 var (
 	cfgLogger  *logger.Logger
-	cfgCache   cache.Cache
-	cfgBuilder *sqlquery_.Builder
+	cfgCache   cache.Interface
+	cfgBuilder sqlquery.Builder
 	cfgRouter  *router.Manager
 )
 
@@ -25,17 +28,29 @@ func Logger() *logger.Logger {
 // initLogger is setting a console log.
 func initLogger() error {
 	var err error
-	cfgLogger, err = logger.Get(logger.CONSOLE)
+
+	c, err := console.New(console.Options{Color: true})
 	if err != nil {
 		return err
 	}
+
+	err = logger.Register("console", logger.Config{Writer: c})
+	if err != nil {
+		return err
+	}
+
+	cfgLogger, err = logger.Get("console")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // Builder returns the configured database.
 // If no database is defined, the builder will be nil.
-func Builder() *sqlquery_.Builder {
-	return cfgBuilder
+func Builder() *sqlquery.Builder {
+	return &cfgBuilder
 }
 
 // initBuilder initialize a builder of the defined database config.
@@ -46,9 +61,12 @@ func initBuilder() error {
 	}
 
 	if c.Database.Host != "" {
-		cfgBuilder, err = sqlquery_.NewBuilderFromConfig(c.Database)
+		cfgBuilder, err = sqlquery.New(*c.Database, nil)
 		if err != nil {
 			return err
+		}
+		if c.Database.Debug {
+			cfgBuilder.SetLogger(Logger())
 		}
 	}
 	return nil
@@ -56,7 +74,7 @@ func initBuilder() error {
 
 // Cache returns the configured cache.
 // If no cache is defined, this will be nil.
-func Cache() cache.Cache {
+func Cache() cache.Interface {
 	return cfgCache
 }
 
@@ -68,7 +86,8 @@ func initCache() error {
 	}
 
 	if c.CacheManager.Provider != "" {
-		c, err := cache.Get(c.CacheManager.Provider, time.Duration(int64(time.Second)*c.CacheManager.GCCycle))
+
+		c, err := cache.New(c.CacheManager.Provider, memory.Options{GCInterval: time.Duration(c.CacheManager.GCCycle) * time.Minute})
 		if err != nil {
 			return err
 		}
@@ -92,19 +111,21 @@ func initRouter() error {
 		return err
 	}
 	if c.Router.Provider != "" {
-
-		rm, err := router.Get(c.Router.Provider)
+		rm, err := router.New(c.Router.Provider, httprouter.Options{CatchAllKeyValuePair: true})
 		if err != nil {
 			return err
 		}
 
-		err = rm.Favicon(c.Router.Favicon)
+		err = rm.SetFavicon(c.Router.Favicon)
 		if err != nil {
 			return err
 		}
 
 		for _, dir := range c.Router.Directories {
-			rm.PublicDir(dir.Url, dir.Source)
+			err = rm.AddPublicDir(dir.Url, dir.Source)
+			if err != nil {
+				return err
+			}
 		}
 		cfgRouter = rm
 	}

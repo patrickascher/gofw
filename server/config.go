@@ -17,10 +17,10 @@ var (
 )
 
 type Cfg struct {
-	Database     *sqlquery_.Config `json:"database"`
-	Server       Server            `json:"server"`
-	Router       RouterProvider    `json:"router"`
-	CacheManager CacheProvider     `json:"cache"`
+	Database     *sqlquery.Config `json:"database"`
+	Server       Server           `json:"server"`
+	Router       RouterProvider   `json:"router"`
+	CacheManager CacheProvider    `json:"cache"`
 }
 
 type Server struct {

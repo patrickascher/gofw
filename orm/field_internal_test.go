@@ -85,12 +85,15 @@ func TestField_isStructLoopAndaddLoadedStruct(t *testing.T) {
 
 func TestField_initializeModelByValue(t *testing.T) {
 	cust := Customerfk{}
+	err := cust.Initialize(&cust)
+	assert.NoError(t, err)
+
 	relation := newValueInstanceFromType(reflect.ValueOf(cust).FieldByName("Info").Type())
 
 	// relation not initialized
 	assert.False(t, relation.FieldByName("isInitialized").Bool())
 
-	err := cust.initializeModelByValue(relation)
+	err = cust.initializeModelByValue(relation)
 	assert.NoError(t, err)
 
 	// relation must be initialized now
@@ -120,35 +123,35 @@ func TestField_getFieldsOrRelations_Fields(t *testing.T) {
 	assert.Equal(t, "", fields[0].PkgPath)
 
 	assert.Equal(t, "FirstName", fields[1].Name)
-	assert.Equal(t, "String", fields[1].Type.Name())
+	assert.Equal(t, "NullString", fields[1].Type.Name())
 	assert.Equal(t, reflect.StructTag(""), fields[1].Tag)
 	assert.Equal(t, []int([]int{3}), fields[1].Index)
 	assert.Equal(t, false, fields[1].Anonymous)
 	assert.Equal(t, "", fields[1].PkgPath)
 
 	assert.Equal(t, "LastName", fields[2].Name)
-	assert.Equal(t, "String", fields[2].Type.Name())
+	assert.Equal(t, "NullString", fields[2].Type.Name())
 	assert.Equal(t, reflect.StructTag(""), fields[2].Tag)
 	assert.Equal(t, []int([]int{4}), fields[2].Index)
 	assert.Equal(t, false, fields[2].Anonymous)
 	assert.Equal(t, "", fields[2].PkgPath)
 
 	assert.Equal(t, "CreatedAt", fields[3].Name)
-	assert.Equal(t, "Time", fields[3].Type.Name())
+	assert.Equal(t, "NullTime", fields[3].Type.Name())
 	assert.Equal(t, reflect.StructTag(""), fields[3].Tag)
 	assert.Equal(t, []int([]int{0}), fields[3].Index) // embedded counter starts again at 0
 	assert.Equal(t, false, fields[3].Anonymous)
 	assert.Equal(t, "", fields[3].PkgPath)
 
 	assert.Equal(t, "UpdatedAt", fields[4].Name)
-	assert.Equal(t, "Time", fields[4].Type.Name())
+	assert.Equal(t, "NullTime", fields[4].Type.Name())
 	assert.Equal(t, reflect.StructTag(""), fields[4].Tag)
 	assert.Equal(t, []int([]int{1}), fields[4].Index)
 	assert.Equal(t, false, fields[4].Anonymous)
 	assert.Equal(t, "", fields[4].PkgPath)
 
 	assert.Equal(t, "DeletedAt", fields[5].Name)
-	assert.Equal(t, "Time", fields[5].Type.Name())
+	assert.Equal(t, "NullTime", fields[5].Type.Name())
 	assert.Equal(t, reflect.StructTag(""), fields[5].Tag)
 	assert.Equal(t, []int([]int{2}), fields[5].Index)
 	assert.Equal(t, false, fields[5].Anonymous)
@@ -198,7 +201,7 @@ func TestField_addStructFieldsToTableColumn(t *testing.T) {
 	fields := []string{"ID", "FirstName", "LastName", "CreatedAt", "UpdatedAt", "DeletedAt"}
 	for i, field := range fields {
 		assert.Equal(t, field, cust.table.Cols[i].StructField)
-		assert.Equal(t, &Permission{Read: true, Write: true}, cust.table.Cols[i].Permission)
+		assert.Equal(t, Permission{Read: true, Write: true}, cust.table.Cols[i].Permission)
 		assert.Equal(t, snaker.CamelToSnake(field), cust.table.Cols[i].Information.Name)
 	}
 }
@@ -215,10 +218,10 @@ func TestField_parseTags(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string(map[string]string{"permission": "rw", "role": "admin"}), m)
 
-	// testing bad syntax
-	m, err = parseTags(" permission; rw ; role: admin ; ")
-	assert.Error(t, err)
-	assert.True(t, m == nil)
+	// testing bad syntax - TEST was deleted
+	//m, err = parseTags(" permission; rw ; role: admin ; ")
+	//assert.Error(t, err)
+	//assert.True(t, m == nil)
 }
 
 func TestField_configColumnByTag(t *testing.T) {
@@ -239,17 +242,17 @@ func TestField_configColumnByTag(t *testing.T) {
 	// permission W
 	err = configColumnByTag(cust.table.Cols[0], "permission:w")
 	assert.NoError(t, err)
-	assert.Equal(t, &Permission{Read: false, Write: true}, cust.table.Cols[0].Permission)
+	assert.Equal(t, Permission{Read: false, Write: true}, cust.table.Cols[0].Permission)
 
 	// permission R
 	err = configColumnByTag(cust.table.Cols[0], "permission:r")
 	assert.NoError(t, err)
-	assert.Equal(t, &Permission{Read: true, Write: false}, cust.table.Cols[0].Permission)
+	assert.Equal(t, Permission{Read: true, Write: false}, cust.table.Cols[0].Permission)
 
 	// permission RW
 	err = configColumnByTag(cust.table.Cols[0], "permission:rw")
 	assert.NoError(t, err)
-	assert.Equal(t, &Permission{Read: true, Write: true}, cust.table.Cols[0].Permission)
+	assert.Equal(t, Permission{Read: true, Write: true}, cust.table.Cols[0].Permission)
 
 	// select
 	err = configColumnByTag(cust.table.Cols[0], "select:Count(*)")
@@ -258,7 +261,7 @@ func TestField_configColumnByTag(t *testing.T) {
 
 	// error
 	err = configColumnByTag(cust.table.Cols[0], "key::value")
-	assert.Error(t, err)
+	assert.NoError(t, err) // no errors are returned anymore
 
 }
 

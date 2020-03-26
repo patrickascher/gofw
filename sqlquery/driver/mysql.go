@@ -1,19 +1,22 @@
-// Package mysql defines the describe and foreign key syntax.
-// It also loads the "github.com/go-sql-driver/mysql" driver
-//
-// See https://github.com/patrickascher/go-sql for more information and examples.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package driver contains some out of the box db drivers which implement the sqlquery.Driver interface.
 package driver
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql" //include the mysql driver
-	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/patrickascher/gofw/sqlquery/types"
 	"strings"
+
+	_ "github.com/go-sql-driver/mysql" // mysql driver
+	"github.com/patrickascher/gofw/sqlquery"
 )
 
-// init registers itself as mysql driver
+// init register the mysql driver.
 func init() {
 	sqlquery.Register("mysql", newMysql)
 }
@@ -23,10 +26,12 @@ var (
 	ErrTableDoesNotExist = errors.New("sqlquery: table %s does not exist")
 )
 
-// New creates a in-memory cache by the given options.
-func newMysql(cfg sqlquery.Config, db *sql.DB) (sqlquery.Driver, error) {
+// newMysql creates a db connection.
+// If the argument *sql.DB is not nil, the existing connection is taken, otherwise a new connection will be created.
+func newMysql(cfg sqlquery.Config, db *sql.DB) (sqlquery.DriverI, error) {
 
 	m := &mysql{}
+	m.config = cfg
 	if db != nil {
 		m.connection = db
 	} else {
@@ -40,19 +45,29 @@ func newMysql(cfg sqlquery.Config, db *sql.DB) (sqlquery.Driver, error) {
 	return m, nil
 }
 
-// Mysql driver
+// mysql driver.
 type mysql struct {
 	connection *sql.DB
+	config     sqlquery.Config
 }
 
+// Connection returns the existing *sql.DB.
 func (m *mysql) Connection() *sql.DB {
 	return m.connection
 }
 
+// Connection returns the existing *sql.DB.
+func (m *mysql) Config() sqlquery.Config {
+	return m.config
+}
+
+// QuoteCharacterColumn returns the identifier quote character.
 func (m *mysql) QuoteCharacterColumn() string {
 	return "`"
 }
 
+// Describe the database table.
+// If the columns argument is set, only the required columns are requested.
 func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns []string) ([]*sqlquery.Column, error) {
 
 	sel := b.Select("information_schema.COLUMNS c")
@@ -101,11 +116,14 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 
 }
 
+// ForeignKeys returns the relation of the given table.
+// TODO: already set the relation Type (hasOne, hasMany, m2m,...) ? Does this make sense already here instead of the ORM.
 func (m *mysql) ForeignKeys(b *sqlquery.Builder, db string, table string) ([]*sqlquery.ForeignKey, error) {
 
 	sel := b.Select("!information_schema.key_column_usage cu, information_schema.table_constraints tc").
 		Columns("tc.constraint_name", "tc.table_name", "cu.column_name", "cu.referenced_table_name", "cu.referenced_column_name").
 		Where("cu.constraint_name = tc.constraint_name AND cu.table_name = tc.table_name AND tc.constraint_type = 'FOREIGN KEY'").
+		Where("cu.table_schema = ?", db).
 		Where("tc.table_schema = ?", db).
 		Where("tc.table_name = ?", table)
 
@@ -129,11 +147,13 @@ func (m *mysql) ForeignKeys(b *sqlquery.Builder, db string, table string) ([]*sq
 	return fKeys, nil
 }
 
+// Placeholder return a configured placeholder for the db driver.
 func (m *mysql) Placeholder() *sqlquery.Placeholder {
 	return &sqlquery.Placeholder{Char: "?", Numeric: false}
 }
 
-func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
+// TypeMapping converts the database type to an unique sqlquery type over different database drives.
+func (m *mysql) TypeMapping(raw string, col sqlquery.Column) types.Interface {
 	//Integer
 	if strings.HasPrefix(raw, "bigint") ||
 		strings.HasPrefix(raw, "int") ||
@@ -141,7 +161,7 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 		strings.HasPrefix(raw, "smallint") ||
 		strings.HasPrefix(raw, "tinyint") {
 
-		integer := sqlquery.NewInt(raw)
+		integer := types.NewInt(raw)
 		// Bigint
 		if strings.HasPrefix(raw, "bigint") {
 			if strings.HasSuffix(raw, "unsigned") {
@@ -205,7 +225,7 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 	if strings.HasPrefix(raw, "decimal") ||
 		strings.HasPrefix(raw, "float") ||
 		strings.HasPrefix(raw, "double") {
-		f := sqlquery.NewFloat(raw)
+		f := types.NewFloat(raw)
 		//TODO decimal point
 		return f
 	}
@@ -213,7 +233,7 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 	// Text
 	if strings.HasPrefix(raw, "varchar") ||
 		strings.HasPrefix(raw, "char") {
-		text := sqlquery.NewText(raw)
+		text := types.NewText(raw)
 		if col.Length.Valid {
 			text.Size = int(col.Length.Int64)
 		}
@@ -225,7 +245,7 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 		strings.HasPrefix(raw, "text") ||
 		strings.HasPrefix(raw, "mediumtext") ||
 		strings.HasPrefix(raw, "longtext") {
-		textArea := sqlquery.NewTextArea(raw)
+		textArea := types.NewTextArea(raw)
 
 		if strings.HasPrefix(raw, "tinytext") {
 			textArea.Size = 255
@@ -248,19 +268,19 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) sqlquery.Type {
 
 	// Time
 	if raw == "time" {
-		time := sqlquery.NewTime(raw)
+		time := types.NewTime(raw)
 		return time
 	}
 
 	// Date
 	if raw == "date" {
-		date := sqlquery.NewDate(raw)
+		date := types.NewDate(raw)
 		return date
 	}
 
 	// DateTime
 	if raw == "datetime" || raw == "timestamp" {
-		dateTime := sqlquery.NewDateTime(raw)
+		dateTime := types.NewDateTime(raw)
 		return dateTime
 	}
 

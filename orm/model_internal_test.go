@@ -28,7 +28,7 @@ func TestModel_initBuilder(t *testing.T) {
 	}
 
 	// no builder not defined or nil
-	GlobalBuilder = &sqlquery_.Builder{}
+	GlobalBuilder = &sqlquery.Builder{}
 	b, err := cust.initBuilder()
 	if assert.NoError(t, err) {
 		assert.Equal(t, GlobalBuilder, b)
@@ -47,7 +47,7 @@ func TestModel_initBuilder(t *testing.T) {
 	cb.caller = &cb
 	b, err = cb.initBuilder()
 	if assert.NoError(t, err) {
-		assert.Equal(t, &sqlquery_.Builder{}, b)
+		assert.Equal(t, &sqlquery.Builder{}, b)
 	}
 }
 
@@ -75,32 +75,6 @@ func TestModel_initTable(t *testing.T) {
 
 	// addStructFieldsToTableColumn are tested in field.go
 	// table.describe are tested in db_table.go
-}
-
-func TestModel_SetTx_Tx(t *testing.T) {
-	GlobalBuilder, _ = HelperCreateBuilder()
-
-	tx, err := GlobalBuilder.Adapter.Begin()
-	if assert.NoError(t, err) {
-
-		cb := Customer{}
-		cb.SetTx(tx)
-
-		assert.Equal(t, tx, cb.Tx())
-		assert.True(t, cb.customTx)
-	}
-}
-
-func TestModel_addTx(t *testing.T) {
-	GlobalBuilder, _ = HelperCreateBuilder()
-
-	cb := Customer{}
-	cb.table = &Table{Builder: GlobalBuilder}
-	err := cb.addTx()
-	if assert.NoError(t, err) {
-		assert.Equal(t, false, cb.customTx)
-		assert.True(t, cb.tx != nil)
-	}
 }
 
 func TestModel_isInit(t *testing.T) {

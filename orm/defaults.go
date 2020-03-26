@@ -20,20 +20,21 @@ func (m *Model) DatabaseName() string {
 }
 
 // DefaultCache is defining a in-memory cache with a ttl of 6 hours by default.
-func (m *Model) DefaultCache() (cache.Cache, time.Duration, error) {
+func (m *Model) DefaultCache() (cache.Interface, time.Duration, error) {
 	if server.Cache() != nil {
 		return server.Cache(), 0, nil
 	}
 
-	c, err := cache.Get("memory", 5*time.Second)
-	return c, 6 * time.Hour, err
+	return GlobalCache, 6 * time.Hour, nil
 }
 
 // Builder returns the GlobalBuilder.
 // If it's not defined, a error will return.
-func (m *Model) Builder() (*sqlquery_.Builder, error) {
-	if GlobalBuilder == nil {
-		return nil, ErrModelNoBuilder
+func (m *Model) Builder() (*sqlquery.Builder, error) {
+
+	if GlobalBuilder != nil {
+		return GlobalBuilder, nil
 	}
-	return GlobalBuilder, nil
+
+	return nil, ErrModelNoBuilder
 }

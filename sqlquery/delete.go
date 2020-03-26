@@ -1,3 +1,7 @@
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package sqlquery
 
 import (
@@ -11,8 +15,7 @@ type Delete struct {
 	condition *Condition
 }
 
-// Where is a wrapper for Condition.Where.
-// See: Condition.Where
+// Where - please see the Condition.Where documentation.
 func (s *Delete) Where(stmt string, args ...interface{}) *Delete {
 	s.condition.Where(stmt, args...)
 	return s
@@ -47,21 +50,10 @@ func (s *Delete) String() (stmt string, args []interface{}, err error) {
 	return s.render()
 }
 
-// TODO: stmtAndArgs wraps the result in an extra slice because of insert batch?
-func (s *Delete) stmtAndArgs() (string, [][]interface{}, error) {
-	var args [][]interface{}
-	stmt, arg, err := s.render()
-	if err != nil {
-		return "", nil, err
-	}
-	args = append(args, arg)
-	return stmt, args, err
-}
-
-// Exec the sql query through the Builder
+// Exec the sql query through the Builder.
 // An error will return if the arguments and placeholders mismatch or the sql.Exec creates with an error.
 func (s *Delete) Exec() (sql.Result, error) {
-	stmt, args, err := s.stmtAndArgs()
+	stmt, args, err := convertArgumentsExtraSlice(s.render())
 	if err != nil {
 		return nil, err
 	}

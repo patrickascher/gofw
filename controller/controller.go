@@ -169,7 +169,6 @@ func (c *Controller) Initialize(caller Interface, mapping map[string]map[string]
 	// if the name is not defined yet, some default values are set.
 	c.renderType = caller.RenderType()
 	if c.renderType == "" {
-
 		c.renderType = globalRenderType
 	}
 

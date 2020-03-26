@@ -12,10 +12,10 @@
 package rbac
 
 import (
+	"github.com/patrickascher/gofw/router"
 	"net/http"
 
 	"github.com/patrickascher/gofw/middleware/jwt"
-	"github.com/patrickascher/gofw/router"
 )
 
 // RoleService interface
@@ -41,6 +41,7 @@ func (rb *Rbac) MW(h http.HandlerFunc) http.HandlerFunc {
 
 		// checking the request context for the required keys
 		claim := r.Context().Value(jwt.CLAIM)
+
 		urlPattern := r.Context().Value(router.PATTERN)
 
 		// application or configuration errors
