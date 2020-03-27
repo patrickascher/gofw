@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -249,7 +250,11 @@ func (m *Manager) addFiles(url string, source string, dir bool) error {
 		return ErrRootLevel
 	}
 
-	path, err := filepath.Abs(source)
+	s, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	path, err := filepath.Abs(path.Dir(s) + "/" + source)
 	if info, errDir := os.Stat(path); err != nil || os.IsNotExist(errDir) || (info != nil && info.IsDir() != dir) {
 		if dir {
 			return fmt.Errorf(ErrPathDoesNotExist.Error(), source)
