@@ -4,10 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/rs/cors"
-	"log"
 	"net/http"
-	"strconv"
-	"strings"
 )
 
 var (
@@ -95,19 +92,9 @@ func startServer() error {
 		return ErrNoRouterConfig
 	}
 
-	// HTTP server - redirect http to https if forceHTTPS is set to true
-	redirectServer := http.Server{}
-	redirectServer.Addr = fmt.Sprint(":", c.Server.HTTPPort)
-	if cfg.Server.ForceHTTPS {
-		redirectServer.Handler = http.HandlerFunc(redirect)
-	} else {
-		redirectServer.Handler = cfgRouter.Handler()
-	}
-	go redirectServer.ListenAndServe()
-
 	// HTTPS Server
 	cfgServer := http.Server{}
-	cfgServer.Addr = fmt.Sprint(":", c.Server.HTTPSPort)
+	cfgServer.Addr = fmt.Sprint(":", c.Server.HTTPPort)
 
 	//TODO write own cors middleware
 	corsManager := cors.New(cors.Options{
@@ -119,24 +106,12 @@ func startServer() error {
 	})
 
 	cfgServer.Handler = corsManager.Handler(cfgRouter.Handler())
-	err = cfgServer.ListenAndServeTLS(c.Server.CertFile, c.Server.KeyFile)
+	err = cfgServer.ListenAndServe()
 	if err != nil {
 		return err
 	}
 
-	defer redirectServer.Close()
 	defer cfgServer.Close()
 
 	return nil
-}
-
-// redirect handler for forcing http to https
-func redirect(w http.ResponseWriter, req *http.Request) {
-	c, _ := config()
-	target := "https://" + strings.Replace(req.Host, strconv.Itoa(c.Server.HTTPPort), strconv.Itoa(c.Server.HTTPSPort), 1) + req.URL.Path
-	if len(req.URL.RawQuery) > 0 {
-		target += "?" + req.URL.RawQuery
-	}
-	log.Printf("redirect to: %s", target)
-	http.Redirect(w, req, target, http.StatusTemporaryRedirect)
 }

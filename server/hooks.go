@@ -127,6 +127,13 @@ func initRouter() error {
 				return err
 			}
 		}
+
+		for _, file := range c.Router.Files {
+			err = rm.AddPublicFile(file.Url, file.Source)
+			if err != nil {
+				return err
+			}
+		}
 		cfgRouter = rm
 	}
 

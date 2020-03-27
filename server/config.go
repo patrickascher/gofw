@@ -24,20 +24,17 @@ type Cfg struct {
 }
 
 type Server struct {
-	HTTPPort   int    `json:"httpPort"`
-	HTTPSPort  int    `json:"httpsPort"`
-	ForceHTTPS bool   `json:"forceHttps"`
-	CertFile   string `json:"certFile"`
-	KeyFile    string `json:"keyFile"`
+	HTTPPort int `json:"httpPort"`
 }
 
 type RouterProvider struct {
 	Provider    string      `json:"provider"`
 	Favicon     string      `json:"favicon"`
-	Directories []Directory `json:"directories"`
+	Directories []UrlSource `json:"directories"`
+	Files       []UrlSource `json:"files"`
 }
 
-type Directory struct {
+type UrlSource struct {
 	Url    string `json:"url"`
 	Source string `json:"source"`
 }

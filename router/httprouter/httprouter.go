@@ -52,12 +52,11 @@ func (h *httpRouterExtended) HandlerFunc(method, path string, handler http.Handl
 func (h *httpRouterExtended) Handler(method, path string, handler http.Handler) {
 	h.Handle(method, path,
 		func(w http.ResponseWriter, req *http.Request, p jsRouter.Params) {
-			if len(p) > 0 {
-				ctx := req.Context()
-				ctx = context.WithValue(ctx, router.PATTERN, p.MatchedRoutePath())
-				ctx = context.WithValue(ctx, router.PARAMS, h.paramsToMap(p, w))
-				req = req.WithContext(ctx)
-			}
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, router.PATTERN, p.MatchedRoutePath())
+			ctx = context.WithValue(ctx, router.PARAMS, h.paramsToMap(p, w))
+			req = req.WithContext(ctx)
+
 			handler.ServeHTTP(w, req)
 		},
 	)
@@ -76,6 +75,11 @@ func (h *httpRouterExtended) paramsToMap(params jsRouter.Params, w http.Response
 
 	for _, p := range params {
 		if p.Key == jsRouter.MatchedRoutePathParam {
+			continue
+		}
+
+		if p.Key == "filepath" {
+			rv[p.Key] = []string{p.Value}
 			continue
 		}
 
@@ -190,6 +194,7 @@ func (hr *httpRouter) AddPublicDir(url string, source string) {
 // AddPublicFile to the provider.
 func (hr *httpRouter) AddPublicFile(url string, source string) {
 	hr.file[url] = source
+	fmt.Println("+++++++", hr.file)
 }
 
 // Handler returns the mux handler for the server.
@@ -229,8 +234,14 @@ func (hr *httpRouter) Handler() http.Handler {
 					http.NotFound(w, req)
 					return
 				}
-				req.URL.Path = jsRouter.ParamsFromContext(req.Context()).ByName("filepath")
-				fileServer.ServeHTTP(w, req)
+				if val, ok := req.Context().Value(router.PARAMS).(map[string][]string)["filepath"]; ok {
+					req.URL.Path = val[0]
+					fileServer.ServeHTTP(w, req)
+					return
+				}
+				http.NotFound(w, req)
+				return
+
 			}))
 		fmt.Printf("\n\x1b[32m %#v [GET]%v \x1b[49m\x1b[39m ", pattern, http.Dir(path))
 	}
