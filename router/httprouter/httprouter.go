@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/julienschmidt/httprouter"
+	jsRouter "github.com/julienschmidt/httprouter"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/middleware"
 	"github.com/patrickascher/gofw/router"
@@ -38,7 +38,7 @@ func init() {
 // httpRouterExtended was created because the original httprouter
 // it is not possible to add ctxt before the HandlerFunc is called.
 type httpRouterExtended struct {
-	httprouter.Router
+	jsRouter.Router
 	additionalData map[string]string
 	router         *httpRouter
 }
@@ -51,7 +51,7 @@ func (h *httpRouterExtended) HandlerFunc(method, path string, handler http.Handl
 // Handler is adding the Pattern and Params as context.request params.
 func (h *httpRouterExtended) Handler(method, path string, handler http.Handler) {
 	h.Handle(method, path,
-		func(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+		func(w http.ResponseWriter, req *http.Request, p jsRouter.Params) {
 			if len(p) > 0 {
 				ctx := req.Context()
 				ctx = context.WithValue(ctx, router.PATTERN, p.MatchedRoutePath())
@@ -64,7 +64,7 @@ func (h *httpRouterExtended) Handler(method, path string, handler http.Handler) 
 }
 
 // paramsToMap are mapping all router params to the the request context.
-func (h *httpRouterExtended) paramsToMap(params httprouter.Params, w http.ResponseWriter) map[string][]string {
+func (h *httpRouterExtended) paramsToMap(params jsRouter.Params, w http.ResponseWriter) map[string][]string {
 	rv := make(map[string][]string)
 
 	// check if its a catch-all route
@@ -75,7 +75,7 @@ func (h *httpRouterExtended) paramsToMap(params httprouter.Params, w http.Respon
 	}
 
 	for _, p := range params {
-		if p.Key == httprouter.MatchedRoutePathParam {
+		if p.Key == jsRouter.MatchedRoutePathParam {
 			continue
 		}
 
@@ -229,7 +229,7 @@ func (hr *httpRouter) Handler() http.Handler {
 					http.NotFound(w, req)
 					return
 				}
-				req.URL.Path = httprouter.ParamsFromContext(req.Context()).ByName("filepath")
+				req.URL.Path = jsRouter.ParamsFromContext(req.Context()).ByName("filepath")
 				fileServer.ServeHTTP(w, req)
 			}))
 		fmt.Printf("\n\x1b[32m %#v [GET]%v \x1b[49m\x1b[39m ", pattern, http.Dir(path))
