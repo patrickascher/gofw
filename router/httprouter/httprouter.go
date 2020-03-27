@@ -218,7 +218,7 @@ func (hr *httpRouter) Handler() http.Handler {
 	for path, file := range hr.file {
 		ro.HandlerFunc("GET", path, mw.Add(l.MW).Handle(
 			func(w http.ResponseWriter, req *http.Request) {
-				http.ServeFile(w, req, file)
+				http.ServeFile(w, req, hr.file[req.Context().Value(router.PATTERN).(string)])
 			}))
 		fmt.Printf("\n\x1b[32m %#v [GET]%v \x1b[49m\x1b[39m ", path, file)
 	}
