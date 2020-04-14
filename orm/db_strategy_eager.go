@@ -63,7 +63,7 @@ func (e EagerLoading) First(m Interface, c *sqlquery.Condition) error {
 			return err
 		}
 
-		// set white- blacklist from parent
+		// set white - blacklist from parent
 		rel.setWhiteBlacklist(RelationWhiteBlackList(m.whiteBlacklist(), field))
 		rel.setParent(m)
 		relField, _ := reflect.TypeOf(m).Elem().FieldByName(field)

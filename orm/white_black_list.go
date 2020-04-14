@@ -140,41 +140,7 @@ loop:
 				continue loop
 			}
 		}
-
-		// todo check if this is still needed after the added validation & co??? - otherwise this can get deleted
-		/*
-			// checking if its a relation instead of a field
-			for rel, conf := range m.Table().Associations {
-				if rel == listField {
-					// add StructTable reference field otherwise there could be problems with the selects
-					if wb.policy == WHITELIST {
-						conf.StructTable.Permission.Read = true
-						conf.StructTable.Permission.Write = true
-					}
-					continue loop
-				}
-				if strings.Contains(listField, ".") {
-					//wb.list = append(wb.list, rel+"."+conf.AssociationTable.StructField)
-					continue loop
-				}
-			}
-			return fmt.Errorf(ErrModelFieldNotFound.Error(), listField, structName(m.caller, false))
-		*/
-
 	}
-
-	// remove the primary key again if its the only one whitelisted for this table
-	// TODO better solution than 2 loops?
-	/* //TODO deleted this because the pkey is removed if only one field is set...
-	if i == 1 {
-		for _, col := range m.Table().Cols {
-			if col.Information.PrimaryKey {
-				fmt.Println("DISABLED PKEY",col.StructField)
-				col.Permission.Read = false
-				col.Permission.Write = false
-			}
-		}
-	}*/
 
 	return nil
 

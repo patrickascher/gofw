@@ -46,7 +46,7 @@ type Relation struct {
 // Describe the table columns.
 // Specific columns can be set, if empty every column will be described.
 // By default the configure database is used, except the table name has a dot notation.
-func (i Information) Describe(columns ...string) ([]*Column, error) {
+func (i Information) Describe(columns ...string) ([]Column, error) {
 	return i.builder.driver.Describe(i.builder, i.database, i.table, columns)
 }
 

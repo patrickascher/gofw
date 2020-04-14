@@ -80,6 +80,7 @@ func (m Model) initializeModelByValue(value reflect.Value) error {
 			return rv[0].Interface().(error)
 		}
 	}
+
 	init := value.Addr().MethodByName("Initialize")
 	if init.IsValid() {
 		// add loadedRelations

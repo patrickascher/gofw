@@ -26,7 +26,7 @@ var defaultGCInterval = 60
 
 // Error messages
 var (
-	ErrKeyNotExist = errors.New("cache/memory: key #%v does not exist")
+	ErrKeyNotExist = errors.New("cache/memory: key %v does not exist")
 )
 
 // memory cache provider

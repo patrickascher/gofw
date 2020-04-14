@@ -37,7 +37,7 @@ type DriverI interface {
 	QuoteCharacterColumn() string
 
 	// Describe the columns of the given table.
-	Describe(b *Builder, db string, table string, cols []string) ([]*Column, error)
+	Describe(b *Builder, db string, table string, cols []string) ([]Column, error)
 
 	// ForeignKeys of the given table.
 	ForeignKeys(b *Builder, db string, table string) ([]*ForeignKey, error)

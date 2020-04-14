@@ -23,7 +23,7 @@ func init() {
 
 // Error messages.
 var (
-	ErrTableDoesNotExist = errors.New("sqlquery: table %s does not exist")
+	ErrTableDoesNotExist = errors.New("sqlquery: table %s or column does not exist %v")
 )
 
 // newMysql creates a db connection.
@@ -68,7 +68,7 @@ func (m *mysql) QuoteCharacterColumn() string {
 
 // Describe the database table.
 // If the columns argument is set, only the required columns are requested.
-func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns []string) ([]*sqlquery.Column, error) {
+func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns []string) ([]sqlquery.Column, error) {
 
 	sel := b.Select("information_schema.COLUMNS c")
 	sel.Columns("c.COLUMN_NAME",
@@ -86,7 +86,6 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 	if len(columns) > 0 {
 		sel.Where("c.COLUMN_NAME IN (?)", columns)
 	}
-
 	rows, err := sel.All()
 	if err != nil {
 		return nil, err
@@ -94,7 +93,7 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 
 	defer rows.Close()
 
-	var cols []*sqlquery.Column
+	var cols []sqlquery.Column
 
 	for rows.Next() {
 		var c sqlquery.Column
@@ -105,11 +104,11 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 			return nil, err
 		}
 		c.Type = m.TypeMapping(t, c)
-		cols = append(cols, &c)
+		cols = append(cols, c)
 	}
 
 	if len(cols) == 0 {
-		return nil, fmt.Errorf(ErrTableDoesNotExist.Error(), db+"."+table)
+		return nil, fmt.Errorf(ErrTableDoesNotExist.Error(), db+"."+table, columns)
 	}
 
 	return cols, nil

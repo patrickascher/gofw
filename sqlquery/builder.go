@@ -53,6 +53,10 @@ func (b *Builder) SetLogger(l *logger.Logger) {
 	b.logger = l
 }
 
+func (b Builder) Config() Config {
+	return b.conf
+}
+
 func (b *Builder) log(stmt string, d time.Duration, args ...interface{}) {
 	if b.conf.Debug && b.logger != nil {
 		b.logger.Debug(fmt.Sprintf("%s with the arguments %v took %s", stmt, args, d))
@@ -128,7 +132,7 @@ func splitDatabaseAndTable(db string, s string) (database string, table string) 
 }
 
 // QuoteIdentifier by the driver quote character.
-func (b *Builder) QuoteIdentifier(col string) string {
+func (b Builder) QuoteIdentifier(col string) string {
 	return b.quoteColumns(col)
 }
 
