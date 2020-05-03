@@ -1,4 +1,4 @@
-package grid2
+package grid
 
 import (
 	"encoding/json"
@@ -76,9 +76,9 @@ func Test_Field(t *testing.T) {
 	test.Equal(true, field.sortable)
 	test.Equal(true, field.IsSortable())
 
-	field.SetOption("select", "item")
+	field.SetOption("select", Select{})
 	test.Equal(1, len(field.options))
-	test.Equal("item", field.options["select"])
+	test.Equal(Select{}, field.options["select"])
 
 	field.SetCallback("callback", 1, 2)
 	test.Equal("callback", field.callback)
@@ -121,7 +121,7 @@ func Test_Field(t *testing.T) {
 
 	field.SetFilterable(true)
 	field.SetSortable(true)
-	field.SetOption("select", "item")
+	field.SetOption("select", Select{})
 	field.SetCallback("callback", 1, 2)
 	field.setError(errors.New(""))
 
@@ -135,7 +135,7 @@ func Test_Field(t *testing.T) {
 	test.Equal(&value{grid: grid, table: "view", details: "view_details", create: "view", update: "view"}, &field.view)
 	test.Equal(true, field.filterable)
 	test.Equal(true, field.sortable)
-	test.Equal("item", field.options["select"])
+	test.Equal(Select{}, field.options["select"])
 	test.Equal("callback", field.callback)
 	test.Equal(2, len(field.callbackArguments))
 	test.Error(field.error)

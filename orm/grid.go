@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"github.com/patrickascher/gofw/grid2"
+	"github.com/patrickascher/gofw/grid"
 	"github.com/patrickascher/gofw/slices"
 	"github.com/patrickascher/gofw/sqlquery"
 	"io/ioutil"
@@ -25,17 +25,17 @@ func Grid(orm Interface) *gridSource {
 	return g
 }
 
-func (g *gridSource) Init(grid *grid2.Grid) error {
+func (g *gridSource) Init(grid *grid.Grid) error {
 	return g.orm.Init(g.orm)
 }
 
-func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, error) {
+func gridFields(scope *Scope, g *grid.Grid, parent string) ([]grid.Field, error) {
 	// normal fields
-	var rv []grid2.Field
+	var rv []grid.Field
 	i := 0
 
 	for _, f := range scope.Fields(Permission{Read: true}) {
-		field := grid2.Field{}
+		field := grid.Field{}
 		field.SetId(f.Name)
 		if jsonTagName(scope, &field) {
 			continue
@@ -43,12 +43,12 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 		field.SetPrimary(f.Information.PrimaryKey)
 		field.SetReferenceId(f.Information.Table + "." + f.Information.Name)
 		field.SetFieldType(f.Information.Type.Kind())
-		field.SetTitle(grid.NewValue(f.Name))
-		field.SetDescription(grid.NewValue(""))
-		field.SetPosition(grid.NewValue(i))
-		field.SetRemove(grid.NewValue(false))
-		field.SetHidden(grid.NewValue(false))
-		field.SetView(grid.NewValue(""))
+		field.SetTitle(g.NewValue(f.Name))
+		field.SetDescription(g.NewValue(""))
+		field.SetPosition(g.NewValue(i))
+		field.SetRemove(g.NewValue(false))
+		field.SetHidden(g.NewValue(false))
+		field.SetView(g.NewValue(""))
 		if f.Validator.Config != "" {
 			field.SetOption(tagValidate, f.Validator.Config)
 		}
@@ -82,7 +82,7 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 			continue
 		}
 
-		if r.Kind == BelongsTo && grid.Mode() != grid2.VTable {
+		if r.Kind == BelongsTo && g.Mode() != grid.VTable {
 			for k := range rv {
 				if rv[k].Id() == r.ForeignKey.Name {
 					if parent != "" {
@@ -90,34 +90,34 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 					}
 					rv[k].SetFieldType(r.Kind)
 					rv[k].SetRemove(false)
-					rv[k].SetOption(grid2.FeSelect, grid2.Select{OrmField: parent + r.Field, TextField: "Name", ValueField: r.AssociationForeignKey.Name})
+					rv[k].SetOption(grid.FeSelect, grid.Select{OrmField: parent + r.Field, TextField: "Name", ValueField: r.AssociationForeignKey.Name})
 					rv[k].SetOption("vueReturnObject", false)
 				}
 			}
 
 			// relation has to get blacklisted. otherwise the single refid will not be updated.
-			field := grid2.Field{}
+			field := grid.Field{}
 			field.SetId(r.Field)
-			field.SetRemove(grid.NewValue(true))
+			field.SetRemove(g.NewValue(true))
 			field.SetRelation(true)
 			rv = append(rv, field)
 
 			continue
 		}
 
-		field := grid2.Field{}
+		field := grid.Field{}
 		field.SetId(r.Field)
 		field.SetRelation(true)
 		if jsonTagName(scope, &field) {
 			continue
 		}
 		field.SetFieldType(r.Kind)
-		field.SetTitle(grid.NewValue(r.Field))
-		field.SetDescription(grid.NewValue(""))
-		field.SetPosition(grid.NewValue(i))
-		field.SetRemove(grid.NewValue(false))
-		field.SetHidden(grid.NewValue(false))
-		field.SetView(grid.NewValue(""))
+		field.SetTitle(g.NewValue(r.Field))
+		field.SetDescription(g.NewValue(""))
+		field.SetPosition(g.NewValue(i))
+		field.SetRemove(g.NewValue(false))
+		field.SetHidden(g.NewValue(false))
+		field.SetView(g.NewValue(""))
 		if r.Validator.Config != "" {
 			field.SetOption(tagValidate, r.Validator.Config)
 		}
@@ -127,7 +127,7 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 
 		// add options for BelongsTo and ManyToMany relations.
 		if r.Kind == BelongsTo || r.Kind == ManyToMany {
-			field.SetOption(grid2.FeSelect, grid2.Select{TextField: "Name", ValueField: r.AssociationForeignKey.Name})
+			field.SetOption(grid.FeSelect, grid.Select{TextField: "Name", ValueField: r.AssociationForeignKey.Name})
 		}
 
 		// recursively add fields
@@ -137,7 +137,7 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 		}
 		rScope.model.parentModel = scope.model // adding parent to avoid loops
 
-		rField, err := gridFields(rScope, grid, r.Field)
+		rField, err := gridFields(rScope, g, r.Field)
 		if err != nil {
 			return nil, err
 		}
@@ -172,11 +172,11 @@ func gridFields(scope *Scope, grid *grid2.Grid, parent string) ([]grid2.Field, e
 	return rv, nil
 }
 
-func (g *gridSource) Fields(grid *grid2.Grid) ([]grid2.Field, error) {
+func (g *gridSource) Fields(grid *grid.Grid) ([]grid.Field, error) {
 	return gridFields(g.orm.Scope(), grid, "")
 }
 
-func blacklistedFields(g *gridSource, fields []grid2.Field, parent string) ([]string, error) {
+func blacklistedFields(g *gridSource, fields []grid.Field, parent string) ([]string, error) {
 	var blacklist []string
 
 	if parent != "" {
@@ -233,7 +233,7 @@ func blacklistedFields(g *gridSource, fields []grid2.Field, parent string) ([]st
 	return blacklist, nil
 }
 
-func (g *gridSource) UpdatedFields(grid *grid2.Grid) error {
+func (g *gridSource) UpdatedFields(grid *grid.Grid) error {
 
 	blacklist, err := blacklistedFields(g, grid.Fields(), "")
 	if err != nil {
@@ -247,20 +247,20 @@ func (g *gridSource) UpdatedFields(grid *grid2.Grid) error {
 	return nil
 }
 
-func (g *gridSource) Callback(callback string, grid *grid2.Grid) (interface{}, error) {
+func (g *gridSource) Callback(callback string, gr *grid.Grid) (interface{}, error) {
 
-	if callback == grid2.FeSelect {
-		selectField, err := grid.Controller().Context().Request.Param("f")
+	if callback == grid.FeSelect {
+		selectField, err := gr.Controller().Context().Request.Param("f")
 		if err != nil {
 			return nil, err
 		}
 		// get the defined grid object
 
-		selField := grid.Field(selectField[0])
+		selField := gr.Field(selectField[0])
 		if selField.Error() != nil {
 			return nil, selField.Error()
 		}
-		sel := selField.Option(grid2.FeSelect).(grid2.Select)
+		sel := selField.Option(grid.FeSelect).(grid.Select)
 
 		var relScope *Scope
 		fields := strings.Split(selectField[0], ".")
@@ -315,7 +315,7 @@ func (g *gridSource) Callback(callback string, grid *grid2.Grid) (interface{}, e
 	return nil, nil
 }
 
-func (g *gridSource) One(c *sqlquery.Condition, grid *grid2.Grid) (interface{}, error) {
+func (g *gridSource) One(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
 
 	err := g.orm.First(c)
 	if err != nil {
@@ -325,7 +325,7 @@ func (g *gridSource) One(c *sqlquery.Condition, grid *grid2.Grid) (interface{}, 
 	return g.orm, nil
 }
 
-func (g *gridSource) All(c *sqlquery.Condition, grid *grid2.Grid) (interface{}, error) {
+func (g *gridSource) All(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
 	// creating result slice
 	model := reflect.New(reflect.ValueOf(g.orm).Elem().Type()).Elem() //new type
 	resultSlice := reflect.New(reflect.MakeSlice(reflect.SliceOf(model.Type()), 0, 0).Type()).Interface()
@@ -337,7 +337,7 @@ func (g *gridSource) All(c *sqlquery.Condition, grid *grid2.Grid) (interface{}, 
 	return resultSlice, nil
 }
 
-func (g *gridSource) Create(grid *grid2.Grid) (interface{}, error) {
+func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
 	err := g.unmarshalModel(grid)
 	if err != nil {
 		return nil, err
@@ -360,7 +360,7 @@ func (g *gridSource) Create(grid *grid2.Grid) (interface{}, error) {
 	return pkeys, nil
 }
 
-func (g *gridSource) Update(grid *grid2.Grid) error {
+func (g *gridSource) Update(grid *grid.Grid) error {
 	err := g.unmarshalModel(grid)
 	if err != nil {
 		return err
@@ -373,7 +373,7 @@ func (g *gridSource) Update(grid *grid2.Grid) error {
 	}
 	return nil
 }
-func (g *gridSource) Delete(c *sqlquery.Condition, grid *grid2.Grid) error {
+func (g *gridSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
 	err := g.orm.First(c)
 	if err != nil {
 		return err
@@ -394,7 +394,7 @@ func (g *gridSource) Count(c *sqlquery.Condition) (int, error) {
 // Only struct fields are allowed.
 // Empty struct is not allowed.
 // Errors will return if one of the rules are not satisfied.
-func (g *gridSource) unmarshalModel(grid *grid2.Grid) error {
+func (g *gridSource) unmarshalModel(grid *grid.Grid) error {
 	// reading the body request
 	body := grid.Controller().Context().Request.Raw().Body
 	if body == nil {
@@ -428,7 +428,7 @@ func (g *gridSource) unmarshalModel(grid *grid2.Grid) error {
 	return nil
 }
 
-func jsonTagName(scope *Scope, f *grid2.Field) bool {
+func jsonTagName(scope *Scope, f *grid.Field) bool {
 
 	rField, ok := reflect.TypeOf(scope.Caller()).Elem().FieldByName(f.Id())
 	if ok {

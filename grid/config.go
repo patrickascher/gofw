@@ -1,4 +1,4 @@
-package grid2
+package grid
 
 // Config - general grid config
 type Config struct {

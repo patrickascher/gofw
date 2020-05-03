@@ -7,34 +7,83 @@ import (
 	"strings"
 )
 
-// Condition configuration
 const (
 	ConditionSeparator    = ","
 	ConditionFilterPrefix = "filter_"
 )
 
-// All errors are defined here
 var (
-	ErrSort        = errors.New("grid: the field %#v is not sortable")
-	ErrField       = errors.New("grid: the field %#v was not found")
-	ErrFilter      = errors.New("grid: the field %#v is not filterable")
-	ErrPrimaryKeys = errors.New("grid: primary key(s) are not set")
+	errPrimaryMissing   = errors.New("grid: primary is not set")
+	errSortPermission   = "grid: field %s id not allowed to sort or does not exist"
+	errFilterPermission = "grid: field %s id not allowed to filter or does not exist"
 )
 
-// conditionAll creates a condition for the VIEW_GRID.
-// Used in readAll.
-func conditionAll(g *Grid) (*sqlquery.Condition, error) {
-	c := &sqlquery.Condition{}
+// conditionOne returns a condition for one row. This is used for the grid views update, details and create.
+// if a grid src.condition exists, its getting passed through.
+// error will return if not all primary keys are filled or non is existing.
+func (g *Grid) conditionOne() (*sqlquery.Condition, error) {
 
+	// if no params exist, exit
+	params, err := g.controller.Context().Request.Params()
+	if err != nil || len(params) == 0 {
+		return nil, errPrimaryMissing
+	}
+
+	// create a new condition.
+	// if a user condition exist, the value will be copied. This should provide additional security.
+	c := sqlquery.NewCondition()
 	if g.srcCondition != nil {
 		*c = *g.srcCondition
 	}
 
+	// looping all fields
+	var primary bool
+	for _, f := range g.fields {
+		// skipping relations
+		if len(f.fields) > 0 {
+			continue
+		}
+
+		// checking all primary keys
+		if f.primary {
+			v, err := g.controller.Context().Request.Param(f.id)
+
+			if err != nil {
+				return nil, errPrimaryMissing
+			}
+			primary = true
+			c.Where(f.referenceId+" = ?", v[0])
+		}
+	}
+
+	// no primary was defined in the grid fields
+	if !primary {
+		return nil, errPrimaryMissing
+	}
+	return c, nil
+}
+
+// conditionAll return a condtion for the grid table view.
+// if a grid src.condition exists, its getting passed through.
+// sort and filter params are checked. (sort=ID,-Name) (filter_ID=1&filter_Name=Patrick,Tom)
+// Error will return if the sort/filter key does not exist or has no permission.
+func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
+
+	// create a new condition.
+	// if a user condition exist, the value will be copied.
+	c := sqlquery.NewCondition()
+	if g.srcCondition != nil {
+		*c = *g.srcCondition
+	}
+
+	// get all request params of the controller.
 	params, err := g.controller.Context().Request.Params()
 	if err != nil {
 		return nil, err
 	}
 
+	// iterate over the params.
+	// check if the key sort exists or the key is prefixed with filter_
 	for key, param := range params {
 		if key == "sort" {
 			c.Reset(sqlquery.ORDER)
@@ -67,13 +116,16 @@ func addSortCondition(g *Grid, params string, c *sqlquery.Condition) error {
 
 	// checking if the field is allowed for sorting
 	for _, f := range sortFields {
-
-		columnField, err := isSortAllowed(g, f)
-		if err != nil {
-			return err
+		prefix := ""
+		if strings.HasPrefix(f, "-") {
+			f = f[1:]
+			prefix = "-"
 		}
-
-		orderFields = append(orderFields, columnField)
+		if gridField := g.Field(f); gridField.error == nil && gridField.IsSortable() {
+			orderFields = append(orderFields, prefix+gridField.referenceId)
+		} else {
+			return fmt.Errorf(errSortPermission, f)
+		}
 	}
 
 	// adding order
@@ -84,101 +136,20 @@ func addSortCondition(g *Grid, params string, c *sqlquery.Condition) error {
 
 // addFilterCondition adds a where condition with the given params.
 // If the field is not allowed to filter or the field does not exist, an error will return.
-// If there are more than one argument, its converting it in a WHERE IN condition.
+// If there are more than one argument, a WHERE IN (?) will be added.
 func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
-	field, err := isFilterAllowed(g, field)
-	if err != nil {
-		return err
-	}
 
-	args := strings.Split(params[0], ConditionSeparator)
-	if len(args) > 1 {
-		c.Where(field+" IN(?)", args)
-	}
-
-	if len(args) == 1 {
-		c.Where(field+" = ?", args[0])
-	}
-
-	return nil
-}
-
-// isSortAllowed checks if the field exists and if the field is sortable and returns the db column name.
-// Otherwise an error will return
-func isSortAllowed(g *Grid, name string) (string, error) {
-	fieldName := name
-	prefix := ""
-	if strings.HasPrefix(name, "-") {
-		fieldName = name[1:]
-		prefix = "-"
-	}
-
-	// check if field exists
-	field, err := g.getFieldByStructName(fieldName)
-	if err != nil {
-		return "", err
-	}
-
-	// check if sort is allowed
-	if !field.getSort() {
-		return "", fmt.Errorf(ErrSort.Error(), fieldName)
-	}
-
-	return prefix + field.getColumn().Information.Name, nil
-}
-
-// isFilterAllowed returns an error if the field does not exist or the field is not allowed as filter.
-// If everything is ok, the db column name will return.
-func isFilterAllowed(g *Grid, name string) (string, error) {
-	field, err := g.getFieldByStructName(name)
-	if err != nil {
-		return "", err
-	}
-	// filter is not allowed
-	if !field.getFilter() {
-		return "", fmt.Errorf(ErrFilter.Error(), name)
-	}
-
-	// filter allowed
-	return field.getColumn().Information.Name, nil
-}
-
-// getFieldByName returns the field by structname
-// If it does not exist, an error will return
-func (g *Grid) getFieldByStructName(name string) (Interface, error) {
-
-	if _, ok := g.fields[name]; !ok {
-		return nil, fmt.Errorf(ErrField.Error(), name)
-
-	}
-	return g.fields[name], nil
-}
-
-// checkPrimaryParams checks all params if the primary key(s) exists
-// if one is empty, a error will return.
-// if everything is correct, a condition will return.
-// Used in read one, update, delete.
-func checkPrimaryParams(g *Grid) (*sqlquery.Condition, error) {
-
-	// if no params exist
-	params, err := g.controller.Context().Request.Params()
-	if err != nil || len(params) == 0 {
-		return nil, ErrPrimaryKeys
-	}
-
-	c := &sqlquery.Condition{}
-
-	// looping all fields
-	for _, field := range g.fields {
-		// checking all primary keys
-		if len(field.getFields()) == 0 && field.getColumn().Information.PrimaryKey {
-			v, err := g.controller.Context().Request.Param(field.getColumn().Name)
-			if err != nil {
-				return nil, ErrPrimaryKeys
-			}
-			c.Where(field.getColumn().Information.Table+"."+field.getColumn().Information.Name+" = ?", v[0])
+	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
+		args := strings.Split(params[0], ConditionSeparator)
+		if len(args) > 1 {
+			c.Where(field+" IN(?)", args)
 		}
+
+		if len(args) == 1 {
+			c.Where(field+" = ?", args[0])
+		}
+		return nil
 	}
 
-	return c, nil
+	return fmt.Errorf(errFilterPermission, field)
 }

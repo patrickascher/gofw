@@ -1,152 +1,126 @@
 package grid
 
 import (
+	"github.com/patrickascher/gofw/controller"
+	"github.com/patrickascher/gofw/controller/context"
 	"github.com/stretchr/testify/assert"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// defaultValue helper for the tests
-func defaultValue() (*value, *Grid) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	return valueWithGrid("test", g), g
+// helper to change the different grid modes
+func newController(r *http.Request) controller.Interface {
+	c := controller.Controller{}
+	rw := httptest.NewRecorder()
+	ctx := context.New(r, rw)
+	c.SetContext(ctx)
+	return &c
 }
 
-// TestValue_Value testing if the value is set to all modes
-func TestValue_Value(t *testing.T) {
-	v := Value("read")
+// Testing if the value is set for all items if a normal type is used and if the value is set by mode.
+func TestNewValue(t *testing.T) {
+	test := assert.New(t)
 
-	assert.Equal(t, "read", v.grid)
-	assert.Equal(t, "read", v.details)
-	assert.Equal(t, "read", v.create)
-	assert.Equal(t, "read", v.update)
-	assert.True(t, v.g == nil)
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
+	v := grid.NewValue("title")
+	test.Equal(grid, v.grid)
+
+	// test if every value is set to the same
+	test.Equal("title", v.create)
+	test.Equal("title", v.details)
+	test.Equal("title", v.update)
+	test.Equal("title", v.table)
+	test.Equal("title", v.getString())
+
+	// test empty value
+	v.table = nil
+	test.Equal("", v.getString())
+
+	v = grid.NewValue("title").SetTable("title_table").SetCreate("title_create").SetDetails("title_details").SetUpdate("title_edit")
+	test.Equal(grid, v.grid)
+	// test if every value is set to the same
+	test.Equal("title_create", v.create)
+	test.Equal("title_details", v.details)
+	test.Equal("title_edit", v.update)
+	test.Equal("title_table", v.table)
+	test.Equal("title_table", v.getString())
+	// test empty value
+	v.table = nil
+	test.Equal("", v.getString())
 }
 
-// TestValue_valueWithGrid testing if the value gets set with the grid
-func TestValue_valueWithGrid(t *testing.T) {
-	v, g := defaultValue()
-	assert.Equal(t, "test", v.get())
-	assert.Equal(t, g, v.g)
+// Test if the return value is correct for by mode.
+func TestValue_Mode(t *testing.T) {
+
+	test := assert.New(t)
+
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
+	v := grid.NewValue("title").SetDetails("title_details").SetCreate("title_create").SetUpdate("title_edit")
+	test.Equal(grid, v.grid)
+
+	// Table View
+	test.Equal("title", v.getString())
+	// Details View
+	grid.controller = newController(httptest.NewRequest("GET", "https://localhost/users?mode=details", strings.NewReader("")))
+	test.Equal("title_details", v.getString())
+	// Create View
+	grid.controller = newController(httptest.NewRequest("GET", "https://localhost/users?mode=create", strings.NewReader("")))
+	test.Equal("title_create", v.getString())
+	// Edit View
+	grid.controller = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update", strings.NewReader("")))
+	test.Equal("title_edit", v.getString())
+
+	// mode does not exist
+	grid.controller = newController(httptest.NewRequest("POST", "https://localhost/users?mode=update", strings.NewReader("")))
+	test.Equal("title_create", v.getString())
 }
 
-// TestValue_set testing if the value gets set and get
-func TestValue_set(t *testing.T) {
-	v, _ := defaultValue()
+// Test if the returned type is correct.
+func TestValue_Types(t *testing.T) {
 
-	//set a new value to all modes
-	v.set("read")
-	assert.Equal(t, "read", v.get())
-}
-func TestValue_get(t *testing.T) {
+	test := assert.New(t)
 
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	v := valueWithGrid("test", g)
-	v.grid = "grid"
-	v.create = "create"
-	v.details = "details"
-	v.update = "update"
-	//ViewGrid
-	assert.Equal(t, "grid", v.get())
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
 
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=new", body)
-	g = defaultGrid(r)
-	v = valueWithGrid("test", g)
-	v.grid = "grid"
-	v.create = "create"
-	v.details = "details"
-	v.update = "update"
-	//ViewCreate
-	assert.Equal(t, "create", v.get())
+	vString := grid.NewValue("title")
+	test.Equal("title", vString.getString())
+	vString = grid.NewValue(nil)
+	test.Equal("", vString.getString())
 
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=details&id=1", body)
-	g = defaultGrid(r)
-	v = valueWithGrid("test", g)
-	v.grid = "grid"
-	v.create = "create"
-	v.details = "details"
-	v.update = "update"
-	//ViewDetails
-	assert.Equal(t, "details", v.get())
+	vBool := grid.NewValue(true)
+	test.Equal(true, vBool.getBool())
+	vBool = grid.NewValue(nil)
+	test.Equal(false, vBool.getBool())
 
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=edit&id=1", body)
-	g = defaultGrid(r)
-	v = valueWithGrid("test", g)
-	v.grid = "grid"
-	v.create = "create"
-	v.details = "details"
-	v.update = "update"
-	//ViewEdit
-	assert.Equal(t, "update", v.get())
+	vInt := grid.NewValue(1)
+	test.Equal(1, vInt.getInt())
+	vInt = grid.NewValue(nil)
+	test.Equal(0, vInt.getInt())
 
-	body = strings.NewReader("")
-	r = httptest.NewRequest("DELETE", "https://localhost/users", body)
-	g = defaultGrid(r)
-	v = valueWithGrid("test", g)
-	v.grid = "grid"
-	v.create = "create"
-	v.details = "details"
-	v.update = "update"
-	//No Value set for other this HTTP Method
-	assert.Equal(t, nil, v.get())
-
-}
-func TestValue_setByValue(t *testing.T) {
-	v, _ := defaultValue()
-
-	assert.Equal(t, "test", v.grid)
-	assert.Equal(t, "test", v.details)
-	assert.Equal(t, "test", v.create)
-	assert.Equal(t, "test", v.update)
-
-	val := Value("grid").Details("details").Edit("edit").Create("create")
-	v.setByValue(val)
-
-	assert.Equal(t, "grid", v.grid)
-	assert.Equal(t, "details", v.details)
-	assert.Equal(t, "create", v.create)
-	assert.Equal(t, "edit", v.update)
-
-	val = Value("grid").Grid("g2")
-	v.setByValue(val)
-	assert.Equal(t, "g2", v.grid)
+	vInterface := grid.NewValue([]string{"title"})
+	test.Equal([]string{"title"}, vInterface.getInterface())
+	vInterface = grid.NewValue(nil)
+	test.Equal(nil, vInterface.getInterface())
 }
 
-func TestValue_getBool(t *testing.T) {
-	v, _ := defaultValue()
+// Test the setValueHelper which offers to enter normal go types or pass a new *value struct.
+func TestValue_SetValue(t *testing.T) {
+	test := assert.New(t)
 
-	v.grid = true
-	assert.Equal(t, true, v.getBool())
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
+	v := grid.NewValue("title")
 
-	//default
-	v.grid = nil
-	assert.Equal(t, false, v.getBool())
-}
-func TestValue_getInt(t *testing.T) {
-	v, _ := defaultValue()
+	setValueHelper(v, "title_2")
+	test.Equal("title_2", v.table)
+	test.Equal("title_2", v.details)
+	test.Equal("title_2", v.update)
+	test.Equal("title_2", v.create)
 
-	v.grid = 333
-	assert.Equal(t, 333, v.getInt())
-
-	//default
-	v.grid = nil
-	assert.Equal(t, 0, v.getInt())
-}
-func TestValue_getString(t *testing.T) {
-	v, _ := defaultValue()
-
-	v.grid = "grid"
-	assert.Equal(t, "grid", v.getString())
-
-	//default
-	v.grid = nil
-	assert.Equal(t, "", v.getString())
+	setValueHelper(v, grid.NewValue("title").SetTable("title_table"))
+	test.Equal("title_table", v.table)
+	test.Equal("title", v.details)
+	test.Equal("title", v.update)
+	test.Equal("title", v.create)
 }

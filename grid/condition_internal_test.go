@@ -1,7 +1,7 @@
 package grid
 
 import (
-	"github.com/patrickascher/gofw/orm"
+	"fmt"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/stretchr/testify/assert"
 	"net/http/httptest"
@@ -9,219 +9,157 @@ import (
 	"testing"
 )
 
-func TestCondition_conditionAll(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName&filter_ID=1", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-	c, err := conditionAll(g)
-	assert.NoError(t, err)
-	cExp := sqlquery.Condition{}
-	cExp.Order("id", "-first_name")
-	cExp.Where("id = ?", "1") // TODO fix params types
-	assert.Equal(t, &cExp, c)
+func TestGrid_conditionOne(t *testing.T) {
+	test := assert.New(t)
 
-	// no params
-	r = httptest.NewRequest("GET", "https://localhost/users", body)
-	g = defaultGrid(r)
-	cust2 := Customerfk{}
-	err = g.SetSource(&cust2, nil)
-	assert.NoError(t, err)
-	c, err = conditionAll(g)
-	assert.NoError(t, err)
-	cExp = sqlquery.Condition{}
-	assert.Equal(t, &cExp, c)
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
 
-	// sort field does not exist
-	r = httptest.NewRequest("GET", "https://localhost/users?sort=xxx", body)
-	g = defaultGrid(r)
-	cust3 := Customerfk{}
-	err = g.SetSource(&cust3, nil)
-	assert.NoError(t, err)
-	c, err = conditionAll(g)
-	assert.Error(t, err)
-	assert.True(t, c == nil)
+	// no params were set
+	c, err := grid.conditionOne()
+	test.Nil(c)
+	test.Error(err)
+	test.Equal(errPrimaryMissing.Error(), err.Error())
 
-	// filter field does not exist
-	r = httptest.NewRequest("GET", "https://localhost/users?filter_xxx=1", body)
-	g = defaultGrid(r)
-	cust4 := Customerfk{}
-	err = g.SetSource(&cust4, nil)
-	assert.NoError(t, err)
-	c, err = conditionAll(g)
-	assert.Error(t, err)
-	assert.True(t, c == nil)
+	// no primary is set
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?xy=1", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", referenceId: "id"})
+	c, err = grid.conditionOne()
+	test.Nil(c)
+	test.Error(err)
+	test.Equal(errPrimaryMissing.Error(), err.Error())
+
+	// primary not found in param
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?xy=1", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionOne()
+	test.Nil(c)
+	test.Error(err)
+	test.Equal(errPrimaryMissing.Error(), err.Error())
+
+	// primary  found in param
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?ID=1", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionOne()
+	test.NotNil(c)
+	test.NoError(err)
+	test.Equal("WHERE id = 1", c.Config(true, sqlquery.WHERE))
+
+	// pre defined sql where
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?ID=1", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	grid.SetCondition(sqlquery.NewCondition().Where("a=b"))
+	c, err = grid.conditionOne()
+	test.NotNil(c)
+	test.NoError(err)
+	test.Equal("WHERE a=b AND id = 1", c.Config(true, sqlquery.WHERE))
+
+	// skip if its a relation (error because no primary was defined)
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?ID=1", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id", fields: []Field{{id: "child"}}})
+	c, err = grid.conditionOne()
+	test.Nil(c)
+	test.Error(err)
 }
 
-func TestCondition_addSortCondition(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
+func TestGrid_conditionAll(t *testing.T) {
+	test := assert.New(t)
 
-	// single param
-	c := &sqlquery.Condition{}
-	cExp := &sqlquery.Condition{}
-	cExp.Order("id", "-first_name") // TODO: why is here no fqdn?
-	err = addSortCondition(g, "ID,-FirstName", c)
-	assert.NoError(t, err)
-	assert.Equal(t, cExp, c)
+	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
+
+	// no params were set
+	c, err := grid.conditionAll()
+	test.Equal("", c.Config(true, sqlquery.WHERE))
+	test.NoError(err)
+
+	// no params were set - with default condition
+	grid.SetCondition(sqlquery.NewCondition().Where("a=b"))
+	c, err = grid.conditionAll()
+	test.Equal("WHERE a=b", c.Config(true, sqlquery.WHERE))
+	test.NoError(err)
 
 	// field does not exist
-	c = &sqlquery.Condition{}
-	err = addSortCondition(g, "ID,-Name", c)
-	assert.Error(t, err)
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort=abc", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errSortPermission, "abc"), err.Error())
 
-	// no params
-	c = &sqlquery.Condition{}
-	err = addSortCondition(g, "", c)
-	assert.NoError(t, err)
-}
+	// field has no sort permission
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort=ID", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errSortPermission, "ID"), err.Error())
 
-func TestCondition_addFilterCondition(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users?filter_id=1", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
+	// field order permission ok
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort=ID", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", sortable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("ORDER BY id ASC", c.Config(true, sqlquery.ORDER))
 
-	// single param
-	c := &sqlquery.Condition{}
-	cExp := &sqlquery.Condition{}
-	cExp.Where("id = ?", "1") // TODO: why is here no fqdn?
-	err = addFilterCondition(g, "ID", []string{"1"}, c)
-	assert.NoError(t, err)
-	assert.Equal(t, cExp, c)
+	// testing if pre definde order is getting reset
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort=ID", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", sortable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("ORDER BY id ASC", c.Config(true, sqlquery.ORDER))
 
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?filter_id=1,2,3", body)
-	g = defaultGrid(r)
-	cust2 := Customerfk{} //TODO FIX: why is a redeclaring not working?
-	err = g.SetSource(&cust2, nil)
-	assert.NoError(t, err)
-	// multiple params
-	c = &sqlquery.Condition{}
-	cExp = &sqlquery.Condition{}
-	cExp.Where("id IN(?)", []string{"1", "2", "3"}) // TODO: why is here no fqdn?
-	err = addFilterCondition(g, "ID", []string{"1,2,3"}, c)
-	assert.NoError(t, err)
-	assert.Equal(t, cExp, c)
-}
+	// testing desc ordering
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort=-ID", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", sortable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("ORDER BY id DESC", c.Config(true, sqlquery.ORDER))
 
-func TestCondition_isSortAllowed(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
+	// testing empty sort param
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?sort", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", sortable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("", c.Config(true, sqlquery.ORDER))
 
-	// allowed
-	allowed, err := isSortAllowed(g, "ID")
-	assert.Equal(t, "id", allowed)
+	// testing filter - field does not exist
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?filter_xy=1", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errFilterPermission, "xy"), err.Error())
+	test.Nil(c)
 
-	assert.NoError(t, err)
+	// no permission
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?filter_ID=1", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errFilterPermission, "ID"), err.Error())
+	test.Nil(c)
 
-	// not allowed
-	f, err := g.Field("ID")
-	assert.NoError(t, err)
-	f.SetSort(false)
-	allowed, err = isSortAllowed(g, "ID")
-	assert.Error(t, err)
-}
+	// filter
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?filter_ID=1", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Order("test"))
+	grid.fields = append(grid.fields, Field{id: "ID", filterable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("WHERE ID = 1", c.Config(true, sqlquery.WHERE))
 
-func TestCondition_isFilterAllowed(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
+	// filter with per defined condition
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?filter_ID=1", strings.NewReader(""))))
+	grid.SetCondition(sqlquery.NewCondition().Where("a=b"))
+	grid.fields = append(grid.fields, Field{id: "ID", filterable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("WHERE a=b AND ID = 1", c.Config(true, sqlquery.WHERE))
 
-	// allowed
-	allowed, err := isFilterAllowed(g, "ID")
-	assert.NoError(t, err)
-	assert.Equal(t, "id", allowed)
-
-	// not allowed
-	f, err := g.Field("ID")
-	assert.NoError(t, err)
-	f.SetFilter(false)
-	allowed, err = isFilterAllowed(g, "ID")
-	assert.Error(t, err)
-}
-
-func TestCondition_getFieldByDbName(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-
-	// exists
-	f, err := g.getFieldByName("ID")
-	assert.NoError(t, err)
-	assert.Equal(t, "ID", f.getTitle())
-
-	// not existing
-	f, err = g.getFieldByName("xxx")
-	assert.Error(t, err)
-	assert.True(t, f == nil)
-}
-
-func TestCondition_checkPrimaryParams(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = b
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-	// err no params are set
-	c, err := checkPrimaryParams(g)
-	assert.Error(t, err)
-	assert.True(t, c == nil)
-
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?test=1", body)
-	g = defaultGrid(r)
-	cust2 := Customerfk{}
-	err = g.SetSource(&cust2, nil)
-	assert.NoError(t, err)
-	// err pkey is not set
-	c, err = checkPrimaryParams(g)
-	assert.Error(t, err)
-	assert.True(t, c == nil)
-
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?ID=1", body)
-	g = defaultGrid(r)
-	cust3 := Customerfk{}
-	err = g.SetSource(&cust3, nil)
-	assert.NoError(t, err)
-	// everything ok
-	c, err = checkPrimaryParams(g)
-	assert.NoError(t, err)
-	con := sqlquery.Condition{}
-	con.Where("customerfks.id = ?", "1") // TODO fix?
-	assert.Equal(t, &con, c)
+	// filter with multiple values
+	grid = New(newController(httptest.NewRequest("GET", "https://localhost/users?filter_ID=1,2,3", strings.NewReader(""))))
+	grid.fields = append(grid.fields, Field{id: "ID", filterable: true, primary: true, referenceId: "id"})
+	c, err = grid.conditionAll()
+	test.NoError(err)
+	test.Equal("WHERE ID IN(1, 2, 3)", c.Config(true, sqlquery.WHERE))
 }

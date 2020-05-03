@@ -1,640 +1,337 @@
-package grid
+package grid_test
 
 import (
-	"bytes"
-	"fmt"
-	"github.com/patrickascher/gofw/cache"
-	"github.com/patrickascher/gofw/cache/memory"
+	"errors"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
-	"github.com/patrickascher/gofw/orm"
-	_ "github.com/patrickascher/gofw/orm/strategy"
+	"github.com/patrickascher/gofw/grid"
 	"github.com/patrickascher/gofw/sqlquery"
-	_ "github.com/patrickascher/gofw/sqlquery/driver"
 	"github.com/stretchr/testify/assert"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestGrid_New(t *testing.T) {
+// helper to change the different grid modes
+func newController(r *http.Request) (controller.Interface, *httptest.ResponseRecorder) {
 	c := controller.Controller{}
-	grid := New(&c)
-	assert.Equal(t, "*grid.Grid", reflect.TypeOf(grid).String())
+	rw := httptest.NewRecorder()
+	ctx := context.New(r, rw)
+	c.SetContext(ctx)
+	return &c, rw
 }
 
-func TestGrid_Source(t *testing.T) {
+type mockSource struct {
+	throwError       error
+	throwErrorAll    error
+	throwErrorFields error
 
-	// error because no cache is set
+	initCalled     bool
+	uFieldCalled   bool
+	callbackCalled bool
+
+	oneCalled    bool
+	allCalled    bool
+	createCalled bool
+	updateCalled bool
+	deleteCalled bool
+}
+
+func (m *mockSource) Init(grid *grid.Grid) error {
+	m.initCalled = true
+	return m.throwError
+}
+
+// Fields of the grid.
+func (m *mockSource) Fields(g *grid.Grid) ([]grid.Field, error) {
+	if m.throwErrorFields != nil {
+		return nil, m.throwErrorFields
+	}
+	var rv []grid.Field
+	field := grid.Field{}
+	field.SetId("id").SetTitle("title").SetSortable(true).SetPrimary(true)
+	rv = append(rv, field)
+	return rv, m.throwError
+}
+
+// UpdatedFields is called before render. The grid fields have the user updated configurations.
+func (m *mockSource) UpdatedFields(grid *grid.Grid) error {
+	m.uFieldCalled = true
+	return m.throwError
+}
+
+// Callback is called on a callback request of the grid.
+func (m *mockSource) Callback(callback string, grid *grid.Grid) (interface{}, error) {
+	m.callbackCalled = true
+	return nil, m.throwError
+}
+
+// One request a single row by the given condition.
+func (m *mockSource) One(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
+	m.oneCalled = true
+	return "some data", m.throwError
+}
+
+// All data by the given condition.
+func (m *mockSource) All(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
+	m.allCalled = true
+	return "some data", m.throwErrorAll
+}
+
+// Create the object
+func (m *mockSource) Create(grid *grid.Grid) (interface{}, error) {
+	m.createCalled = true
+	return nil, m.throwError
+}
+
+// Update the object
+func (m *mockSource) Update(grid *grid.Grid) error {
+	m.updateCalled = true
+	return m.throwError
+}
+
+// Delete the object by the given condition.
+func (m *mockSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
+	m.deleteCalled = true
+	return m.throwError
+}
+
+// Count all the existing object by the given condition.
+func (m *mockSource) Count(c *sqlquery.Condition) (int, error) {
+	return 10, m.throwError
+}
+
+func TestNew(t *testing.T) {
+	test := assert.New(t)
+	g := grid.New(nil)
+	test.IsType(&grid.Grid{}, g)
+}
+
+func TestGrid_Controller(t *testing.T) {
+	test := assert.New(t)
 	c := controller.Controller{}
-	grid := New(&c)
-	customer := Customerfk{}
-	err := grid.SetSource(&customer, nil)
-	assert.Error(t, err)
+	grid := grid.New(&c)
+	test.Equal(&c, grid.Controller())
+}
 
-	// everything ok - createFields is tested in an extra test case
-	c = controller.Controller{}
-	cache, _ := cache.New("memory", memory.Options{GCInterval: 5 * time.Minute})
-	builder, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = builder
-	c.SetCache(cache)
+func TestGrid_SetSource_Fields_Field(t *testing.T) {
+	test := assert.New(t)
 
-	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName&filter_ID=1", nil)
+	r := httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))
+	// new controller
+	c := controller.Controller{}
 	rw := httptest.NewRecorder()
 	ctx := context.New(r, rw)
 	c.SetContext(ctx)
 
-	grid = New(&c)
-	customer2 := Customerfk{}
-	err = grid.SetSource(&customer2, nil)
-	assert.NoError(t, err)
-	assert.True(t, grid.sourceAdded)
+	g := grid.New(&c)
+	mock := &mockSource{}
+	err := g.SetSource(mock)
+	test.NoError(err)
+
+	// check if the init method was called
+	test.Equal(true, mock.initCalled)
+	// check if the fields were added by the source
+	test.Equal(1, len(g.Fields()))
+	//test field
+	test.Equal("id", g.Field("id").Id())
+	//test non existing field
+	test.Equal("", g.Field("xy").Id())
+	test.NotNil(g.Field("xy").Error())
+
+	// SetSource errors
+	controller, rw := newController(httptest.NewRequest("GET", "https://localhost/users?sort=id&noheader=1", strings.NewReader("")))
+	g = grid.New(controller)
+	mock = &mockSource{}
+	mock.throwError = errors.New("")
+	err = g.SetSource(mock) // error on source.Init()
+	test.Error(err)
+	mock.throwError = nil
+	mock.throwErrorFields = errors.New("")
+	err = g.SetSource(mock) // error on source.Fields()
+	test.Error(err)
 }
 
 func TestGrid_Mode(t *testing.T) {
-
-	r := httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))
-	g := defaultGrid(r)
-	assert.Equal(t, ViewGrid, g.Mode())
-
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=new", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, ViewCreate, g.Mode())
-
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=details&id=1", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, ViewDetails, g.Mode())
-
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=edit&id=1", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, ViewEdit, g.Mode())
-
-	r = httptest.NewRequest("POST", "https://localhost/users", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, CREATE, g.Mode())
-
-	r = httptest.NewRequest("PUT", "https://localhost/users", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, UPDATE, g.Mode())
-
-	r = httptest.NewRequest("DELETE", "https://localhost/users", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, DELETE, g.Mode())
-
-	r = httptest.NewRequest("OPTION", "https://localhost/users", strings.NewReader(""))
-	g = defaultGrid(r)
-	assert.Equal(t, 0, g.Mode())
-}
-
-func TestGrid_Disable(t *testing.T) {
-	r := httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))
-	g := defaultGrid(r)
-
-	assert.False(t, g.disablePagination)
-	assert.False(t, g.disableHeader)
-	err := g.Disable(PAGINATION)
-	assert.NoError(t, err)
-	assert.True(t, g.disablePagination)
-	assert.False(t, g.disableHeader)
-	err = g.Disable(HEADER)
-	assert.NoError(t, err)
-	assert.True(t, g.disablePagination)
-	assert.True(t, g.disableHeader)
-
-	err = g.Disable("xxx")
-	assert.Error(t, err)
-}
-
-func TestGrid_Field_Relation(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-
-	id, err := g.Field("ID")
-	assert.NoError(t, err)
-	assert.Equal(t, "ID", id.getTitle())
-
-	notExisting, err := g.Field("xxx")
-	assert.Error(t, err)
-	assert.True(t, notExisting == nil)
-
-	relInfo, err := g.Relation("Info")
-	assert.NoError(t, err)
-	assert.Equal(t, "Info", relInfo.getTitle())
-	assert.Equal(t, 3, len(relInfo.getFields()))
-
-	relInfo, err = g.Relation("InfXX")
-	assert.Error(t, err)
-	assert.True(t, relInfo == nil)
-}
-
-func TestGrid_getRelationName(t *testing.T) {
-
-	type Adr struct {
-		ID int
-	}
-
-	type User struct {
-		AdrPtr  *Adr
-		Adr     Adr
-		Adrs    []Adr
-		AdrsPtr []*Adr
-	}
-
-	user := User{}
-	assert.Equal(t, "grid.Adr", getRelationName(reflect.ValueOf(user.Adr)))
-	assert.Equal(t, "grid.Adr", getRelationName(reflect.ValueOf(user.AdrPtr)))
-	assert.Equal(t, "grid.Adr", getRelationName(reflect.ValueOf(user.Adrs)))
-	assert.Equal(t, "grid.Adr", getRelationName(reflect.ValueOf(user.AdrsPtr)))
-}
-
-func TestGrid_httpMethod(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	assert.Equal(t, "GET", g.httpMethod())
-}
-
-func TestGrid_createFields(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-
-	fmt.Println(g.fields)
-	assert.Equal(t, 11, len(g.fields))
-
-	assert.Equal(t, "ID", g.fields["ID"].getTitle())
-	assert.Equal(t, "", g.fields["ID"].getDescription())
-	assert.Equal(t, 1, g.fields["ID"].getPosition())
-	assert.Equal(t, true, g.fields["ID"].getHide())
-	assert.Equal(t, false, g.fields["ID"].getRemove())
-	assert.Equal(t, true, g.fields["ID"].getSort())
-	assert.Equal(t, true, g.fields["ID"].getFilter())
-	assert.Equal(t, "Integer", g.fields["ID"].getFieldType().Name())
-	assert.True(t, g.fields["ID"].getFields() == nil)
-	assert.True(t, g.fields["ID"].getColumn() != nil)
-
-	assert.Equal(t, "FirstName", g.fields["FirstName"].getTitle())
-	assert.Equal(t, "", g.fields["FirstName"].getDescription())
-	assert.Equal(t, 2, g.fields["FirstName"].getPosition())
-	assert.Equal(t, false, g.fields["FirstName"].getHide())
-	assert.Equal(t, false, g.fields["FirstName"].getRemove())
-	assert.Equal(t, true, g.fields["FirstName"].getSort())
-	assert.Equal(t, true, g.fields["FirstName"].getFilter())
-	assert.Equal(t, "Text", g.fields["FirstName"].getFieldType().Name())
-	assert.True(t, g.fields["FirstName"].getFields() == nil)
-	assert.True(t, g.fields["FirstName"].getColumn() != nil)
-
-	assert.Equal(t, "LastName", g.fields["LastName"].getTitle())
-	assert.Equal(t, "", g.fields["LastName"].getDescription())
-	assert.Equal(t, 3, g.fields["LastName"].getPosition())
-	assert.Equal(t, false, g.fields["LastName"].getHide())
-	assert.Equal(t, false, g.fields["LastName"].getRemove())
-	assert.Equal(t, true, g.fields["LastName"].getSort())
-	assert.Equal(t, true, g.fields["LastName"].getFilter())
-	assert.Equal(t, "Text", g.fields["LastName"].getFieldType().Name())
-	assert.True(t, g.fields["LastName"].getFields() == nil)
-	assert.True(t, g.fields["LastName"].getColumn() != nil)
-
-	/*assert.Equal(t, "CreatedAt", g.fields["CreatedAt"].getTitle())
-	assert.Equal(t, "", g.fields["CreatedAt"].getDescription())
-	assert.Equal(t, 4, g.fields["CreatedAt"].getPosition())
-	assert.Equal(t, false, g.fields["CreatedAt"].getHide())
-	assert.Equal(t, false, g.fields["CreatedAt"].getRemove())
-	assert.Equal(t, true, g.fields["CreatedAt"].getSort())
-	assert.Equal(t, true, g.fields["CreatedAt"].getFilter())
-	assert.Equal(t, "DateTime", g.fields["CreatedAt"].getFieldType())
-	assert.True(t, g.fields["CreatedAt"].getFields() == nil)
-	assert.True(t, g.fields["CreatedAt"].getColumn() != nil)
-
-	assert.Equal(t, "UpdatedAt", g.fields["UpdatedAt"].getTitle())
-	assert.Equal(t, "", g.fields["UpdatedAt"].getDescription())
-	assert.Equal(t, 5, g.fields["UpdatedAt"].getPosition())
-	assert.Equal(t, false, g.fields["UpdatedAt"].getHide())
-	assert.Equal(t, false, g.fields["UpdatedAt"].getRemove())
-	assert.Equal(t, true, g.fields["UpdatedAt"].getSort())
-	assert.Equal(t, true, g.fields["UpdatedAt"].getFilter())
-	assert.Equal(t, "DateTime", g.fields["UpdatedAt"].getFieldType())
-	assert.True(t, g.fields["UpdatedAt"].getFields() == nil)
-	assert.True(t, g.fields["UpdatedAt"].getColumn() != nil)
-
-	assert.Equal(t, "DeletedAt", g.fields["DeletedAt"].getTitle())
-	assert.Equal(t, "", g.fields["DeletedAt"].getDescription())
-	assert.Equal(t, 6, g.fields["DeletedAt"].getPosition())
-	assert.Equal(t, false, g.fields["DeletedAt"].getHide())
-	assert.Equal(t, false, g.fields["DeletedAt"].getRemove())
-	assert.Equal(t, true, g.fields["DeletedAt"].getSort())
-	assert.Equal(t, true, g.fields["DeletedAt"].getFilter())
-	assert.Equal(t, "DateTime", g.fields["DeletedAt"].getFieldType())
-	assert.True(t, g.fields["DeletedAt"].getFields() == nil)
-	assert.True(t, g.fields["DeletedAt"].getColumn() != nil)*/
-
-	assert.Equal(t, "AccountID", g.fields["AccountID"].getTitle())
-	assert.Equal(t, "", g.fields["AccountID"].getDescription())
-	assert.Equal(t, 7, g.fields["AccountID"].getPosition())
-	assert.Equal(t, false, g.fields["AccountID"].getHide())
-	assert.Equal(t, true, g.fields["AccountID"].getRemove())
-	assert.Equal(t, true, g.fields["AccountID"].getSort())
-	assert.Equal(t, true, g.fields["AccountID"].getFilter())
-	assert.Equal(t, "Integer", g.fields["AccountID"].getFieldType().Name())
-	assert.True(t, g.fields["AccountID"].getFields() == nil)
-	assert.True(t, g.fields["AccountID"].getColumn() != nil)
-
-	assert.Equal(t, "Info", g.fields["Info"].getTitle())
-	assert.Equal(t, "", g.fields["Info"].getDescription())
-	//assert.Equal(t,8,g.fields["Info"].getPosition()) //Position is not checked here because its not fixed yet association is a map.
-	assert.Equal(t, false, g.fields["Info"].getHide())
-	assert.Equal(t, false, g.fields["Info"].getRemove())
-	assert.Equal(t, false, g.fields["Info"].getSort())
-	assert.Equal(t, true, g.fields["Info"].getFilter())
-	assert.Equal(t, "hasOne", g.fields["Info"].getFieldType().Name())
-	assert.Equal(t, 3, len(g.fields["Info"].getFields()))
-	assert.Equal(t, "ID", g.fields["Info"].getFields()["ID"].getTitle())
-	assert.Equal(t, "CustomerID", g.fields["Info"].getFields()["CustomerID"].getTitle())
-	assert.Equal(t, "Phone", g.fields["Info"].getFields()["Phone"].getTitle())
-
-	assert.Equal(t, "Orders", g.fields["Orders"].getTitle())
-	assert.Equal(t, "", g.fields["Orders"].getDescription())
-	//assert.Equal(t,8,g.fields["Orders"].getPosition()) //Position is not checked here because its not fixed yet association is a map.
-	assert.Equal(t, false, g.fields["Orders"].getHide())
-	assert.Equal(t, false, g.fields["Orders"].getRemove())
-	assert.Equal(t, false, g.fields["Orders"].getSort())
-	assert.Equal(t, true, g.fields["Orders"].getFilter())
-	assert.Equal(t, "hasMany", g.fields["Orders"].getFieldType().Name())
-	assert.Equal(t, 3, len(g.fields["Orders"].getFields()))
-	assert.Equal(t, "ID", g.fields["Orders"].getFields()["ID"].getTitle())
-	assert.Equal(t, "CustomerID", g.fields["Orders"].getFields()["CustomerID"].getTitle())
-	assert.Equal(t, "CreatedAt", g.fields["Orders"].getFields()["CreatedAt"].getTitle())
-
-	assert.Equal(t, "Service", g.fields["Service"].getTitle())
-	assert.Equal(t, "", g.fields["Service"].getDescription())
-	//assert.Equal(t,8,g.fields["Service"].getPosition()) //Position is not checked here because its not fixed yet association is a map.
-	assert.Equal(t, false, g.fields["Service"].getHide())
-	assert.Equal(t, false, g.fields["Service"].getRemove())
-	assert.Equal(t, false, g.fields["Service"].getSort())
-	assert.Equal(t, true, g.fields["Service"].getFilter())
-	assert.Equal(t, "m2m", g.fields["Service"].getFieldType().Name())
-	assert.Equal(t, 2, len(g.fields["Service"].getFields()))
-	assert.Equal(t, "ID", g.fields["Service"].getFields()["ID"].getTitle())
-	assert.Equal(t, "Name", g.fields["Service"].getFields()["Name"].getTitle())
-
-	assert.Equal(t, "Account", g.fields["Account"].getTitle())
-	assert.Equal(t, "", g.fields["Account"].getDescription())
-	//assert.Equal(t,8,g.fields["Service"].getPosition()) //Position is not checked here because its not fixed yet association is a map.
-	assert.Equal(t, false, g.fields["Account"].getHide())
-	assert.Equal(t, false, g.fields["Account"].getRemove())
-	assert.Equal(t, false, g.fields["Account"].getSort())
-	assert.Equal(t, true, g.fields["Account"].getFilter())
-	assert.Equal(t, "belongsTo", g.fields["Account"].getFieldType().Name())
-	assert.Equal(t, 2, len(g.fields["Account"].getFields()))
-	assert.Equal(t, "ID", g.fields["Account"].getFields()["ID"].getTitle())
-	assert.Equal(t, "Name", g.fields["Account"].getFields()["Name"].getTitle())
-}
-
-func TestGrid_headerInfo(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-
-	g.headerInfo()
-
-	assert.True(t, g.controller.Context().Response.Data("head") != nil)
-}
-
-type nopCloser struct {
-	io.Reader
-}
-
-func (nopCloser) Close() error { return nil }
-
-func TestGrid_marshalModel(t *testing.T) {
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
-
-	// invalid json  "Read will..."
-	g.controller.Context().Request.Raw().Body = nopCloser{bytes.NewBufferString("Read will...")}
-	err = g.unmarshalModel()
-	assert.Equal(t, ErrJsonInvalid, err)
-
-	// empty "{}" TODO check empty model to turn this into an error!
-	g.controller.Context().Request.Raw().Body = nopCloser{bytes.NewBufferString("{}")}
-	err = g.unmarshalModel()
-	assert.NoError(t, err)
-
-	// Wrong Field set
-	g.controller.Context().Request.Raw().Body = nopCloser{bytes.NewBufferString("{\"NOT\":\"Existing\"}")}
-	err = g.unmarshalModel()
-	assert.Error(t, err)
-
-	// Everything right
-	g.controller.Context().Request.Raw().Body = nopCloser{bytes.NewBufferString("{\"Id\":1}")}
-	err = g.unmarshalModel()
-	assert.NoError(t, err)
-
-	// Error no model is set
-	g.controller.Context().Request.Raw().Body = nopCloser{bytes.NewBufferString("{\"Id\":1}")}
-	g.src = nil
-	err = g.unmarshalModel()
-	assert.Error(t, err)
-
-	// Body is not a Reader
-	g.controller.Context().Request.Raw().Body = nil
-	g.src = nil
-	err = g.unmarshalModel()
-	assert.Equal(t, ErrRequestBody, err)
-}
-
-func TestGrid_readOne(t *testing.T) {
-
-	err := deleteAll()
-	if assert.NoError(t, err) {
-		err = insertAll()
-		if assert.NoError(t, err) {
-
-			body := strings.NewReader("")
-			r := httptest.NewRequest("GET", "https://localhost/users", body)
-			g := defaultGrid(r)
-
-			b, err := HelperCreateBuilder()
-			assert.NoError(t, err)
-			orm.GlobalBuilder = b
-
-			cust := Customerfk{}
-			err = g.SetSource(&cust, nil)
-			assert.NoError(t, err)
-
-			c := sqlquery.Condition{}
-			c.Where("id = ?", 1)
-			err = g.readOne(&c)
-			assert.NoError(t, err)
-
-			assert.Equal(t, 1, cust.ID)
-			assert.True(t, g.controller.Context().Response.Data("data") != nil)
-		}
-	}
-
-}
-
-func TestGrid_readAll(t *testing.T) {
-
-	err := deleteAll()
-	if assert.NoError(t, err) {
-		err = insertAll()
-		if assert.NoError(t, err) {
-
-			body := strings.NewReader("")
-			r := httptest.NewRequest("GET", "https://localhost/users", body)
-			g := defaultGrid(r)
-
-			b, err := HelperCreateBuilder()
-			assert.NoError(t, err)
-			orm.GlobalBuilder = b
-
-			cust := Customerfk{}
-			err = g.SetSource(&cust, nil)
-			assert.NoError(t, err)
-
-			err = g.readAll()
-			assert.NoError(t, err)
-
-			counter := reflect.ValueOf(g.controller.Context().Response.Data("data").(*[]Customerfk)).Elem().Interface().([]Customerfk)
-			assert.Equal(t, 5, len(counter))
-			assert.True(t, g.controller.Context().Response.Data("head") != "")
-			assert.True(t, g.controller.Context().Response.Data("pagination") != "")
-
-		}
-	}
-}
-
-func TestGrid_delete(t *testing.T) {
-
-	err := deleteAll()
-	if assert.NoError(t, err) {
-		err = insertAll()
-		if assert.NoError(t, err) {
-
-			body := strings.NewReader("")
-			r := httptest.NewRequest("GET", "https://localhost/users", body)
-			g := defaultGrid(r)
-
-			b, err := HelperCreateBuilder()
-			assert.NoError(t, err)
-			orm.GlobalBuilder = b
-
-			cust := Customerfk{}
-			err = g.SetSource(&cust, nil)
-			assert.NoError(t, err)
-
-			c := sqlquery.Condition{}
-			c.Where("id = ?", 1)
-			err = g.delete(&c)
-			assert.NoError(t, err)
-
-			// still the same amount of entries because of softDelete
-			c = sqlquery.Condition{}
-			count, err := g.src.Count(&c)
-			assert.NoError(t, err)
-			assert.Equal(t, 4, count)
-
-		}
-	}
-}
-
-func TestGrid_create(t *testing.T) {
-
-	err := deleteAll()
-	if assert.NoError(t, err) {
-
-		body := strings.NewReader(`{"FirstName":"Test123","LastName":"Stoate","CreatedAt":"2019-02-23T00:00:00Z","UpdatedAt":"2020-03-02T00:00:00Z","DeletedAt":"2020-10-02T00:00:00Z","Info":{"Phone":"000-000-123"},"Orders":[{"CreatedAt":"2010-07-21T00:00:00Z"},{"CreatedAt":"2010-07-22T00:00:00Z"},{"CreatedAt":"2010-07-23T00:00:00Z"}],"Service":[{"Name":"paypal"},{"Name":"banking"},{"Name":"appstore"},{"Name":"playstore"}]}`)
-		r := httptest.NewRequest("GET", "https://localhost/users", body)
-		g := defaultGrid(r)
-
-		b, err := HelperCreateBuilder()
-		assert.NoError(t, err)
-		orm.GlobalBuilder = b
-
-		cust := Customerfk{}
-		err = g.SetSource(&cust, nil)
-		assert.NoError(t, err)
-
-		err = g.create()
-		assert.NoError(t, err)
-		assert.Equal(t, "Test123", cust.FirstName.String)
-	}
-}
-
-func TestGrid_update(t *testing.T) {
-
-	err := deleteAll()
-	if assert.NoError(t, err) {
-		err = insertAll()
-		if assert.NoError(t, err) {
-			body := strings.NewReader(`{"ID":1,"FirstName":"TreschaUpd","LastName":"Stoate","CreatedAt":"2019-02-23T00:00:00Z","UpdatedAt":"2020-03-02T00:00:00Z","DeletedAt":"2020-10-02T00:00:00Z","Info":{"Phone":"000-000-123"},"Orders":[{"CreatedAt":"2010-07-21T00:00:00Z"},{"CreatedAt":"2010-07-22T00:00:00Z"},{"CreatedAt":"2010-07-23T00:00:00Z"}],"Service":[{"Name":"paypal"},{"Name":"banking"},{"Name":"appstore"},{"Name":"playstore"}]}`)
-			r := httptest.NewRequest("GET", "https://localhost/users", body)
-			g := defaultGrid(r)
-
-			b, err := HelperCreateBuilder()
-			assert.NoError(t, err)
-			orm.GlobalBuilder = b
-
-			cust := Customerfk{}
-			err = g.SetSource(&cust, nil)
-			assert.NoError(t, err)
-
-			err = g.update()
-			assert.NoError(t, err)
-			assert.Equal(t, "TreschaUpd", cust.FirstName.String)
-		}
-	}
+	test := assert.New(t)
+
+	// VTable - GET no mode param
+	c, _ := newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader("")))
+	g := grid.New(c)
+	test.Equal(grid.VTable, g.Mode())
+	// VCreate - GET with mode param "create"
+	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=create", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.VCreate, g.Mode())
+	// VUpdate - GET with mode param "update"
+	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.VUpdate, g.Mode())
+	// VDetails - GET with mode param "details"
+	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=details", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.VDetails, g.Mode())
+	// VCallback - GET with mode param "callback"
+	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=callback", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.CALLBACK, g.Mode())
+
+	// CREATE - POST
+	c, _ = newController(httptest.NewRequest("POST", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.CREATE, g.Mode())
+	// UPDATE - PUT
+	c, _ = newController(httptest.NewRequest("PUT", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.UPDATE, g.Mode())
+	// DELETE - DELETE
+	c, _ = newController(httptest.NewRequest("DELETE", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(grid.DELETE, g.Mode())
+
+	// not defined - PATCH
+	c, _ = newController(httptest.NewRequest("PATCH", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	test.Equal(0, g.Mode())
 }
 
 func TestGrid_Render(t *testing.T) {
+	test := assert.New(t)
 
-	// ViewGrid
-	body := strings.NewReader("")
-	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := defaultGrid(r)
-
-	b, err := HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust := Customerfk{}
-	err = g.SetSource(&cust, nil)
-	assert.NoError(t, err)
+	// error - no source was added
+	c, rw := newController(httptest.NewRequest("GET", "https://localhost/users?mode=details", strings.NewReader("")))
+	g := grid.New(c)
 	g.Render()
-	assert.True(t, g.controller.Context().Response.Data("data") != nil)
+	test.Equal(500, rw.Code)
 
-	// ViewCreate
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=new", body)
-	g = defaultGrid(r)
-
-	b, err = HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust2 := Customerfk{}
-	err = g.SetSource(&cust2, nil)
-	assert.NoError(t, err)
+	// CREATE
+	c, rw = newController(httptest.NewRequest("POST", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	mock := &mockSource{}
+	err := g.SetSource(mock)
+	test.NoError(err)
 	g.Render()
-	assert.True(t, g.controller.Context().Response.Data("data") == nil)
-	assert.True(t, g.controller.Context().Response.Data("head") != nil)
-
-	// ViewEdit / ViewDetails
-	body = strings.NewReader("")
-	r = httptest.NewRequest("GET", "https://localhost/users?mode=details&ID=1", body)
-	g = defaultGrid(r)
-
-	b, err = HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust3 := Customerfk{}
-	err = g.SetSource(&cust3, nil)
-	assert.NoError(t, err)
+	test.True(mock.createCalled)
+	test.Equal(200, rw.Code)
+	mock.throwError = errors.New("")
 	g.Render()
-	assert.True(t, g.controller.Context().Response.Data("data") != nil)
-	assert.True(t, g.controller.Context().Response.Data("head") != nil)
+	test.Equal(500, rw.Code)
 
-	// Create
-	body = strings.NewReader(`{"FirstName":"Test123","LastName":"Stoate","CreatedAt":"2019-02-23T00:00:00Z","UpdatedAt":"2020-03-02T00:00:00Z","DeletedAt":"2020-10-02T00:00:00Z","Info":{"Phone":"000-000-123"},"Orders":[{"CreatedAt":"2010-07-21T00:00:00Z"},{"CreatedAt":"2010-07-22T00:00:00Z"},{"CreatedAt":"2010-07-23T00:00:00Z"}],"Service":[{"Name":"paypal"},{"Name":"banking"},{"Name":"appstore"},{"Name":"playstore"}]}`)
-	r = httptest.NewRequest("POST", "https://localhost/users", body)
-	g = defaultGrid(r)
-
-	b, err = HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust4 := Customerfk{}
-	err = g.SetSource(&cust4, nil)
-	assert.NoError(t, err)
+	// UPDATE
+	c, rw = newController(httptest.NewRequest("PUT", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
 	g.Render()
-	assert.Equal(t, "Test123", cust4.FirstName.String)
-
-	// Update
-	body = strings.NewReader(`{"ID":1,"FirstName":"TreschaUpd","LastName":"Stoate","CreatedAt":"2019-02-23T00:00:00Z","UpdatedAt":"2020-03-02T00:00:00Z","DeletedAt":"2020-10-02T00:00:00Z","Info":{"Phone":"000-000-123"},"Orders":[{"CreatedAt":"2010-07-21T00:00:00Z"},{"CreatedAt":"2010-07-22T00:00:00Z"},{"CreatedAt":"2010-07-23T00:00:00Z"}],"Service":[{"Name":"paypal"},{"Name":"banking"},{"Name":"appstore"},{"Name":"playstore"}]}`)
-	r = httptest.NewRequest("PUT", "https://localhost/users", body)
-	g = defaultGrid(r)
-
-	b, err = HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust5 := Customerfk{}
-	err = g.SetSource(&cust5, nil)
-	assert.NoError(t, err)
+	test.True(mock.updateCalled)
+	test.Equal(200, rw.Code)
+	mock.throwError = errors.New("")
 	g.Render()
-	assert.Equal(t, "TreschaUpd", cust5.FirstName.String)
+	test.Equal(500, rw.Code)
 
-	// Delete
-	body = strings.NewReader("")
-	r = httptest.NewRequest("DELETE", "https://localhost/users?ID=1", body)
-	g = defaultGrid(r)
-
-	b, err = HelperCreateBuilder()
-	assert.NoError(t, err)
-	orm.GlobalBuilder = b
-
-	cust6 := Customerfk{}
-	err = g.SetSource(&cust6, nil)
-	assert.NoError(t, err)
+	// DELETE - primary is missing
+	c, rw = newController(httptest.NewRequest("DELETE", "https://localhost/users", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
 	g.Render()
-	assert.True(t, cust6.DeletedAt.Valid)
-}
+	test.False(mock.deleteCalled)
+	test.Equal(500, rw.Code)
+	mock.throwError = errors.New("")
+	g.Render()
+	test.Equal(500, rw.Code)
 
-func defaultGrid(r *http.Request) *Grid {
-	// new controller
-	c := controller.Controller{}
+	// DELETE - primary is missing
+	c, rw = newController(httptest.NewRequest("DELETE", "https://localhost/users?id=1", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.True(mock.deleteCalled)
+	test.Equal(200, rw.Code)
+	mock.throwError = errors.New("")
+	g.Render()
+	test.Equal(500, rw.Code)
 
-	//cache
-	cache, _ := cache.New("memory", memory.Options{GCInterval: 5 * time.Minute})
-	c.SetCache(cache)
+	// TODO CALLBACK - when it is created
 
-	rw := httptest.NewRecorder()
-	ctx := context.New(r, rw)
-	c.SetContext(ctx)
+	// VCREATE - check if the header is added correctly
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=create", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(200, rw.Code)
+	test.Equal(1, len(c.Context().Response.Data("head").([]grid.Field)))
 
-	//new grid
-	grid := New(&c)
-	return grid
+	// VUpdate, VDetails - no primary added
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(500, rw.Code)
+
+	// VUpdate, VDetails - with primary
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update&id=1", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(200, rw.Code)
+	test.Equal(1, len(c.Context().Response.Data("head").([]grid.Field)))
+	test.Equal("some data", c.Context().Response.Data("data"))
+	test.True(mock.oneCalled)
+	mock.throwError = errors.New("")
+	g.Render()
+	test.Equal(500, rw.Code)
+
+	// VTable - error sort field does not exist
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=ABC", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(500, rw.Code)
+
+	// VTable
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=id", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(200, rw.Code)
+	test.Equal(1, len(c.Context().Response.Data("head").([]grid.Field)))
+	test.Equal("some data", c.Context().Response.Data("data"))
+	test.Equal("*grid.pagination", reflect.TypeOf(c.Context().Response.Data("pagination")).String())
+	test.True(mock.allCalled)
+	mock.throwError = errors.New("")
+	g.Render() // error on pagination because of the source.Count()
+	test.Equal(500, rw.Code)
+	mock.throwError = nil
+	mock.throwErrorAll = errors.New("")
+	g.Render() // error on source.All()
+	test.Equal(500, rw.Code)
+
+	// VTable without header
+	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=id&noheader=1", strings.NewReader("")))
+	g = grid.New(c)
+	mock = &mockSource{}
+	err = g.SetSource(mock)
+	test.NoError(err)
+	g.Render()
+	test.Equal(200, rw.Code)
+	test.Nil(c.Context().Response.Data("head"))
+	test.Equal("some data", c.Context().Response.Data("data"))
+	test.Equal("*grid.pagination", reflect.TypeOf(c.Context().Response.Data("pagination")).String())
 }
