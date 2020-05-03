@@ -385,7 +385,7 @@ func (g *gridSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
 	return nil
 }
 
-func (g *gridSource) Count(c *sqlquery.Condition) (int, error) {
+func (g *gridSource) Count(c *sqlquery.Condition, grid *grid.Grid) (int, error) {
 	return g.orm.Count(c)
 }
 

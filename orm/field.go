@@ -135,7 +135,7 @@ func (m *Model) describeFields() error {
 	if err != nil {
 		return err
 	}
-	m.DefaultLogger().Trace("Describe", err, describeCols, cols, m.caller.DefaultDatabaseName()+"."+m.caller.DefaultTableName())
+	//	m.DefaultLogger().Trace("Describe", err, describeCols, cols, m.caller.DefaultDatabaseName()+"."+m.caller.DefaultTableName())
 
 	// adding database column structure to the column
 	scannerI := reflect.TypeOf((*sql.Scanner)(nil)).Elem()

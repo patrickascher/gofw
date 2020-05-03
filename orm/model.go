@@ -33,16 +33,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"time"
 
 	valid "github.com/go-playground/validator"
 	"github.com/patrickascher/gofw/cache"
-	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/logger"
-	"github.com/patrickascher/gofw/logger/console"
 	"github.com/patrickascher/gofw/sqlquery"
 	_ "github.com/patrickascher/gofw/sqlquery/driver"
 )
@@ -89,39 +86,41 @@ func init() {
 	validate = valid.New()
 	validate.SetTagName(tagValidate)
 	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullString{}, NullTime{})
+	/*
+		c := sqlquery.Config{}
+		c.Driver = "mysql"
+		c.Database = "orm_test"
+		c.Schema = "public"
+		c.Username = "root"
+		c.Password = "root"
+		c.Host = "127.0.0.1"
+		c.Port = 3319
+		c.Debug = true
 
-	c := sqlquery.Config{}
-	c.Driver = "mysql"
-	c.Database = "orm_test"
-	c.Schema = "public"
-	c.Username = "root"
-	c.Password = "root"
-	c.Host = "127.0.0.1"
-	c.Port = 3319
-	c.Debug = true
+		var err error
+		GlobalBuilder, err = sqlquery.New(c, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	var err error
-	GlobalBuilder, err = sqlquery.New(c, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+		GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
-	if err != nil {
-		log.Fatal(err)
-	}
+		cLogger, err := console.New(console.Options{Color: true})
+		err = logger.Register("model", logger.Config{Writer: cLogger})
+		if err != nil {
+			log.Fatal(err)
+		}
+		GlobalLogger, err = logger.Get("model")
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	cLogger, err := console.New(console.Options{Color: true})
-	err = logger.Register("model", logger.Config{Writer: cLogger})
-	if err != nil {
-		log.Fatal(err)
-	}
-	GlobalLogger, err = logger.Get("model")
-	if err != nil {
-		log.Fatal(err)
-	}
+		GlobalBuilder.SetLogger(GlobalLogger)
+	*/
 
-	GlobalBuilder.SetLogger(GlobalLogger)
 }
 
 type Interface interface {
@@ -229,7 +228,7 @@ func (m *Model) Init(c Interface) error {
 
 	// check if cache exists
 	if m.cache.Exist(m.name) {
-		m.DefaultLogger().Debug("Init cached", m.modelName(false)) //TODO can be removed
+		//m.DefaultLogger().Debug("Init cached", m.modelName(false)) //TODO can be removed
 		v, err := m.cache.Get(m.name)
 		if err != nil {
 			return err
@@ -245,7 +244,7 @@ func (m *Model) Init(c Interface) error {
 		return nil
 	}
 
-	m.DefaultLogger().Trace("Init", m.modelName(false)) //TODO can be removed
+	//m.DefaultLogger().Trace("Init", m.modelName(false)) //TODO can be removed
 
 	// set scope
 	m.scope = &Scope{m}

@@ -2,7 +2,6 @@ package orm
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/patrickascher/gofw/slices"
@@ -46,8 +45,6 @@ func (scope *Scope) setFieldPermission(action string) error {
 	if scope.model.wbList == nil {
 		return nil
 	}
-
-	fmt.Println("BLACKLIST AFTER", scope.model.wbList.fields)
 
 	whitelisted := false
 	if scope.model.wbList.policy == WHITELIST {

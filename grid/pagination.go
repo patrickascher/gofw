@@ -28,7 +28,7 @@ func (g *Grid) newPagination(c *sqlquery.Condition) (*pagination, error) {
 		c = &sqlquery.Condition{}
 	}
 
-	count, err := g.src.Count(c)
+	count, err := g.src.Count(c, g)
 	if err != nil {
 		return nil, err
 	}

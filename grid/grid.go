@@ -53,7 +53,7 @@ type SourceI interface {
 	// Delete the object by the given condition.
 	Delete(c *sqlquery.Condition, grid *Grid) error
 	// Count all the existing object by the given condition.
-	Count(c *sqlquery.Condition) (int, error)
+	Count(c *sqlquery.Condition, grid *Grid) (int, error)
 }
 
 type Select struct {

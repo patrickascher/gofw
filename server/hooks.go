@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/logger/console"
+	"github.com/patrickascher/gofw/orm"
 	"github.com/patrickascher/gofw/router/httprouter"
 	"time"
 
@@ -65,6 +66,7 @@ func initBuilder() error {
 		if err != nil {
 			return err
 		}
+
 		if c.Database.Debug {
 			cfgBuilder.SetLogger(Logger())
 		}
@@ -93,6 +95,7 @@ func initCache() error {
 		}
 
 		cfgCache = c
+		orm.GlobalCache = c
 	}
 
 	return nil
