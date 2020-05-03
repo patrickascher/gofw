@@ -66,6 +66,7 @@ func (s *Insert) String() (stmt string, args [][]interface{}, err error) {
 // If a LastInsertedID is set, the ptr will be set.
 // An error will return if the arguments and placeholders mismatch or no value was set.
 func (s *Insert) Exec() ([]sql.Result, error) {
+
 	stmt, args, err := s.render()
 	if err != nil {
 		return nil, err
@@ -90,6 +91,10 @@ func (s *Insert) execQueryWithLastId(stmt string, args [][]interface{}) error {
 		if err != nil {
 			return err
 		}
+		// scanner interface (nullInt)
+		if v, ok := s.lastIDPtr.(sql.Scanner); ok {
+			return v.Scan(i)
+		}
 		reflect.ValueOf(s.lastIDPtr).Elem().SetInt(i)
 	} else {
 		var res []sql.Result
@@ -100,6 +105,10 @@ func (s *Insert) execQueryWithLastId(stmt string, args [][]interface{}) error {
 		id, err := res[0].LastInsertId()
 		if err != nil {
 			return err
+		}
+		// scanner interface (nullInt)
+		if v, ok := s.lastIDPtr.(sql.Scanner); ok {
+			return v.Scan(id)
 		}
 		reflect.ValueOf(s.lastIDPtr).Elem().SetInt(id)
 	}

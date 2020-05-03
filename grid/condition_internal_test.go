@@ -14,7 +14,7 @@ func TestCondition_conditionAll(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName&filter_ID=1", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -62,7 +62,7 @@ func TestCondition_addSortCondition(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -91,7 +91,7 @@ func TestCondition_addFilterCondition(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users?filter_id=1", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -124,7 +124,7 @@ func TestCondition_isSortAllowed(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -148,7 +148,7 @@ func TestCondition_isFilterAllowed(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -171,7 +171,7 @@ func TestCondition_getFieldByDbName(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
@@ -192,7 +192,7 @@ func TestCondition_checkPrimaryParams(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
 	g := defaultGrid(r)
 	b, err := HelperCreateBuilder()
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)

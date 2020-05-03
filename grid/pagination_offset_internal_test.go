@@ -75,7 +75,7 @@ func TestPagination_generate(t *testing.T) {
 			g := defaultGrid(r)
 
 			b, err := HelperCreateBuilder()
-			orm.GlobalBuilder = &b
+			orm.GlobalBuilder = b
 			assert.NoError(t, err)
 
 			cust := Customerfk{}

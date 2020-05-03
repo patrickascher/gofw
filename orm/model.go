@@ -1,116 +1,151 @@
-// Package orm converts any struct to a full orm.
+// Copyright 2020 Patrick Ascher <pat@fullhouse-productions.com>. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+// Package orm transfers a struct into an ORM by simple embedding the orm.Model.
 //
-// See https://github.com/patrickascher/go-orm for more information and examples
+// A model requires one or more primary keys which can be set by tag. If tag is set, the field ID will be defined as primary key.
+// An error will return if no key is set.
+//
+// Configuration
+// If the model has the function Default(TableName, DatabaseName, SchemaName, Builder, Logger, Cache) some default values can be set.
+// By default, the TableName is the plural of the struct name. Database and SchemaName are taken from the builder configuration.
+//
+// Tags
+// custom: if set, the field is declared as custom field. This means the field is not required in the database table.
+// primary: set a field as primary field. if none is set, it checks if the field ID exists and sets this as default primary.
+// column: set a table column name. by default the column name is snake style of the field name.
+// permission: rw can be set for read and write. if none is required just type permission. The read and write privileges will be set to false.
+// select: if a custom sql statement is required.
+// relation: hasOne, belongsTo, hasMany, m2m
+// fk,afk
+// join_table, join_fk, join_akf
+// polymorphic:
+// polymorphic_value:
+//
+// restrictions:
+// self reference is only allowed on m2m
+// polymorphic is only allowed on hasOne, hasMany
+// embedded fields must be Exported structs and no orm2.Model in it is allowed. (TODO fix this, maybe useful?)
 package orm
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/guregu/null"
-	"github.com/patrickascher/gofw/cache"
-	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/serenize/snaker"
-	"gopkg.in/go-playground/validator.v9"
+	"log"
 	"reflect"
 	"strings"
 	"time"
-	"unsafe"
+
+	valid "github.com/go-playground/validator"
+	"github.com/patrickascher/gofw/cache"
+	"github.com/patrickascher/gofw/cache/memory"
+	"github.com/patrickascher/gofw/logger"
+	"github.com/patrickascher/gofw/logger/console"
+	"github.com/patrickascher/gofw/sqlquery"
+	_ "github.com/patrickascher/gofw/sqlquery/driver"
 )
 
-// GlobalBuilder for a global db connection
-var GlobalBuilder *sqlquery.Builder
-var GlobalCache cache.Interface
-var validate *validator.Validate
+const (
+	CREATE = "create"
+	UPDATE = "update"
+	DELETE = "delete"
+	FIRST  = "first"
+	ALL    = "all"
+)
 
-// Error for Model
+const (
+	CreatedAt = "CreatedAt"
+	UpdatedAt = "UpdatedAt"
+	DeletedAt = "DeletedAt"
+)
+
 var (
-	ErrModelNotInitialized = errors.New("model: model is not initialized")
-	ErrSetCache            = errors.New("model: cache must be set before the model gets initialized")
-	ErrModelNoBuilder      = errors.New("model: no builder defined")
-	ErrModelInit           = errors.New("model: method Initialize was not found in %s (forgot to embed Model struct?)")
-	ErrModelFieldNotFound  = errors.New("model: field %s not found in columns of %s")
-	ErrModelColumnNotFound = errors.New("model: column %s not found in columns of %s")
+	validate *valid.Validate
 )
 
-// Error for Strategy
 var (
-	ErrStrategyUnknown       = errors.New("model: unknown strategy %q (forgotten import?)")
-	ErrStrategyNotGiven      = errors.New("model: empty strategy-name or driver is given")
-	ErrStrategyAlreadyExists = errors.New("model: strategy %#v already exists")
+	GlobalBuilder sqlquery.Builder
+	GlobalCache   cache.Interface
+	GlobalLogger  *logger.Logger
 )
 
-// Errors for Table
 var (
-	ErrTableColumnNotFound = errors.New("model: column %s does not exist in table %s")
-	ErrIDPrimary           = errors.New("model: no ID field exists or is not a primary key in table %s")
+	errNoCache    = errors.New("orm: no cache or cache duration is defined")
+	errInitPtr    = errors.New("orm: model must be a ptr")
+	errBuilder    = errors.New("orm: no builder is defined")
+	errDb         = errors.New("orm: db or table name is not defined")
+	errBeforeInit = errors.New("orm: %s must be called before the Init method")
+	errInit       = errors.New("orm: must be initialized before")
+	errResultPtr  = errors.New("orm: result variable must be a ptr in %s.All()")
+
+	ErrUpdateNoChanges = errors.New("orm: the model %s was not updated because there were no changes")
 )
 
-// other errors
-var (
-	ErrTagSyntax          = errors.New("model: bad tag syntax")
-	ErrForeignKeyNotFound = errors.New("model: foreign key was not found for %s %s %s")
-	ErrRelationType       = errors.New("model: relation type %s is not supported")
-	ErrResultPtr          = errors.New("model: the result must be a pointer")
-	ErrUpdateZero         = errors.New("model: update affected zero rows (update)")
-	ErrDeletePk           = errors.New("model: one or more primary keys are empty (delete)")
-	ErrDeleteNotFound     = errors.New("model: entry could not be found (delete)")
-)
+func init() {
 
-// Tag key names
-const (
-	TagRelation = "relation"
-	TagFK       = "fk"
-	TagName     = "orm"
-	TagValidate = "validate"
+	// global validator
+	validate = valid.New()
+	validate.SetTagName(tagValidate)
+	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullString{}, NullTime{})
 
-	TagSkip      = "-"
-	TagSeparator = ";"
-	TagKeyValue  = ":"
-)
+	c := sqlquery.Config{}
+	c.Driver = "mysql"
+	c.Database = "orm_test"
+	c.Schema = "public"
+	c.Username = "root"
+	c.Password = "root"
+	c.Host = "127.0.0.1"
+	c.Port = 3319
+	c.Debug = true
 
-// Loading strategies
-const (
-	Eager = "eager"
-	//Lazy  = "lazy"
-)
+	var err error
+	GlobalBuilder, err = sqlquery.New(c, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-// Relation types
-const (
-	HasOne       = "hasOne"
-	BelongsTo    = "belongsTo"
-	HasMany      = "hasMany"
-	ManyToMany   = "manyToMany"
-	ManyToManySR = "manyToManySR"
-	CustomStruct = "customStruct"
-	CustomSlice  = "customSlice"
-	CustomImpl   = "custom"
-)
+	GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-const (
-	CallbackBefore = "OrmBefore"
-	CallbackAfter  = "OrmAfter"
-)
+	cLogger, err := console.New(console.Options{Color: true})
+	err = logger.Register("model", logger.Config{Writer: cLogger})
+	if err != nil {
+		log.Fatal(err)
+	}
+	GlobalLogger, err = logger.Get("model")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-// Mode identifier
-const (
-	CREATE = "CreatedAt"
-	UPDATE = "UpdatedAt"
-	DELETE = "DeletedAt"
-)
+	GlobalBuilder.SetLogger(GlobalLogger)
+}
 
-// Interface of orm models
 type Interface interface {
-	Initialize(caller Interface) error
+	Init(c Interface) error
 
-	// defaults
-	TableName() string
-	DatabaseName() string
-	Builder() (*sqlquery.Builder, error)
-	DefaultCache() (cache.Interface, time.Duration, error)
-	Custom() bool
+	Cache() (cache.Interface, time.Duration, error)
+	SetCache(p cache.Interface, duration time.Duration) error
 
-	// orm
+	WBList() (policy int, fields []string)
+	SetWBList(policy int, fields ...string)
+
+	// Default values
+	// TODO move to scope?
+	DefaultLogger() *logger.Logger
+	DefaultCache() (manager cache.Interface, ttl time.Duration, error error)
+	DefaultBuilder() sqlquery.Builder
+	DefaultTableName() string
+	DefaultDatabaseName() string
+	DefaultSchemaName() string
+	DefaultStrategy() string
+
+	Scope() *Scope
+	model() *Model
+
 	First(c *sqlquery.Condition) error
 	All(result interface{}, c *sqlquery.Condition) error
 	Create() error
@@ -118,359 +153,230 @@ type Interface interface {
 	Delete() error
 	Count(c *sqlquery.Condition) (int, error)
 
-	DisableSnapshot(bool)
-	DisableCallback(bool)
-	disableCallback() bool
-
-	DisableCustomSql(bool)
-	disableCustomSql() bool
-
-	// cache
-	Cache() (cache.Interface, time.Duration, error)
-	SetCache(cache.Interface, time.Duration) error
-	HasCache() bool
-
-	// helper for strategy
-	Table() *Table
-	SetStrategy(string) error
-
-	// condition for relations
-	SetRelationCondition(string, sqlquery.Condition) error
-	RelationCondition() map[string]sqlquery.Condition
-
-	// White and Blacklist
-	SetWhitelist(...string) *Model
-	SetBlacklist(...string) *Model
-	whiteBlacklist() *WhiteBlackList
-	WhiteBlacklist() *WhiteBlackList
-
-	setWhiteBlacklist(*WhiteBlackList)
-
-	setLoopMap(loopMap map[string][]string)
-	getLoopMap() map[string][]string
-
-	setParent(p Interface)
-	hasParent() bool
-
-	equalWith(y Interface, parent string) []ChangedValues
-	Caller() Interface
-
-	callback() *Callback
-	parent() Interface
-	resultSet() interface{}
+	// experimental
+	SetRelationCondition(string, sqlquery.Condition)
 }
 
-// Model struct contains all fields and relations of the database table.
 type Model struct {
-	CreatedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	UpdatedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
-	DeletedAt null.Time `orm:"permission:w" json:",omitempty"` //no nice solution but must be a ptr otherwise json omitempty will not work
 
-	caller Interface // for result
-	table  *Table
-
+	// name of the model incl. namespace.
+	name string
+	// identifier if the model was already initialized.
 	isInitialized bool
-	skipRel       bool // needed for self-references
+	// the caller orm.
+	caller Interface
+	// the orm struct fields.
+	fields []Field
+	// the orm relation fields.
+	relations []Relation
+	// identifier if a sql transaction was added by the system.
+	autoTx bool
+	// parent orm
+	parentModel *Model
+	// changedValues, needed for update, that only changed values are updated
+	changedValues []ChangedValue
+	// white/black list
+	wbList *whiteBlackList
+	// identifier for a loop
+	loopDetection map[string][]string
+	// orm builder.
+	builder sqlquery.Builder
+	// orm scope.
+	scope *Scope
+	// cache
+	cache cache.Interface
+	// cache ttl
+	cacheTTL time.Duration
+	// strategy
+	strategyVal string
 
-	//calledFromParent bool // TODO:delete - indicator if the model method is called directly or triggered by a through a relation.
-	parentModel Interface
-	resSet      interface{}
-	cbk         *Callback
-
-	whiteOrBlackList *WhiteBlackList
-
+	//experimental
 	relationCondition map[string]sqlquery.Condition
 
-	cache    cache.Interface
-	cacheTTL time.Duration
-
-	strategy string
-
-	disableCb       bool //TODO create a better disable solution
-	disableSnapshot bool //TODO create a better disable solution
-	disableCustSql  bool //TODO create a better disable solution
-
-	loopDetection bool
-	loadedRel     []string            // needed to detect struct loops
-	loopMap       map[string][]string // as map key the relation name is set and as slice string the already called arguments are set.
+	// Embedded time fields
+	CreatedAt *NullTime `orm:"permission:w" json:",omitempty"`
+	UpdatedAt *NullTime `orm:"permission:w" json:",omitempty"`
+	DeletedAt *NullTime `orm:"permission:w" json:",omitempty"`
 }
 
-func (m *Model) Caller() Interface {
-	return m.caller
-}
+// Init the orm model.
+// This method must be called before the orm functions can be used.
+// All mandatory configs will be checked (Cache, Builder, DB, Table name).
+// The struct gets initialized and all relations and fields gets created.
+// The database is checked against the fields and relations.
+// After the init the orm model gets cached for performance reasons.
+func (m *Model) Init(c Interface) error {
 
-func (m *Model) resultSet() interface{} {
-	return m.resSet
-}
-func (m *Model) parent() Interface {
-	return m.parentModel
-}
-func (m *Model) callback() *Callback {
-	return m.cbk
-}
-
-func (m *Model) DisableSnapshot(b bool) {
-	m.disableSnapshot = b
-}
-
-func (m *Model) Custom() bool {
-	return false
-}
-
-func (m *Model) DisableCallback(b bool) {
-	m.disableCb = b
-}
-func (m *Model) disableCallback() bool {
-	return m.disableCb
-}
-
-func (m *Model) DisableCustomSql(b bool) {
-	m.disableCustSql = b
-}
-func (m *Model) disableCustomSql() bool {
-	return m.disableCustSql
-}
-
-func (m *Model) hasParent() bool {
-	return m.parentModel != nil
-}
-
-func (m *Model) setParent(p Interface) {
-	m.parentModel = p
-}
-
-// getLoopMap returns the loopMap.
-func (m *Model) getLoopMap() map[string][]string {
-	return m.loopMap
-}
-
-// setLoopMap sets the loopMap.
-func (m *Model) setLoopMap(loopMap map[string][]string) {
-	m.loopMap = loopMap
-}
-
-// checkLoopMap is checking if the relation was already asked before with the same where condition.
-// this is a dirty way to regorgnice a infinity loop. after 10 loops its stopping.
-// TODO create a different solution for this. maybe with a validation? works for now but its ugly^10!
-func (m *Model) checkLoopMap(args string) error {
-	if m.loopDetection {
-		rel := structName(m.caller, true)
-		counter := 0
-		for _, b := range m.loopMap[rel] {
-			if b == args {
-				counter = counter + 1
-			}
-			if counter == 10 {
-				return errors.New("congratulation you created a infinity loop")
-			}
-		}
-		m.loopMap[rel] = append(m.loopMap[rel], args)
-	}
-	return nil
-}
-
-// SetRelationCondition adds a special condition for a relation.
-func (m *Model) SetRelationCondition(name string, c sqlquery.Condition) error {
-	if !m.isInit() {
-		return ErrModelNotInitialized
+	// checks if the given argument is a ptr and not nil
+	val := reflect.ValueOf(c)
+	if !val.IsValid() || val.Kind() != reflect.Ptr {
+		return errInitPtr
 	}
 
-	for relName := range m.Table().Associations {
-		if relName == name {
-			fmt.Println("added------>", c)
-			m.relationCondition[relName] = c
-			return nil
-		}
-	}
+	// set th caller
+	m.caller = c
 
-	return ErrModelFieldNotFound
-}
-
-func (m *Model) RelationCondition() map[string]sqlquery.Condition {
-	return m.relationCondition
-}
-
-// SetWhitelist sets explicit fields/relations to the CRUD.
-func (m *Model) SetWhitelist(list ...string) *Model {
-	if len(list) == 0 {
-		SetDefaultPermission(m, true)
-		m.whiteOrBlackList = nil
-	} else {
-		m.whiteOrBlackList = NewWhiteBlackList(WHITELIST, list)
-	}
-	return m
-}
-
-// SetBlacklist removes fields/relations from the CRUD.
-func (m *Model) SetBlacklist(list ...string) *Model {
-	if len(list) == 0 {
-		m.whiteOrBlackList = nil
-		SetDefaultPermission(m, true)
-	} else {
-		m.whiteOrBlackList = NewWhiteBlackList(BLACKLIST, list)
-	}
-	return m
-}
-
-// whiteBlacklist returns the list
-func (m *Model) whiteBlacklist() *WhiteBlackList {
-	return m.whiteOrBlackList
-}
-
-func (m *Model) WhiteBlacklist() *WhiteBlackList {
-	return m.whiteOrBlackList
-}
-
-// setWhiteBlacklist sets the list
-func (m *Model) setWhiteBlacklist(wb *WhiteBlackList) {
-	m.whiteOrBlackList = wb
-	if wb == nil {
-		SetDefaultPermission(m, true)
-	}
-}
-
-// Cache returns the current cache.
-// If no cache is set, the default cache gets called.
-func (m *Model) Cache() (cache.Interface, time.Duration, error) {
+	// if no cache was set, call Cache.
 	if m.cache == nil {
-		c, ttl, err := m.caller.DefaultCache()
-		return c, ttl, err
-	}
-	return m.cache, m.cacheTTL, nil
-}
-
-func (m *Model) HasCache() bool {
-	return m.cache != nil
-}
-
-// SetCache to add some custom cache for the model
-func (m *Model) SetCache(c cache.Interface, d time.Duration) error {
-	if m.isInitialized {
-		return ErrSetCache
-	}
-	m.cache = c
-	m.cacheTTL = d
-	return nil
-}
-
-func CloneValue(source interface{}, destin interface{}) {
-	x := reflect.ValueOf(source)
-	if x.Kind() == reflect.Ptr {
-		starX := x.Elem()
-		y := reflect.New(starX.Type())
-		starY := y.Elem()
-		starY.Set(starX)
-		reflect.ValueOf(destin).Elem().Set(y.Elem())
-	} else {
-		destin = x.Interface()
-	}
-}
-
-// Initialize the model
-//
-// Workflow:
-// - Initialize is setting the caller
-// - Checking if the struct is already cached (if so, return from cache)
-// - Validator is added
-// - Initialize the DB Table
-//    - Initialize default builder
-//        - Call the struct `Builder`
-//        - Check if builder is defined
-//    - Call the struct `DatabaseName` and check if a specific database name is defined, otherwise use the one from the config
-//    - Call the struct `TableName`
-//    - Create and set the `orm.Table` struct to the model
-//    - Set the loading strategy `Eager` (atm hardcoded, already prepaired to make it config able)
-//    - Set variable `loadedRel` - to avoid struct loops
-//    - Add all exported struct fields as `orm.Column`
-//    - Describe the database table with the needed columns.
-//        - Add db table column information to struct (name, position, nullable, primarykey, type, defaultvalue, length, autoincrement)
-//        - RETURN ERROR IF STRUCT FIELD ID IS MISSING OR IS NO PRIMARYKEY.
-// - Initialize Relations
-// - Add information that the struct is initialized
-// - Add to cache
-func (m *Model) Initialize(caller Interface) error {
-	// set caller
-	m.caller = caller
-	m.relationCondition = make(map[string]sqlquery.Condition)
-	m.loopDetection = true
-	m.loopMap = make(map[string][]string) // TODO define size of relations
-
-	// initialize cache
-	c, ttl, err := m.Cache()
-	if err != nil {
-		return err
-	}
-
-	// return cached model if exists
-	modelName := structName(m.caller, true)
-	if c.Exist(modelName) {
-		cModel, err := c.Get(modelName)
+		_, _, err := c.Cache()
 		if err != nil {
 			return err
 		}
-		mVal := cModel.Value().(*Model)
+	}
 
-		//TODO find a better solution to copy the cached model to the new caller.
-		field := reflect.ValueOf(caller).Elem().FieldByName("table")
-		field = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-		field.Set(reflect.ValueOf(mVal.table))
-		SetDefaultPermission(m.caller, true) // TODO this should be handled different. maybe not *whitelist?
+	// set the model name incl namespace
+	m.name = val.Type().Elem().String()
 
-		//TODO find a better solution to set isInitialized
-		field = reflect.ValueOf(caller).Elem().FieldByName("isInitialized")
-		field = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-		field.Set(reflect.ValueOf(true))
+	// check if cache exists
+	if m.cache.Exist(m.name) {
+		m.DefaultLogger().Debug("Init cached", m.modelName(false)) //TODO can be removed
+		v, err := m.cache.Get(m.name)
+		if err != nil {
+			return err
+		}
+		*m = v.Value().(Model)
 
-		//TODO find a better solution to set callbacks
-		field = reflect.ValueOf(caller).Elem().FieldByName("cbk")
-		field = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
-		newCallback := &Callback{}
-		CloneValue(mVal.cbk, newCallback)
-		field.Set(reflect.ValueOf(newCallback))
-		newCallback.setCaller(caller)
-		newCallback.setMode("")
+		m.caller = c
+		m.parentModel = nil
+		m.scope = &Scope{m}
+
+		m.copyFieldRelationSlices()
 
 		return nil
 	}
-	// -----------------------------------------------------------------------------------------------------------------
 
-	// initialize the models table and columns
-	err = m.initTable()
+	m.DefaultLogger().Trace("Init", m.modelName(false)) //TODO can be removed
+
+	// set scope
+	m.scope = &Scope{m}
+
+	// set builder
+	b := c.DefaultBuilder()
+	if b.Driver() == nil {
+		return errBuilder
+	}
+	m.builder = b
+
+	// check if database name and table name is defined.
+	if c.DefaultDatabaseName() == "" || c.DefaultTableName() == "" {
+		return errDb
+	}
+
+	// build all exported struct fields
+	err := m.createFields()
 	if err != nil {
 		return err
 	}
 
-	// initialize Relation
-	if !m.skipRel {
-		err = m.addRelation(m.caller)
-		if err != nil {
-			return err
-		}
+	// build all exported relations.
+	err = m.createRelations()
+	if err != nil {
+		return err
 	}
 
-	// add validation to the model
-	validate = validator.New()       // TODO global?
-	validate.SetTagName(TagValidate) // TODO global?
-	validate.RegisterCustomTypeFunc(ValidateValuer, sql.NullInt64{}, sql.NullFloat64{}, sql.NullBool{}, sql.NullString{}, sql.NullTime{})
-
+	// must be called here because the relations are required
 	err = m.addDBValidation()
 	if err != nil {
 		return err
 	}
 
-	// add callback struct
-	m.cbk, err = NewCallback(m.caller)
-	if err != nil {
-		return err
-	}
+	// todo set strategy
+	// todo callbacks
 
-	// set flag that the struct is initialized
+	// set model as value
 	m.isInitialized = true
-	err = c.Set(modelName, m, ttl)
+	err = m.cache.Set(m.name, *m, m.cacheTTL)
 	if err != nil {
 		return err
 	}
 
+	m.copyFieldRelationSlices()
+
+	return nil
+}
+
+func (m *Model) RelationCondition(relation string) *sqlquery.Condition {
+	if v, ok := m.relationCondition[relation]; ok {
+		tmp := v
+		return &tmp
+	}
+	return nil
+}
+
+func (m *Model) SetRelationCondition(relation string, condition sqlquery.Condition) {
+	if m.relationCondition == nil {
+		m.relationCondition = make(map[string]sqlquery.Condition, 1)
+	}
+	m.relationCondition[relation] = condition
+}
+
+// copyFieldRelationSlices is needed that the cached fields and relations of the orm model are not getting changed.
+func (m *Model) copyFieldRelationSlices() {
+	cFields := make([]Field, len(m.fields))
+	copy(cFields, m.fields)
+	m.fields = cFields
+
+	cRelations := make([]Relation, len(m.relations))
+	copy(cRelations, m.relations)
+	m.relations = cRelations
+}
+
+// Scope of the model.
+func (m *Model) Scope() *Scope {
+	return m.scope
+}
+
+// SetWBList a white/blacklist to the orm.
+func (m *Model) SetWBList(p int, fields ...string) {
+	m.wbList = newWBList(p, fields)
+}
+
+// WBList of the orm.
+func (m *Model) WBList() (p int, fields []string) {
+	if m.wbList == nil {
+		return WHITELIST, nil
+	}
+	return m.wbList.policy, m.wbList.fields
+}
+
+// Cache returns the given cache. If none was defined yet the model function
+// DefaultCache is called. If no cache provider was defined, an error will return.
+func (m *Model) Cache() (cache.Interface, time.Duration, error) {
+	var err error
+
+	// If no cache was defined, call the DefaultCache.
+	if m.cache == nil {
+		if m.caller == nil {
+			return nil, 0, errInit
+		}
+		m.cache, m.cacheTTL, err = m.caller.DefaultCache()
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// If no cache is set, an error will return.
+	// A cache is mandatory for the orm, because of performance.
+	if m.cache == nil || m.cacheTTL == 0 {
+		return nil, 0, errNoCache
+	}
+
+	return m.cache, m.cacheTTL, nil
+}
+
+// SetCache sets a custom cache to the orm model.
+// The method must be called before the orm model is initialized.
+// Error will return if the cache provider is nil, no time duration is set or the model was already initialized.
+func (m *Model) SetCache(c cache.Interface, ttl time.Duration) error {
+	if m.isInitialized {
+		return fmt.Errorf(errBeforeInit.Error(), "SetCache")
+	}
+	//if c == nil || ttl == 0 { // ttl Zero is infinity.
+	if c == nil {
+		return errNoCache
+	}
+	m.cache = c
+	m.cacheTTL = ttl
 	return nil
 }
 
@@ -478,97 +384,41 @@ func (m *Model) Initialize(caller Interface) error {
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
 func (m *Model) First(c *sqlquery.Condition) error {
-	if !m.isInit() {
-		return ErrModelNotInitialized
+	if !m.isInitialized {
+		return fmt.Errorf(errInit.Error(), reflect.TypeOf(m.caller))
 	}
 
-	// reset resultSet
-	m.resSet = nil
-
-	// callback before
-	// no tx.rollback is needed because there are only selects.
-	err := m.cbk.callIfExists("First", true)
-	if err != nil {
-		return err
-	}
+	// TODO Callbacks before
 
 	// create sql condition
 	if c == nil {
 		c = &sqlquery.Condition{}
 	}
 
-	// configure white or blacklist, if set
-	if m.whiteOrBlackList != nil {
-		err := m.whiteOrBlackList.setFieldPermission(m, "first")
-		if err != nil {
-			return err
-		}
-	}
-
-	err = m.checkLoopMap(c.Config(true, sqlquery.WHERE))
+	s, err := m.strategy()
 	if err != nil {
 		return err
 	}
 
-	err = m.table.strategy.First(m.caller, c)
+	err = m.scope.setFieldPermission(FIRST)
 	if err != nil {
 		return err
 	}
 
-	// callback after
-	// no tx.rollback is needed because there are only selects.
-	err = m.cbk.callIfExists("First", false)
+	err = m.scope.checkLoopMap(c.Config(true, sqlquery.WHERE))
 	if err != nil {
 		return err
 	}
 
-	return err
-}
-
-// CallMethodIfExist checks if the given interface has one of the given callback methods.
-// The first method which exists, gets called and all others are getting ignored then.
-// Arguments can be added as third argument.
-// if there is one return argument, it gets treated as error return value.
-func CallMethodIfExist(model Interface, callbacks []string, args ...interface{}) error {
-	// check if callbacks are disabled
-	if model.Caller().disableCallback() {
-		return nil
+	err = s.First(m.scope, c, Permission{Read: true})
+	if err != nil {
+		return err
+	}
+	if m.parentModel == nil {
+		m.loopDetection = nil
 	}
 
-	for i, callback := range callbacks {
-
-		cb := reflect.ValueOf(model.Caller()).MethodByName(callback)
-		if cb.IsValid() {
-
-			// check if i >0 = globalCallback (Before/After), add mode on first place.
-			if i > 0 && (callback == CallbackBefore || callback == CallbackAfter) {
-				mode := strings.Replace(callbacks[0], callback, "", 1)
-				args = append([]interface{}{mode}, args...)
-
-				// adding a empty result set
-				if mode != "All" {
-					var res []interface{}
-					args = append(args, &res)
-				}
-			}
-
-			in := make([]reflect.Value, len(args))
-			for k, v := range args {
-				in[k] = reflect.ValueOf(v)
-			}
-
-			if cb.Type().NumIn() != len(in) {
-				in = make([]reflect.Value, 0) //TODO: should a error be thrown? or just call it without any args?
-			}
-
-			out := cb.Call(in)
-			if len(out) == 1 && !out[0].IsNil() {
-				return out[0].Interface().(error)
-			}
-
-			return nil
-		}
-	}
+	// TODO Callbacks after
 
 	return nil
 }
@@ -577,141 +427,47 @@ func CallMethodIfExist(model Interface, callbacks []string, args ...interface{})
 // Everything handled in the loading strategy.
 // It will return an error if the model is not initialized or the strategy returns an error.
 func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
-	if !m.isInit() {
-		return ErrModelNotInitialized
+	if !m.isInitialized {
+		return fmt.Errorf(errInit.Error(), "all", reflect.TypeOf(m.caller))
 	}
 
-	// set resultSet to model
-	m.resSet = result
-
-	// callback before
-	// no tx.rollback is needed because there are only selects.
-	err := m.cbk.callIfExists("All", true)
-	if err != nil {
-		return err
+	// checking if the res is a ptr
+	if result == nil || reflect.TypeOf(result).Kind() != reflect.Ptr {
+		return fmt.Errorf(errResultPtr.Error(), m.name)
 	}
+
+	// TODO Callbacks before
+	//m.resSet = result <- needed for callbacks
 
 	if c == nil {
 		c = &sqlquery.Condition{}
 	}
 
-	// configure white or blacklist, if set
-	if m.whiteOrBlackList != nil {
-		err := m.whiteOrBlackList.setFieldPermission(m, "All")
-		if err != nil {
-			return err
-		}
-	}
-
-	err = m.checkLoopMap(c.Config(true, sqlquery.WHERE))
+	s, err := m.strategy()
 	if err != nil {
 		return err
 	}
 
-	err = m.table.strategy.All(result, m.caller, c)
+	err = m.scope.setFieldPermission(ALL)
 	if err != nil {
 		return err
 	}
 
-	// callback after
-	// no tx.rollback is needed because there are only selects.
-	err = m.cbk.callIfExists("All", false)
+	err = m.scope.checkLoopMap(c.Config(true, sqlquery.WHERE))
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// timestampFieldExists checks if the given timestamp field exists
-// used for checks on createdAt, updatedAt or deletedAt
-func (m *Model) timestampFieldExists(field string) bool {
-	col, err := m.Table().columnByName(snaker.CamelToSnake(field))
-	if err != nil {
-		return false
-	}
-
-	if col.ExistsInDB() { // don't check Information.Name because that is set always...
-		return true
-	}
-	return false
-}
-
-// setTimestampOn sets the actual timestamp to the given field.
-// it returns an error if the field does not exist.
-// If its createdAt (the updatedAt and deletedAt write permission is getting removed)
-// If its updatedAt (the createdAt and deletedAt write permission is getting removed)
-// If its DeletedAt (the createdAt and updatedAt write permission is getting removed)
-// is is necessary because of a bug in null.Time which is not allowed to be nil if its a ptr.
-func (m *Model) setTimestampOn(field string) error {
-
-	timestamp := reflectField(m, field)
-
-	col, err := m.Table().columnByName(snaker.CamelToSnake(field))
+	now := time.Now()
+	err = s.All(result, m.scope, c)
 	if err != nil {
 		return err
 	}
-	col.Permission.Write = true
-
-	t := null.Time{Time: time.Now(), Valid: true}
-	switch timestamp.Kind() {
-	case reflect.Ptr:
-		timestamp.Set(reflect.ValueOf(&t))
-	case reflect.Struct:
-		timestamp.Set(reflect.ValueOf(t))
+	fmt.Println(time.Since(now))
+	// TODO Callbacks after
+	if m.parentModel == nil {
+		m.loopDetection = nil
 	}
-
-	// disable the other two timestamp fields if exist.
-	// TODO this is needed at the moment because the *null.Time struct can not handle nil values????
-	// solution: implement our own nullTime struct.
-	switch field {
-	case CREATE:
-		if m.timestampFieldExists(UPDATE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(UPDATE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-		if m.timestampFieldExists(DELETE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(DELETE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-	case UPDATE:
-		if m.timestampFieldExists(CREATE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(CREATE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-		if m.timestampFieldExists(DELETE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(DELETE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-	case DELETE:
-		if m.timestampFieldExists(CREATE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(CREATE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-		if m.timestampFieldExists(UPDATE) {
-			col, err := m.Table().columnByName(snaker.CamelToSnake(UPDATE))
-			if err != nil {
-				return err
-			}
-			col.Permission.Write = false
-		}
-	}
-
 	return nil
 }
 
@@ -719,429 +475,239 @@ func (m *Model) setTimestampOn(field string) error {
 // Everything handled in the loading strategy.
 // If there is no custom transaction added, it will add one by default and also commits it automatically if everything is ok. Otherwise a Rollback will be called.
 // It will return an error if the model is not initialized, tx  error, the strategy returns an error or a commit error happens.
-func (m *Model) Create() error {
-	var err error
+func (m *Model) Create() (err error) {
+	defer func() { modelDefer(m, err) }()
 
-	if !m.isInit() {
-		err = ErrModelNotInitialized
-		return err
+	if !m.isInitialized {
+		err = fmt.Errorf(errInit.Error(), "Create", reflect.TypeOf(m.caller))
+		return
 	}
 
-	// reset resultSet
-	m.resSet = nil
-
-	// callback before
-	err = m.cbk.callIfExists("Create", true)
-	if err != nil {
-		return err
-	}
-
-	// configure white or blacklist, if set
-	if m.whiteOrBlackList != nil {
-		err = m.whiteOrBlackList.setFieldPermission(m, "create")
-		if err != nil {
-			return err
-		}
-	}
+	// TODO callback before
 
 	// set the CreatedAt info if exists
-	if m.timestampFieldExists(CREATE) {
-		err = m.setTimestampOn(CREATE)
-		if err != nil {
-			return err
-		}
+	// it only gets saved if the field exists in the db (permission is set)
+	m.CreatedAt = &NullTime{NullTime: sql.NullTime{time.Now(), true}}
+
+	// if the model is empty no need for creating.
+	if m.scope.IsEmpty(Permission{Write: true}) {
+		return nil
 	}
 
-	// validate the struct
+	err = m.scope.setFieldPermission(CREATE)
+	if err != nil {
+		return
+	}
+
 	err = m.isValid()
 	if err != nil {
-		return err
+		return
 	}
 
-	// call create on strategy
-	err = m.table.strategy.Create(m.caller)
+	s, err := m.strategy()
 	if err != nil {
-		return err
+		return
 	}
 
-	// callback after
-	// its before the TX, that the transaction can still fail and rollback
-	err = m.cbk.callIfExists("Create", false)
+	// call delete on strategy
+	err = m.addAutoTX()
 	if err != nil {
-		return err
+		return
 	}
 
-	return nil
+	now := time.Now()
+	err = s.Create(m.scope)
+	if err != nil {
+		return
+	}
+	fmt.Println(time.Since(now))
+
+	// call delete on strategy
+	err = m.commitAutoTX()
+	if err != nil {
+		return
+	}
+
+	// TODO callback after
+	return
+}
+
+// modelDefer function for create, update and delete.
+// it checks if a a tx was added and rolls it back.
+func modelDefer(m *Model, err error) {
+	if err != nil && m.isInitialized && m.autoTx && m.Scope().Builder().HasTx() {
+		rErr := m.Scope().Builder().Rollback()
+		if rErr != nil {
+			panic(rErr)
+		}
+	}
 }
 
 // Update an entry with the actual struct value.
 // Everything handled in the loading strategy.
 // If there is no custom transaction added, it will add one by default and also commits it automatically if everything is ok. Otherwise a Rollback will be called.
 // It will return an error if the model is not initialized, tx  error, the strategy returns an error or a commit error happens.
-func (m *Model) Update() error {
-	var err error
+func (m *Model) Update() (err error) {
+	defer func() { modelDefer(m, err) }()
 
-	if !m.isInit() {
-		return ErrModelNotInitialized
+	if !m.isInitialized {
+		err = fmt.Errorf(errInit.Error(), "Update", reflect.TypeOf(m.caller))
+		return
 	}
 
-	// reset resultSet
-	m.resSet = nil
+	if !m.scope.PrimariesSet() {
+		err = fmt.Errorf(errPrimaryKey, m.name)
+		return
+	}
 
-	// check if primary fields exist
-	if checkPrimaryFieldsEmpty(m.caller) {
-		err = ErrDeletePk
-		return err
+	// must be called before isValid
+	err = m.scope.setFieldPermission(UPDATE)
+	if err != nil {
+		return
+	}
+
+	err = m.isValid()
+	if err != nil {
+		return
 	}
 
 	// create where condition
 	c := &sqlquery.Condition{}
-	for _, col := range m.Table().PrimaryKeys() {
-		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
+	for _, col := range m.scope.PrimaryKeys() {
+		c.Where(m.scope.Builder().QuoteIdentifier(col.Information.Name)+" = ?", m.scope.CallerField(col.Name).Interface())
 	}
 
-	// callback before
-	// its after the TX that the default/custom transactions can be used in callbacks as well.
-	err = m.cbk.callIfExists("Update", true)
+	s, err := m.strategy()
 	if err != nil {
-		return err
+		return
 	}
 
-	// configure white or blacklist, if set
-	if m.whiteOrBlackList != nil {
-		err := m.whiteOrBlackList.setFieldPermission(m, "update")
-		if err != nil {
-			return err
-		}
+	// TODO callback before
+
+	// call delete on strategy
+	err = m.addAutoTX()
+	if err != nil {
+		return
 	}
 
 	// snapshot
-	if !m.hasParent() && !m.disableSnapshot {
-		//fmt.Println("############# SNAP SNAP START ###############")
+	// TODO option to disable snapshot
+	if m.parentModel == nil {
+
+		// reset condition loop
+		m.loopDetection = nil
+
+		// init snapshot
 		snapshot := newValueInstanceFromType(reflect.TypeOf(m.caller)).Addr().Interface().(Interface)
-
-		cache2, ttl, errTmp := m.caller.Cache()
-		if errTmp != nil {
-			err = errTmp
-			return err
-		}
-
-		err = snapshot.SetCache(cache2, ttl)
+		err = m.scope.InitRelation(snapshot, "")
 		if err != nil {
-			return err
+			return
 		}
 
-		err = snapshot.Initialize(snapshot)
+		err = s.First(snapshot.Scope(), c, Permission{Write: true})
 		if err != nil {
-			return err
+			return
 		}
 
-		err = snapshot.First(c)
+		m.changedValues, err = m.scope.EqualWith(snapshot)
 		if err != nil {
-			return err
+			return
 		}
-
-		changes := m.equalWith(snapshot, "")
-		changesKeys := m.getFieldsFromChanges(changes)
-
-		// if a user added a whitelist on his own, only add changes in the user list
-		//TODO this logic should be moved into the white_black_list.go create a compare method
-		if m.whiteOrBlackList != nil && m.whiteOrBlackList.list != nil {
-
-			if m.whiteOrBlackList.policy == WHITELIST {
-				for i, userWhitelist := range m.whiteOrBlackList.list {
-					exists := false
-					for _, chaKeys := range changesKeys {
-						if userWhitelist == chaKeys || strings.HasPrefix(chaKeys+".", userWhitelist) {
-							exists = true
-						}
-					}
-					if !exists {
-						if len(changesKeys) >= i+2 {
-							m.whiteOrBlackList.list = append(m.whiteOrBlackList.list[:i], m.whiteOrBlackList.list[i+1:]...)
-						} else {
-							m.whiteOrBlackList.list = m.whiteOrBlackList.list[:i]
-						}
-					}
-				}
-				changesKeys = m.whiteOrBlackList.list
-			} else {
-				for i, chaKeys := range changesKeys {
-					exists := false
-					for _, userWhitelist := range m.whiteOrBlackList.list {
-						if userWhitelist == chaKeys { // take care of dot notation... this is a little bit tricky if there is only one field blacklisted in a relation. then we have to get all the other relation fields.
-							exists = true
-						}
-					}
-					if exists {
-						if len(changesKeys) >= i+2 {
-							changesKeys = append(changesKeys[:i], changesKeys[i+1:]...)
-						} else {
-							changesKeys = changesKeys[:i]
-						}
-					}
-				}
-			}
-		}
-
-		if changesKeys == nil || len(changesKeys) == 0 {
-			//TODO - error no data was changed???
-			//fmt.Println("#### SNAPSHOT #### no data was changed", m.equalWith(snapshot, ""))
-			return nil
-		}
-
-		m.SetWhitelist(changesKeys...)
-		err = m.whiteOrBlackList.setFieldPermission(m, "update") // has to be called again to configure it again.
-		if err != nil {
-			return err
-		}
-
-		//fmt.Println(m.getFieldsFromChanges(changes), changesKeys, "############# SNAP SNAP END###############")
 	}
 
+	// if no data was changed
+	if m.changedValues == nil {
+		err = fmt.Errorf(ErrUpdateNoChanges.Error(), m.name)
+		return
+	}
+
+	fmt.Println("changed ------>", m.changedValues)
 	// set the UpdatedAt info if exists
-	if m.timestampFieldExists(UPDATE) {
-		err = m.setTimestampOn(UPDATE)
-		if err != nil {
-			return err
-		}
-	}
+	// it only gets saved if the field exists in the db (permission is set)
+	m.UpdatedAt = &NullTime{NullTime: sql.NullTime{time.Now(), true}}
 
-	// validate the struct
-	err = m.isValid()
+	// TODO validate the struct
+	now := time.Now()
+	err = s.Update(m.scope, c)
 	if err != nil {
-		return err
+		return
 	}
+	fmt.Println(time.Since(now))
 
-	// call update on strategy
-	err = m.table.strategy.Update(m.caller, c)
+	err = m.commitAutoTX()
 	if err != nil {
-		return err
+		return
 	}
-
-	// callback after
-	// its before the TX that the default/custom transactions can be used in callbacks as well.
-	err = m.cbk.callIfExists("Update", false)
-	if err != nil {
-		return err
-	}
+	// TODO callback after
 
 	return nil
 }
 
-type ChangedValues struct {
-	field    string
-	relation string //at the moment only belongsTo is set. nothing else needed so far. TODO for later when more time
-	index    int
-	old      interface{}
-	new      interface{}
-}
+// Delete the orm model by its primary keys.
+// Error will return if no primaries are set.
+func (m *Model) Delete() (err error) {
+	defer func() { modelDefer(m, err) }()
 
-func (m *Model) getFieldsFromChanges(ne []ChangedValues) []string {
-	var keys []string
-	for _, f := range ne {
-		keys = append(keys, f.field)
-	}
-	return keys
-}
-
-func (m *Model) equalWith(snapshot Interface, parent string) []ChangedValues {
-
-	var ne []ChangedValues
-
-	// normal fields
-	if parent != "" {
-		parent = parent + "."
+	if !m.isInitialized {
+		err = fmt.Errorf(errInit.Error(), "Delete", reflect.TypeOf(m.caller))
+		return
 	}
 
-	for _, col := range m.caller.Table().Columns(WRITEDB) {
-		// skip the automatic time fields
-		if col.StructField == DELETE || col.StructField == UPDATE || col.StructField == CREATE {
-			continue
-		}
-
-		newValue := reflectField(m.caller, col.StructField).Interface()
-		old := reflectField(snapshot, col.StructField).Interface()
-		if old != newValue {
-			ne = append(ne, ChangedValues{field: parent + col.StructField, old: old, new: newValue})
-		}
+	err = m.scope.setFieldPermission(DELETE)
+	if err != nil {
+		return
 	}
 
-	// relations
-	for field, rel := range m.caller.Table().Relations(m.whiteBlacklist(), WRITEDB) {
-
-		switch rel.Type {
-		case HasOne, CustomStruct:
-			// in a hasOne relation all given fields/relations are checked with the snapshot.
-			newValue := reflectField(m.caller, field).Addr().Interface().(Interface)
-			cache, ttl, _ := m.caller.Cache()
-			_ = newValue.SetCache(cache, ttl)
-			_ = newValue.Initialize(newValue)
-			oldValue := reflectField(snapshot, field).Addr().Interface().(Interface)
-
-			res := newValue.equalWith(oldValue, parent+field)
-			if res != nil {
-				ne = append(ne, res...)
-			}
-		case BelongsTo:
-			// a belongsTo relations is checked like:
-			// User{BelongsID} == Belongs{Id}. There is no need to check the whole BelongsTo entry because
-			// its just connected with the foreign key.
-			actualModelData := reflectField(m.caller, field).Addr().Interface().(Interface)
-
-			oldValue := reflectField(snapshot, rel.StructTable.StructField)
-			newValue := reflectField(actualModelData, rel.AssociationTable.StructField)
-
-			if !oldValue.IsValid() || !newValue.IsValid() || oldValue.Interface() != newValue.Interface() {
-				ne = append(ne, ChangedValues{relation: BelongsTo, field: rel.StructTable.StructField, old: oldValue.Interface(), new: newValue.Interface()})
-			}
-		case HasMany, CustomSlice:
-			// has many checks if the length of the new and old slice is different.
-			// if so, a change gets returned. At the moment no specifics over the old and new value are returned (just the field name for the whitelist)
-			// if the length is the same, every field is getting checked if its different. If a field is not equal a changedValue will return without any specifics at the moment.
-			// if this gets implemented, an index is needed. already added it to the ChangedValues struct.
-			newValue := reflectField(m.caller, field)
-			oldValue := reflectField(snapshot, field)
-
-			if newValue.Len() != oldValue.Len() {
-				//ne = append(ne, ChangedValues{field: field, old: oldValue.Len(), new: newValue.Len()})
-				ne = append(ne, ChangedValues{field: field, old: oldValue.Len(), new: newValue.Len()})
-			} else {
-				// check values
-				var _ne []ChangedValues
-				for i := 0; i < newValue.Len(); i++ {
-
-					newValueI := reflect.Indirect(newValue.Index(i)).Addr().Interface().(Interface)
-					cache, ttl, _ := m.caller.Cache()
-					_ = newValueI.SetCache(cache, ttl)
-					_ = newValueI.Initialize(newValueI)
-					oldValueI := reflect.Indirect(oldValue.Index(i)).Addr().Interface().(Interface)
-
-					res := newValueI.equalWith(oldValueI, parent+field)
-					if res != nil {
-						_ne = append(_ne, res...)
-					}
-				}
-
-				if _ne != nil {
-					ne = append(ne, ChangedValues{field: field, old: "not implemented yet", new: "not implemented yet"})
-				}
-			}
-
-		case ManyToMany, ManyToManySR:
-			// check only the linked ids
-			newValue := reflectField(m.caller, field)
-			oldValue := reflectField(snapshot, field)
-
-			var oldInt []int
-			var newInt []int
-
-			for i := 0; i < newValue.Len(); i++ {
-				v := reflectField(newValue.Index(i).Addr().Interface().(Interface), rel.AssociationTable.StructField)
-				newInt = append(newInt, int(v.Int()))
-			}
-			for i := 0; i < oldValue.Len(); i++ {
-				v := reflectField(oldValue.Index(i).Addr().Interface().(Interface), rel.AssociationTable.StructField)
-				oldInt = append(oldInt, int(v.Int()))
-			}
-
-			// check if its the same value
-			same := true
-			for _, i := range oldInt {
-				if !inSlice(i, newInt) {
-					same = false
-				}
-			}
-			for _, i := range newInt {
-				if !inSlice(i, oldInt) {
-					same = false
-				}
-			}
-
-			if newValue.Len() != oldValue.Len() || !same {
-				ne = append(ne, ChangedValues{field: field, old: oldInt, new: newInt})
-			}
-		}
-
-	}
-
-	return ne
-}
-
-// Delete an entry by the given primary key(s).
-// If a softDelete field is existing, it will update that field with the current timestamp instead of deleting the entry.
-// Everything handled in the loading strategy.
-// If there is no custom transaction added, it will add one by default and also commits it automatically if everything is ok. Otherwise a Rollback will be called.
-// It will return an error if the model is not initialized, tx  error, the strategy returns an error or a commit error happens.
-func (m *Model) Delete() error {
-
-	var err error
-
-	if !m.isInit() {
-		err = ErrModelNotInitialized
-		return err
-	}
-
-	// reset resultSet
-	m.resSet = nil
-
-	// check if primary fields exist to avoid a delete *
-	if checkPrimaryFieldsEmpty(m.caller) {
-		return ErrDeletePk
+	if !m.scope.PrimariesSet() {
+		err = fmt.Errorf(errPrimaryKey, m.name)
+		return
 	}
 
 	// create where condition
 	c := &sqlquery.Condition{}
-	for _, col := range m.Table().PrimaryKeys() {
-		c.Where(m.Table().Builder.QuoteIdentifier(col.Information.Name)+" = ?", reflectField(m.caller, col.StructField).Interface())
+	for _, col := range m.scope.PrimaryKeys() {
+		c.Where(m.scope.Builder().QuoteIdentifier(col.Information.Name)+" = ?", m.scope.CallerField(col.Name).Interface())
 	}
 
-	// set the DeletedAt info if exists
-	if m.timestampFieldExists(DELETE) {
-		err = m.setTimestampOn(DELETE)
-		if err != nil {
-			return err
-		}
-		err = m.SetWhitelist(DELETE).Update()
-		if err != nil {
-			return err
-		}
-	} else {
-		// callback before
-		// its after the TX that the default/custom transactions can be used in callbacks as well.
-		err = m.cbk.callIfExists("Delete", true)
-		if err != nil {
-			return err
-		}
-
-		// call delete on strategy
-		err = m.table.strategy.Delete(m.caller, c)
-		if err != nil {
-			return err
-		}
-
-		// callback after
-		// its before the TX that the default/custom transactions can be used in callbacks as well.
-		err = m.cbk.callIfExists("Delete", false)
-		if err != nil {
-			return err
-		}
+	s, err := m.strategy()
+	if err != nil {
+		return
 	}
+
+	// TODO callback before
+
+	// call delete on strategy
+	err = m.addAutoTX()
+	if err != nil {
+		return
+	}
+
+	err = s.Delete(m.scope, c)
+	if err != nil {
+		return
+	}
+
+	err = m.commitAutoTX()
+	if err != nil {
+		return
+	}
+
+	// TODO callback after
 
 	return nil
 }
 
 // Count the existing rows by the given condition.
 func (m *Model) Count(c *sqlquery.Condition) (int, error) {
-	if !m.isInit() {
-		return 0, ErrModelNotInitialized
+	if !m.isInitialized {
+		return 0, fmt.Errorf(errInit.Error(), "Delete", reflect.TypeOf(m.caller))
 	}
 
-	b := m.Table().Builder
 	if c == nil {
 		c = &sqlquery.Condition{}
 	}
-	row, err := b.Select(m.Table().Name).Condition(c).Columns("!COUNT(*)").First()
+
+	row, err := m.builder.Select(m.Scope().TableName()).Condition(c).Columns(sqlquery.Raw("COUNT(*)")).First()
 	if err != nil {
 		return 0, err
 	}
@@ -1156,112 +722,52 @@ func (m *Model) Count(c *sqlquery.Condition) (int, error) {
 	return count, nil
 }
 
-// Table information
-func (m *Model) Table() *Table {
-	return m.table
+// model of the orm.
+func (m *Model) model() *Model {
+	return m
 }
 
-// isInit checks if the model got already initialized.
-func (m Model) isInit() bool {
-	return m.isInitialized
+// modelName returns the struct name with or without the namespace.
+// model name will always be titled (first letter uppercase) also if the struct is unexported.
+func (m Model) modelName(ns bool) string {
+	name := m.name
+
+	if idx := strings.Index(name, "."); !ns && idx != -1 {
+		return strings.Title(name[idx+1:])
+	}
+	return name
 }
 
-// SetStrategy to the model
-func (m *Model) SetStrategy(s string) error {
-	if m.isInit() {
-		err := m.setStrategy(s)
-		if err != nil {
-			return err
-		}
-	} else {
-		m.strategy = s
-	}
-	return nil
-}
+// strategy sets the orm strategy if not added manually.
+func (m Model) strategy() (Strategy, error) {
 
-// SetStrategy to the model
-func (m *Model) setStrategy(s string) error {
-
-	st, err := NewStrategy(s)
-	if err != nil {
-		return err
-	}
-	m.table.strategy = st
-
-	return nil
-}
-
-// initTable is getting the database, table name and all table columns.
-// It will return an error if a struct field does not exist in the table or no Builder is defined.
-// It also ensures that the Field ID is given and is a primary key in the table.
-func (m *Model) initTable() error {
-	// initialize builder for the table
-	b, err := m.initBuilder()
-	if err != nil {
-		return err
+	if m.strategyVal == "" {
+		m.strategyVal = m.caller.DefaultStrategy()
 	}
 
-	// check if user defined his own database, otherwise take database from config
-	db := m.caller.DatabaseName()
-	if db == "" {
-		db = b.Driver().Config().Database
-	}
-
-	// get struct table name
-	t := m.caller.TableName()
-
-	// create new table struct with builder and the database and table name
-	m.table = &Table{Builder: b, Name: t, Database: db, Associations: make(Associations)}
-
-	// add strategy
-	loadingStrategy := Eager
-	if m.strategy != "" {
-		loadingStrategy = m.strategy
-	}
-	err = m.setStrategy(loadingStrategy)
-	if err != nil {
-		return err
-	}
-
-	// adding all exported struct fields as table columns
-	m.loadedRel = append(m.loadedRel, structName(m.caller, true))
-	m.addStructFieldsToTableColumn(m.caller)
-
-	if m.strategy == CustomImpl {
-		return nil
-	}
-
-	// describe table columns and merge information
-	return m.table.describe()
-}
-
-// initBuilder checks if a builder is given, otherwise an error will return.
-func (m *Model) initBuilder() (*sqlquery.Builder, error) {
-	//checking default config
-	b, err := m.caller.Builder()
+	s, err := NewStrategy(m.strategyVal)
 	if err != nil {
 		return nil, err
 	}
-
-	// check if the custom added Builder has a value
-	if b == nil {
-		return nil, ErrModelNoBuilder
-	}
-
-	return b, nil
+	return s, nil
 }
 
-// structName is a helper to get the name of the struct with or without the namespace.
-func structName(s interface{}, withNamespace bool) string {
-	t := reflect.TypeOf(s)
-	if t.Kind() == reflect.Ptr {
-		if withNamespace == true {
-			return t.Elem().String()
-		}
-		return t.Elem().Name()
+// addAutoTX adds a transaction on Create, Update, Delete if there was non added by the user.
+func (m *Model) addAutoTX() error {
+	fmt.Println(m.scope.Builder().HasTx(), m.caller.Scope().Builder().HasTx())
+	if !m.scope.Builder().HasTx() && m.parentModel == nil && len(m.relations) > 0 {
+		m.autoTx = true
+		return m.Scope().Builder().Tx()
 	}
-	if withNamespace == true {
-		return t.String()
+	return nil
+}
+
+// commitAutoTX if exists and added by the system.
+func (m *Model) commitAutoTX() error {
+	if m.autoTx {
+		m.autoTx = false
+		fmt.Println("***** called commit !!!!!!!")
+		return m.Scope().Builder().Commit()
 	}
-	return t.Name()
+	return nil
 }

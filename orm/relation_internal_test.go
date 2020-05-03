@@ -1,511 +1,500 @@
 package orm
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func init() {
-	GlobalBuilder, _ = HelperCreateBuilder()
+func TestModel_foreignKey(t *testing.T) {
+	test := assert.New(t)
+	c := &car{}
+	err := c.Init(c)
+	test.NoError(err)
+
+	f, err := c.foreignKey("Brand")
+	test.NoError(err)
+
+	test.Equal("Brand", f.Name)
 }
 
-func TestRelation_getRelationByTag(t *testing.T) {
+func TestModel_polymorphicRestriction(t *testing.T) {
+	test := assert.New(t)
 
-	str, err := getRelationByTag("hasOne")
-	assert.NoError(t, err)
-	assert.Equal(t, HasOne, str)
+	// no err
+	err := polymorphicRestriction(map[string]string{"a": "b"}, "Test", HasOne)
+	test.NoError(err)
 
-	str, err = getRelationByTag("belongsTo")
-	assert.NoError(t, err)
-	assert.Equal(t, BelongsTo, str)
+	// err tagPolymorphic is set
+	err = polymorphicRestriction(map[string]string{tagPolymorphic: "foo"}, "Test", HasOne)
+	test.Error(err)
 
-	str, err = getRelationByTag("hasMany")
-	assert.NoError(t, err)
-	assert.Equal(t, HasMany, str)
-
-	str, err = getRelationByTag("manyToMany")
-	assert.NoError(t, err)
-	assert.Equal(t, ManyToMany, str)
-
-	str, err = getRelationByTag("")
-	assert.NoError(t, err)
-	assert.Equal(t, "", str)
-
-	str, err = getRelationByTag("somethingElse")
-	assert.Error(t, err)
-	assert.Equal(t, "", str)
+	// err tagPolymorphicValue is set
+	err = polymorphicRestriction(map[string]string{tagPolymorphicValue: "foo"}, "Test", HasOne)
+	test.Error(err)
 }
 
-func TestRelation_getRelationByType(t *testing.T) {
+func TestModel_polymorphic(t *testing.T) {
+	test := assert.New(t)
 
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
+	c := &car{}
+	err := c.Init(c) // needed for the m.name
+	test.NoError(err)
+
+	r := &radio{}
+	err = r.Init(r)
+	test.NoError(err)
+
+	// no err
+	p, err := c.polymorphic(map[string]string{tagPolymorphic: "Car"}, r)
+	test.NoError(err)
+	test.Equal("Car", p.Value)
+	test.Equal("CarID", p.Field.Name)
+	test.Equal("CarType", p.Type.Name)
+
+	// err {name}ID does not exist
+	cNoId := &ComponentNoID{}
+	err = cNoId.Init(cNoId)
+	test.NoError(err)
+	p, err = c.polymorphic(map[string]string{tagPolymorphic: "Car"}, cNoId)
+	test.Error(err)
+	test.Equal(Polymorphic{}, p)
+
+	// err {name}Type does nit exist
+	cNoType := &ComponentNoType{}
+	err = cNoType.Init(cNoType)
+	test.NoError(err)
+	p, err = c.polymorphic(map[string]string{tagPolymorphic: "Car"}, cNoType)
+	test.Error(err)
+	test.Equal(Polymorphic{}, p)
+}
+
+func TestModel_associationForeignKey(t *testing.T) {
+	test := assert.New(t)
+
+	c := &car{}
+	err := c.Init(c) // needed for the m.name
+	test.NoError(err)
+
+	r := &radio{}
+	err = r.Init(r)
+	test.NoError(err)
+
+	//ok no tag - CarID exists
+	f, err := c.associationForeignKey("", r)
+	test.NoError(err)
+	test.Equal("CarID", f.Name)
+
+	//ok tag - CarType exists
+	f, err = c.associationForeignKey("CarType", r)
+	test.NoError(err)
+	test.Equal("CarType", f.Name)
+
+	//err tag - CarType exists
+	f, err = c.associationForeignKey("Foo", r)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "Foo", r.name), err.Error())
+	test.Equal(Field{}, f)
+}
+
+func TestModel_joinTable(t *testing.T) {
+	test := assert.New(t)
+
+	c := &car{}
+	err := c.Init(c)
+	test.NoError(err)
+
+	d := &driver{}
+	err = d.Init(d)
+	test.NoError(err)
+
+	// ok
+	j, err := joinTable(c, d, nil, false)
+	test.NoError(err)
+	test.Equal(JoinTable{Name: "car_drivers", ForeignKey: "car_id", AssociationForeignKey: "driver_id"}, j)
+
+	// err both join table columns does not exist
+	tags := map[string]string{tagJoinTable: "car_drivers", tagJoinForeignKey: "car_id2", tagJoinAssociationForeignKey: "driver_id2"}
+	j, err = joinTable(c, d, tags, false)
+	test.Error(err)
+
+	// err one join table columns does not exist
+	tags = map[string]string{tagJoinTable: "car_drivers", tagJoinForeignKey: "car_id", tagJoinAssociationForeignKey: "driver_id2"}
+	j, err = joinTable(c, d, tags, false)
+	test.Error(err)
+
+	// err join table does not exist
+	tags = map[string]string{tagJoinTable: "car_driver", tagJoinForeignKey: "car_id", tagJoinAssociationForeignKey: "driver_id"}
+	j, err = joinTable(c, d, tags, false)
+	test.Error(err)
+
+	// err join table columns does not exist
+	tags = map[string]string{tagJoinTable: "custom_car_drivers", tagJoinForeignKey: "custom_car_id", tagJoinAssociationForeignKey: "custom_driver_id"}
+	j, err = joinTable(c, d, tags, false)
+	test.NoError(err)
+	test.Equal(JoinTable{Name: "custom_car_drivers", ForeignKey: "custom_car_id", AssociationForeignKey: "custom_driver_id"}, j)
+
+	// self reference
+	r := &Role{}
+	err = r.Init(r)
+	test.NoError(err)
+	j, err = joinTable(r, r, nil, true)
+	test.NoError(err)
+	test.Equal(JoinTable{Name: "role_roles", ForeignKey: "role_id", AssociationForeignKey: "child_id"}, j)
+
+	// self reference custom tags
+	j, err = joinTable(r, r, tags, true)
+	test.NoError(err)
+	test.Equal(JoinTable{Name: "custom_car_drivers", ForeignKey: "custom_car_id", AssociationForeignKey: "custom_driver_id"}, j)
+}
+
+func TestModel_isTagRelationAllowed(t *testing.T) {
+	test := assert.New(t)
+
+	// struct
+	v := reflect.TypeOf(car{})
+	f, exist := v.FieldByName("Radio")
+	test.True(exist)
+	test.True(isTagRelationAllowed(f, HasOne))
+	test.True(isTagRelationAllowed(f, BelongsTo))
+	test.False(isTagRelationAllowed(f, HasMany))
+	test.False(isTagRelationAllowed(f, ManyToMany))
+
+	// ptr to struct
+	f, exist = v.FieldByName("Owner")
+	test.True(exist)
+	test.True(isTagRelationAllowed(f, HasOne))
+	test.True(isTagRelationAllowed(f, BelongsTo))
+	test.False(isTagRelationAllowed(f, HasMany))
+	test.False(isTagRelationAllowed(f, ManyToMany))
+
+	// slice
+	f, exist = v.FieldByName("Driver")
+	test.True(exist)
+	test.False(isTagRelationAllowed(f, HasOne))
+	test.False(isTagRelationAllowed(f, BelongsTo))
+	test.True(isTagRelationAllowed(f, HasMany))
+	test.True(isTagRelationAllowed(f, ManyToMany))
+
+	// slice to ptr
+	f, exist = v.FieldByName("CustomDriver")
+	test.True(exist)
+	test.False(isTagRelationAllowed(f, HasOne))
+	test.False(isTagRelationAllowed(f, BelongsTo))
+	test.True(isTagRelationAllowed(f, HasMany))
+	test.True(isTagRelationAllowed(f, ManyToMany))
+
+	// string
+	f, exist = v.FieldByName("Brand")
+	test.True(exist)
+	test.False(isTagRelationAllowed(f, HasOne))
+	test.False(isTagRelationAllowed(f, BelongsTo))
+	test.False(isTagRelationAllowed(f, HasMany))
+	test.False(isTagRelationAllowed(f, ManyToMany))
+}
+
+func TestMode_relationKind(t *testing.T) {
+	test := assert.New(t)
+
+	c := &car{}
+	c.name = "orm.car"
+
+	r := &Role{}
+	r.name = "orm.Role"
+
+	var tests = []struct {
+		Tag      map[string]string
+		Field    string
+		Expected string
+		Error    bool
+	}{
+		// *Struct
+		{Tag: nil, Field: "Owner", Expected: HasOne, Error: false},
+		{Tag: map[string]string{tagRelation: BelongsTo}, Field: "Owner", Expected: BelongsTo, Error: false},
+		{Tag: map[string]string{tagRelation: HasOne}, Field: "Owner", Expected: HasOne, Error: false},
+		{Tag: map[string]string{tagRelation: HasMany}, Field: "Owner", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: ManyToMany}, Field: "Owner", Expected: "", Error: true},
+		// Struct
+		{Tag: nil, Field: "Radio", Expected: HasOne, Error: false},
+		{Tag: map[string]string{tagRelation: BelongsTo}, Field: "Radio", Expected: BelongsTo, Error: false},
+		{Tag: map[string]string{tagRelation: HasOne}, Field: "Radio", Expected: HasOne, Error: false},
+		{Tag: map[string]string{tagRelation: HasMany}, Field: "Radio", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: ManyToMany}, Field: "Radio", Expected: "", Error: true},
+		// Slice
+		{Tag: nil, Field: "Driver", Expected: HasMany, Error: false},
+		{Tag: map[string]string{tagRelation: BelongsTo}, Field: "Driver", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: HasOne}, Field: "Driver", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: HasMany}, Field: "Driver", Expected: HasMany, Error: false},
+		{Tag: map[string]string{tagRelation: ManyToMany}, Field: "Driver", Expected: ManyToMany, Error: false},
+		// Slice*
+		{Tag: nil, Field: "CustomDriver", Expected: HasMany, Error: false},
+		{Tag: map[string]string{tagRelation: BelongsTo}, Field: "CustomDriver", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: HasOne}, Field: "CustomDriver", Expected: "", Error: true},
+		{Tag: map[string]string{tagRelation: HasMany}, Field: "CustomDriver", Expected: HasMany, Error: false},
+		{Tag: map[string]string{tagRelation: ManyToMany}, Field: "CustomDriver", Expected: ManyToMany, Error: false},
+		// string type
+		{Tag: nil, Field: "Brand", Expected: "", Error: true},
+		// role self-reference
+		{Tag: nil, Field: "Roles", Expected: ManyToMany, Error: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.Field, func(t *testing.T) {
+			var rel string
+			var err error
+
+			if tt.Field == "Roles" {
+				v := reflect.TypeOf(Role{})
+				f, exist := v.FieldByName(tt.Field)
+				test.True(exist)
+				rel, err = r.relationKind(tt.Tag, f)
+			} else {
+				v := reflect.TypeOf(car{})
+				f, exist := v.FieldByName(tt.Field)
+				test.True(exist)
+				rel, err = c.relationKind(tt.Tag, f)
+			}
+
+			if tt.Error {
+				test.Error(err)
+			} else {
+				test.NoError(err)
+			}
+			test.Equal(tt.Expected, rel)
+		})
+	}
+}
+
+func TestModel_backReferencePointer(t *testing.T) {
+	test := assert.New(t)
+
+	car := car{}
+	err := car.Init(&car)
+	test.NoError(err)
+
+	// *Owner
+	field, exists := reflect.TypeOf(car).FieldByName("Owner")
+	test.True(exists)
+	test.NoError(car.backReferencePointer(field))
+
+	// []*Driver
+	field, exists = reflect.TypeOf(car).FieldByName("CustomDriver")
+	test.True(exists)
+	test.NoError(car.backReferencePointer(field))
+
+	// struct
+	field, exists = reflect.TypeOf(car).FieldByName("Radio")
+	test.True(exists)
+	test.Error(car.backReferencePointer(field))
+
+	// slice
+	field, exists = reflect.TypeOf(car).FieldByName("Wheels")
+	test.True(exists)
+	test.Error(car.backReferencePointer(field))
+}
+
+func TestModel_implementsInterface(t *testing.T) {
+	test := assert.New(t)
+
+	v := reflect.TypeOf(car{})
+
+	// ok - Owner hasOne implements orm interface
+	f, exist := v.FieldByName("Owner")
+	test.True(exist)
+	test.True(implementsInterface(f))
+
+	// err - type string
+	f, exist = v.FieldByName("Brand")
+	test.True(exist)
+	test.False(implementsInterface(f))
+}
+
+func TestModel_newValueInstanceFromType(t *testing.T) {
+	test := assert.New(t)
+	v := reflect.TypeOf(car{})
+
+	// ptr struct
+	f, exist := v.FieldByName("Owner")
+	test.True(exist)
+	val := newValueInstanceFromType(f.Type)
+	test.Equal(f.Type.String(), "*"+val.Type().String())
+
+	// struct
+	f, exist = v.FieldByName("Radio")
+	test.True(exist)
+	val = newValueInstanceFromType(f.Type)
+	test.Equal(f.Type.String(), val.Type().String())
+
+	// slice
+	f, exist = v.FieldByName("Driver")
+	test.True(exist)
+	val = newValueInstanceFromType(f.Type)
+	test.Equal(f.Type.Elem().String(), val.Type().String())
+
+	// slice*
+	f, exist = v.FieldByName("CustomDriver")
+	test.True(exist)
+	val = newValueInstanceFromType(f.Type)
+	test.Equal(f.Type.Elem().Elem().String(), val.Type().String())
+}
+
+func TestModel_initializeModelByValue(t *testing.T) {
+	test := assert.New(t)
+	c := car{}
+	c.caller = &c
+	v := reflect.TypeOf(car{})
+
+	// ptr struct
+	f, exist := v.FieldByName("Owner")
+	test.True(exist)
+	val := newValueInstanceFromType(f.Type)
+	i, err := c.initializeModelByValue(val)
+	test.NoError(err)
+	test.NotNil(i)
+}
+
+// test create Fields
+func TestModel_createRelations(t *testing.T) {
+
+	test := assert.New(t)
+
+	c := &car{}
+	err := c.Init(c)
 	assert.NoError(t, err)
 
-	order := Orderfk{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err)
+	// checking if all fields exist (added createdAt, ignored Owner relation)
+	if test.Equal(6, len(c.relations)) {
+		// table driven tests
+		var tests = []struct {
+			Kind                  string
+			Field                 string
+			ForeignKey            Field
+			AssociationForeignKey Field
+			SelfReference         bool
+			JoinTable             JoinTable
+			Polymorphic           Polymorphic
+			Custom                bool
+		}{
+			{Kind: BelongsTo, Field: "Owner", ForeignKey: Field{Name: "OwnerID"}, AssociationForeignKey: Field{Name: "ID"}, SelfReference: false, JoinTable: JoinTable{}, Polymorphic: Polymorphic{}},
+			{Kind: ManyToMany, Field: "Driver", ForeignKey: Field{Name: "ID"}, AssociationForeignKey: Field{Name: "ID"}, SelfReference: false, JoinTable: JoinTable{Name: "car_drivers", ForeignKey: "car_id", AssociationForeignKey: "driver_id"}, Polymorphic: Polymorphic{}},
+			{Kind: HasMany, Field: "Wheels", ForeignKey: Field{Name: "ID"}, AssociationForeignKey: Field{Name: "CarID"}, SelfReference: false, JoinTable: JoinTable{}, Polymorphic: Polymorphic{}},
+			//poly
+			{Kind: HasOne, Field: "Radio", ForeignKey: Field{Name: "ID"}, AssociationForeignKey: Field{}, SelfReference: false, JoinTable: JoinTable{}, Polymorphic: Polymorphic{Field: Field{Name: "CarID"}, Type: Field{Name: "CarType"}, Value: "radio"}},
+			{Kind: HasMany, Field: "Liquid", ForeignKey: Field{Name: "ID"}, AssociationForeignKey: Field{}, SelfReference: false, JoinTable: JoinTable{}, Polymorphic: Polymorphic{Field: Field{Name: "CarID"}, Type: Field{Name: "CarType"}, Value: "liquid"}},
+			//custom
+			{Kind: HasMany, Field: "CustomDriver", Custom: true},
+		}
 
-	info := Contactfk{}
-	err = info.Initialize(&info)
-	assert.NoError(t, err)
-
-	service := Servicefk{}
-	err = service.Initialize(&service)
-	assert.NoError(t, err)
-
-	// hasOne
-	fieldOrders, exists := reflect.TypeOf(customer).FieldByName("Info")
-	if assert.True(t, exists) {
-		rel, err := getRelationByType(&customer, &info, fieldOrders)
-		if assert.NoError(t, err) {
-			assert.Equal(t, HasOne, rel)
+		for k, tt := range tests {
+			t.Run(tt.Field, func(t *testing.T) {
+				if tt.Field == "Owner" {
+					test.Equal(Permission{Write: false, Read: true}, c.relations[k].Permission)
+				}
+				test.Equal(tt.Kind, c.relations[k].Kind)
+				test.Equal(tt.Field, c.relations[k].Field)
+				test.Equal(tt.ForeignKey.Name, c.relations[k].ForeignKey.Name)
+				test.Equal(tt.AssociationForeignKey.Name, c.relations[k].AssociationForeignKey.Name)
+				test.Equal(tt.SelfReference, c.relations[k].SelfReference)
+				test.Equal(tt.JoinTable, c.relations[k].JoinTable)
+				if tt.Polymorphic.Value != "" {
+					test.Equal(tt.Polymorphic.Field.Name, c.relations[k].Polymorphic.Field.Name)
+					test.Equal(tt.Polymorphic.Type.Name, c.relations[k].Polymorphic.Type.Name)
+					test.Equal(tt.Polymorphic.Value, c.relations[k].Polymorphic.Value)
+				} else {
+					test.Equal(tt.Polymorphic, c.relations[k].Polymorphic)
+				}
+				test.Equal(tt.Custom, c.relations[k].Custom)
+			})
 		}
 	}
 
-	// hasMany
-	fieldOrders, exists = reflect.TypeOf(customer).FieldByName("Orders")
-	if assert.True(t, exists) {
-		rel, err := getRelationByType(&customer, &order, fieldOrders)
-		if assert.NoError(t, err) {
-			assert.Equal(t, HasMany, rel)
-		}
-	}
-
-	// hasMany
-	fieldOrders, exists = reflect.TypeOf(customer).FieldByName("Service")
-	if assert.True(t, exists) {
-		rel, err := getRelationByType(&customer, &service, fieldOrders)
-		if assert.NoError(t, err) {
-			assert.Equal(t, ManyToMany, rel)
-		}
-	}
-
-	// belongsTo
-	fieldOrders, exists = reflect.TypeOf(order).FieldByName("Customer")
-	if assert.True(t, exists) {
-		rel, err := getRelationByType(&order, &customer, fieldOrders)
-		if assert.NoError(t, err) {
-			assert.Equal(t, BelongsTo, rel)
-		}
-	}
-}
-
-func TestRelation_hasManyToMany(t *testing.T) {
-
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	service := Servicefk{}
-	err = service.Initialize(&service)
-	assert.NoError(t, err)
-
-	order := Orderfk{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err)
-
-	// customer_services exists in the db
-	assert.True(t, hasManyToMany(&customer, &service))
-	// customer_orders does not exist in db
-	assert.False(t, hasManyToMany(&customer, &order))
-}
-
-func TestRelation_getManyToMany(t *testing.T) {
-
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	service := Servicefk{}
-	err = service.Initialize(&service)
-	assert.NoError(t, err)
-
-	fks, err := getManyToMany(&customer, &service)
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(fks))
-
-	assert.Equal(t, "customerfk_servicefks_ibfk_1", fks[0].Name)   // fk name of the table - relation
-	assert.Equal(t, "customerfk_servicefks", fks[0].Primary.Table) //junction table
-	assert.Equal(t, "customer_id", fks[0].Primary.Column)          // connection field
-	assert.Equal(t, "customerfks", fks[0].Secondary.Table)         // association table
-	assert.Equal(t, "id", fks[0].Secondary.Column)                 // association field
-
-	assert.Equal(t, "customerfk_servicefks_ibfk_2", fks[1].Name)   // fk name of the table - relation
-	assert.Equal(t, "customerfk_servicefks", fks[1].Primary.Table) //junction table
-	assert.Equal(t, "service_id", fks[1].Primary.Column)           // connection field
-	assert.Equal(t, "servicefks", fks[1].Secondary.Table)          // association table
-	assert.Equal(t, "id", fks[1].Secondary.Column)                 // association field
-}
-
-func TestRelation_getRelation_DbDefinition(t *testing.T) {
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	order := Orderfk{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err)
-
-	info := Contactfk{}
-	err = info.Initialize(&info)
-	assert.NoError(t, err)
-
-	service := Servicefk{}
-	err = service.Initialize(&service)
-	assert.NoError(t, err)
-
-	infoField, exists := reflect.TypeOf(customer).FieldByName("Info")
-	assert.True(t, exists)
-	rel, err := getRelation(&customer, &info, infoField)
-	assert.NoError(t, err)
-	assert.Equal(t, HasOne, rel)
-
-	ordersField, exists := reflect.TypeOf(customer).FieldByName("Orders")
-	assert.True(t, exists)
-	rel, err = getRelation(&customer, &order, ordersField)
-	assert.NoError(t, err)
-	assert.Equal(t, HasMany, rel)
-
-	serviceField, exists := reflect.TypeOf(customer).FieldByName("Service")
-	assert.True(t, exists)
-	rel, err = getRelation(&customer, &service, serviceField)
-	assert.NoError(t, err)
-	assert.Equal(t, ManyToMany, rel)
-
-	customerField, exists := reflect.TypeOf(order).FieldByName("Customer")
-	assert.True(t, exists)
-	rel, err = getRelation(&order, &customer, customerField)
-	assert.NoError(t, err)
-	assert.Equal(t, BelongsTo, rel)
-
-}
-
-// TODO m2m relation not working at the moment by tags.
-func TestRelation_getRelation_TagDefinition(t *testing.T) {
-	customer := Customer{}
-	order := Order{}
-	info := Contact{}
-	//service := Service{}
-
-	infoField, exists := reflect.TypeOf(customer).FieldByName("Info")
-	assert.True(t, exists)
-	rel, err := getRelation(&customer, &info, infoField)
-	assert.NoError(t, err)
-	assert.Equal(t, HasOne, rel)
-
-	ordersField, exists := reflect.TypeOf(customer).FieldByName("Orders")
-	assert.True(t, exists)
-	rel, err = getRelation(&customer, &order, ordersField)
-	assert.NoError(t, err)
-	assert.Equal(t, HasMany, rel)
-
-	//serviceField,exists := reflect.TypeOf(customer).FieldByName("Service")
-	//assert.True(t, exists)
-	//rel,err = getRelation(&customer,&service,serviceField)
-	//assert.NoError(t, err)
-	//assert.Equal(t,ManyToMany,rel)
-
-	customerField, exists := reflect.TypeOf(order).FieldByName("Customer")
-	assert.True(t, exists)
-	rel, err = getRelation(&order, &customer, customerField)
-	assert.NoError(t, err)
-	assert.Equal(t, BelongsTo, rel)
-}
-
-func TestRelation_getForeignKeyByTag_EmptyTag(t *testing.T) {
-	type customer struct {
-		Model
-		ID   int
-		Info Contact
-	}
-
-	c := customer{}
-	contact := Contact{}
-
-	serviceField, exists := reflect.TypeOf(c).FieldByName("Info")
-	assert.True(t, exists)
-	fk, err := getForeignKeyByTag(&c, &contact, serviceField)
-	assert.NoError(t, err)
-	assert.True(t, fk == nil)
-}
-
-func TestRelation_getForeignKeyByTag_ShortTag(t *testing.T) {
-
-	type customer struct {
-		Model
-		ID   int
-		Info Contact `fk:"ID"`
-		//		Info Contact `fk:"field:ID;associationField:CustomerID"`
-	}
-
-	c := customer{}
-	err := c.Initialize(&c)
-	assert.NoError(t, err)
-
-	contact := Contact{}
-	err = contact.Initialize(&contact)
-	assert.NoError(t, err)
-
-	serviceField, exists := reflect.TypeOf(c).FieldByName("Info")
-	assert.True(t, exists)
-	fk, err := getForeignKeyByTag(&c, &contact, serviceField)
-	assert.NoError(t, err)
-
-	assert.Equal(t, "tag", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customers", fk.Primary.Table)
-	assert.Equal(t, "id", fk.Primary.Column)
-	assert.Equal(t, "contacts", fk.Secondary.Table)
-	assert.Equal(t, "customer_id", fk.Secondary.Column)
-}
-
-func TestRelation_getForeignKeyByTag_ShortTagWithTagSpaces(t *testing.T) {
-
-	type customer struct {
-		Model
-		ID   int
-		Info Contact `fk:"  ID  "`
-		//		Info Contact `fk:"field:ID;associationField:CustomerID"`
-	}
-
-	c := customer{}
-	err := c.Initialize(&c)
-	assert.NoError(t, err)
-
-	contact := Contact{}
-	err = contact.Initialize(&contact)
-	assert.NoError(t, err)
-
-	serviceField, exists := reflect.TypeOf(c).FieldByName("Info")
-	assert.True(t, exists)
-	fk, err := getForeignKeyByTag(&c, &contact, serviceField)
-	assert.NoError(t, err)
-
-	assert.Equal(t, "tag", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customers", fk.Primary.Table)
-	assert.Equal(t, "id", fk.Primary.Column)
-	assert.Equal(t, "contacts", fk.Secondary.Table)
-	assert.Equal(t, "customer_id", fk.Secondary.Column)
-
-}
-
-func TestRelation_getForeignKeyByTag_Tag(t *testing.T) {
-
-	type customer struct {
-		Model
-		ID   int
-		Info Contact `fk:"field:ID;associationField:CustomerID"`
-	}
-
-	c := customer{}
-	err := c.Initialize(&c)
-	assert.NoError(t, err)
-
-	contact := Contact{}
-	err = contact.Initialize(&contact)
-	assert.NoError(t, err)
-
-	serviceField, exists := reflect.TypeOf(c).FieldByName("Info")
-	assert.True(t, exists)
-	fk, err := getForeignKeyByTag(&c, &contact, serviceField)
-	assert.NoError(t, err)
-
-	assert.Equal(t, "tag", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customers", fk.Primary.Table)
-	assert.Equal(t, "id", fk.Primary.Column)
-	assert.Equal(t, "contacts", fk.Secondary.Table)
-	assert.Equal(t, "customer_id", fk.Secondary.Column)
-
-}
-
-func TestRelation_getForeignKeyByTag_TagWithSpaces(t *testing.T) {
-
-	type customer struct {
-		Model
-		ID   int
-		Info Contact `fk:"field:  ID  ;associationField:  CustomerID  "`
-	}
-
-	c := customer{}
-	err := c.Initialize(&c)
-	assert.NoError(t, err)
-
-	contact := Contact{}
-	err = contact.Initialize(&contact)
-	assert.NoError(t, err)
-
-	serviceField, exists := reflect.TypeOf(c).FieldByName("Info")
-	assert.True(t, exists)
-	fk, err := getForeignKeyByTag(&c, &contact, serviceField)
-	assert.NoError(t, err)
-
-	assert.Equal(t, "tag", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customers", fk.Primary.Table)
-	assert.Equal(t, "id", fk.Primary.Column)
-	assert.Equal(t, "contacts", fk.Secondary.Table)
-	assert.Equal(t, "customer_id", fk.Secondary.Column)
-
-}
-
-func TestRelation_getForeignKeyByDb(t *testing.T) {
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	order := Orderfk{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err)
-
-	// Customer FKs
-	fk, err := getForeignKeyByDb(&customer, &order, "")
-	assert.NoError(t, err)
-	assert.True(t, fk == nil)
-
-	// Customer FKs
-	fk, err = getForeignKeyByDb(&order, &customer, "")
-	assert.NoError(t, err)
-	assert.Equal(t, "orderfks_ibfk_1", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "orderfks", fk.Primary.Table)
-	assert.Equal(t, "customer_id", fk.Primary.Column)
-	assert.Equal(t, "customerfks", fk.Secondary.Table)
-	assert.Equal(t, "id", fk.Secondary.Column)
-}
-
-func TestRelation_getForeignKeyByDb_Junction(t *testing.T) {
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	service := Servicefk{}
-	err = service.Initialize(&service)
-	assert.NoError(t, err)
-
-	// junction services FKs
-	fk, err := getForeignKeyByDb(&customer, &service, "customerfk_servicefks")
-	assert.NoError(t, err)
-	assert.Equal(t, "customerfk_servicefks_ibfk_2", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customerfk_servicefks", fk.Primary.Table)
-	assert.Equal(t, "service_id", fk.Primary.Column)
-	assert.Equal(t, "servicefks", fk.Secondary.Table)
-	assert.Equal(t, "id", fk.Secondary.Column)
-
-	// junction customer FKs
-	fk, err = getForeignKeyByDb(&service, &customer, "customerfk_servicefks")
-	assert.NoError(t, err)
-	assert.Equal(t, "customerfk_servicefks_ibfk_1", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customerfk_servicefks", fk.Primary.Table)
-	assert.Equal(t, "customer_id", fk.Primary.Column)
-	assert.Equal(t, "customerfks", fk.Secondary.Table)
-	assert.Equal(t, "id", fk.Secondary.Column)
-}
-
-func TestRelation_getForeignKey_DB(t *testing.T) {
-	customer := Customerfk{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	order := Orderfk{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err)
-
-	serviceField, exists := reflect.TypeOf(customer).FieldByName("Orders")
-	assert.True(t, exists)
-
-	fk, err := getForeignKey(&order, &customer, serviceField)
-	assert.NoError(t, err)
-	assert.Equal(t, "orderfks_ibfk_1", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "orderfks", fk.Primary.Table)
-	assert.Equal(t, "customer_id", fk.Primary.Column)
-	assert.Equal(t, "customerfks", fk.Secondary.Table)
-	assert.Equal(t, "id", fk.Secondary.Column)
-
-	fk, err = getForeignKey(&customer, &order, serviceField)
-	assert.NoError(t, err)
-	assert.True(t, fk == nil)
-}
-
-func TestRelation_getForeignKey_TAG(t *testing.T) {
-	customer := Customer{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	order := Order{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err) // model: field CustomerID not found in columns of orm.Customer
-
-	serviceField, exists := reflect.TypeOf(customer).FieldByName("Orders")
-	assert.True(t, exists)
-
-	fk, err := getForeignKey(&customer, &order, serviceField)
-	assert.NoError(t, err)
-	assert.Equal(t, "tag", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "customers", fk.Primary.Table)
-	assert.Equal(t, "id", fk.Primary.Column)
-	assert.Equal(t, "orders", fk.Secondary.Table)
-	assert.Equal(t, "customer_id", fk.Secondary.Column)
-
-	fk, err = getForeignKey(&order, &customer, serviceField)
-	assert.NoError(t, err)
-	assert.Equal(t, "belongsTo", fk.Name) // identifier that its a fk added by a tag
-	assert.Equal(t, "orders", fk.Primary.Table)
-	assert.Equal(t, "customer_id", fk.Primary.Column)
-	assert.Equal(t, "customers", fk.Secondary.Table)
-	assert.Equal(t, "id", fk.Secondary.Column)
-}
-
-func TestRelation_addRelation(t *testing.T) {
-	customer := Customer{}
-	err := customer.Initialize(&customer)
-	assert.NoError(t, err)
-
-	order := Order{}
-	err = order.Initialize(&order)
-	assert.NoError(t, err) // model: field CustomerID not found in columns of orm.Customer
-
-	assert.Equal(t, 2, len(customer.Table().Associations))
-	assert.Equal(t, HasOne, customer.Table().Associations["Info"].Type)
-	assert.Equal(t, "customers", customer.Table().Associations["Info"].StructTable.Information.Table)
-	assert.Equal(t, "id", customer.Table().Associations["Info"].StructTable.Information.Name)
-	assert.Equal(t, "contacts", customer.Table().Associations["Info"].AssociationTable.Information.Table)
-	assert.Equal(t, "customer_id", customer.Table().Associations["Info"].AssociationTable.Information.Name)
-	assert.Equal(t, HasMany, customer.Table().Associations["Orders"].Type)
-	assert.Equal(t, "customers", customer.Table().Associations["Orders"].StructTable.Information.Table)
-	assert.Equal(t, "id", customer.Table().Associations["Orders"].StructTable.Information.Name)
-	assert.Equal(t, "orders", customer.Table().Associations["Orders"].AssociationTable.Information.Table)
-	assert.Equal(t, "customer_id", customer.Table().Associations["Orders"].AssociationTable.Information.Name)
-	//assert.Equal(t,ManyToMany,customer.Table().Associations["Services"].Type) // TODO ManyToMany with TAG not working yet
-	//assert.Equal(t,BelongsTo,order.Table().Associations["Customer"].Type) // TODO Belongs with TAG not working correctly yet
-
-	customerfk := Customerfk{}
-	err = customerfk.Initialize(&customerfk)
-	assert.NoError(t, err)
-
-	orderfk := Orderfk{}
-	err = orderfk.Initialize(&orderfk)
-	assert.NoError(t, err)
-
-	//assert.Equal(t, 2, len(orderfk.Table().Associations)) // TODO Belongs with TAG not working correctly yet
-
-	assert.Equal(t, 3, len(customerfk.Table().Associations))
-	assert.Equal(t, HasOne, customerfk.Table().Associations["Info"].Type)
-	assert.Equal(t, "customerfks", customerfk.Table().Associations["Info"].StructTable.Information.Table)
-	assert.Equal(t, "id", customerfk.Table().Associations["Info"].StructTable.Information.Name)
-	assert.Equal(t, "contactfks", customerfk.Table().Associations["Info"].AssociationTable.Information.Table)
-	assert.Equal(t, "customer_id", customerfk.Table().Associations["Info"].AssociationTable.Information.Name)
-	assert.Equal(t, HasMany, customerfk.Table().Associations["Orders"].Type)
-	assert.Equal(t, "customerfks", customerfk.Table().Associations["Orders"].StructTable.Information.Table)
-	assert.Equal(t, "id", customerfk.Table().Associations["Orders"].StructTable.Information.Name)
-	assert.Equal(t, "orderfks", customerfk.Table().Associations["Orders"].AssociationTable.Information.Table)
-	assert.Equal(t, "customer_id", customerfk.Table().Associations["Orders"].AssociationTable.Information.Name)
-	assert.Equal(t, ManyToMany, customerfk.Table().Associations["Service"].Type) // TODO ManyToMany with TAG not working yet
-	assert.Equal(t, "customerfks", customerfk.Table().Associations["Service"].StructTable.Information.Table)
-	assert.Equal(t, "id", customerfk.Table().Associations["Service"].StructTable.Information.Name)
-	assert.Equal(t, "servicefks", customerfk.Table().Associations["Service"].AssociationTable.Information.Table)
-	assert.Equal(t, "id", customerfk.Table().Associations["Service"].AssociationTable.Information.Name)
-	assert.Equal(t, "customerfk_servicefks", customerfk.Table().Associations["Service"].JunctionTable.Table)
-	assert.Equal(t, "customer_id", customerfk.Table().Associations["Service"].JunctionTable.StructColumn)
-	assert.Equal(t, "service_id", customerfk.Table().Associations["Service"].JunctionTable.AssociationColumn)
-
-	//assert.Equal(t,BelongsTo,orderfk.Table().Associations["Customer"].Type)
+	// self reference
+	r := Role{}
+	err = r.Init(&r)
+	test.NoError(err)
+	test.Equal(1, len(r.relations))
+	test.Equal(ManyToMany, r.relations[0].Kind)
+	test.Equal(true, r.relations[0].SelfReference)
+
+	// Errors
+	// err self reference on hasMany
+	rs := RoleWrongRelation{}
+	err = rs.Init(&rs)
+	test.Error(err)
+	test.Equal(errSelfReference.Error(), err.Error())
+
+	// err poly m2m
+	ce := carErrPolyM2m{}
+	err = ce.Init(&ce)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errPolymorphicNotAllowed, "Liquid", "m2m"), err.Error())
+
+	// err poly belongsTo
+	c2 := carErrPolyB2{}
+	err = c2.Init(&c2)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errPolymorphicNotAllowed, "Liquid", "belongsTo"), err.Error())
+
+	// err relation type
+	c3 := carErrRelation{}
+	err = c3.Init(&c3)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errRelationKind, "orm.carErrRelation", "Liquid", "m2m", "struct"), err.Error())
+
+	// err belongsTo FK
+	c4 := carBelongsToFKErr{}
+	err = c4.Init(&c4)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "foo", "orm.carBelongsToFKErr"), err.Error())
+
+	// err belongsTo AFK
+	c5 := carBelongsToAFKErr{}
+	err = c5.Init(&c5)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "bar", "orm.owner"), err.Error())
+
+	// err M2M FK
+	c6 := carM2MFkErr{}
+	err = c6.Init(&c6)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "foo", "orm.carM2MFkErr"), err.Error())
+
+	// err M2M AFK
+	c7 := carM2MAfkErr{}
+	err = c7.Init(&c7)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "bar", "orm.driver"), err.Error())
+
+	// err M2M joinTable
+	c8 := carM2MJoinErr{}
+	err = c8.Init(&c8)
+	test.Error(err)
+	test.True(strings.Contains(err.Error(), "sqlquery: table"))
+
+	// err hasMany fk err
+	c9 := carHasManyFkErr{}
+	err = c9.Init(&c9)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "foo", "orm.carHasManyFkErr"), err.Error())
+
+	// err hasMany afk err
+	c10 := carHasManyAfkErr{}
+	err = c10.Init(&c10)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "bar", "orm.wheel"), err.Error())
+
+	// err hasMany poly err
+	c11 := carHasManyPolyErr{}
+	err = c11.Init(&c11)
+	test.Error(err)
+	test.Equal(fmt.Sprintf(errStructField, "polyID", "orm.wheel"), err.Error())
+
+	// err cache
+	c12 := carCacheErr{}
+	err = c12.Init(&c12)
+	test.Error(err)
+	test.Equal(errNoCache.Error(), err.Error())
 }

@@ -323,7 +323,6 @@ type browserInfo struct {
 // TODO set body limit.
 // TODO set filesize limit.
 func (req *Request) parse() error {
-
 	if req.params == nil {
 		req.params = make(map[string][]string)
 		req.files = make(map[string][]*multipart.FileHeader)

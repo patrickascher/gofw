@@ -172,7 +172,7 @@ func checkPrimaryParams(g *Grid) (*sqlquery.Condition, error) {
 	for _, field := range g.fields {
 		// checking all primary keys
 		if len(field.getFields()) == 0 && field.getColumn().Information.PrimaryKey {
-			v, err := g.controller.Context().Request.Param(field.getColumn().StructField)
+			v, err := g.controller.Context().Request.Param(field.getColumn().Name)
 			if err != nil {
 				return nil, ErrPrimaryKeys
 			}

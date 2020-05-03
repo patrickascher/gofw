@@ -11,6 +11,23 @@ func Exists(slice []string, search string) (int, bool) {
 	return 0, false
 }
 
+func ExistInt(slice []int, search int) (int, bool) {
+	for i, s := range slice {
+		if s == search {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func Reverse(numbers []string) []string {
+	newNumbers := make([]string, len(numbers))
+	for i, j := 0, len(numbers)-1; i <= j; i, j = i+1, j-1 {
+		newNumbers[i], newNumbers[j] = numbers[j], numbers[i]
+	}
+	return newNumbers
+}
+
 func PrefixedWith(slice []string, search string) []string {
 	var rv []string
 	for _, s := range slice {

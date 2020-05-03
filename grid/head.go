@@ -1,6 +1,7 @@
 package grid
 
 import (
+	"fmt"
 	"github.com/patrickascher/gofw/orm"
 	"sort"
 )
@@ -106,6 +107,7 @@ func headerFieldsLoop(fields map[string]Interface, jsonName bool) []*head {
 			Fields:   headerFieldsLoop(f.getFields(), jsonName),
 			//Select:   f.getSelect(),
 		}
+		fmt.Println("****", sortedField.field, f.getFieldName())
 
 		if len(headInfo[k].Fields) == 0 { // = no relation
 			headInfo[k].FieldPrimary = f.getColumn().Information.PrimaryKey

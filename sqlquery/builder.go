@@ -67,6 +67,10 @@ func (b *Builder) Driver() DriverI {
 	return b.driver
 }
 
+func (b *Builder) HasTx() bool {
+	return b.tx != nil
+}
+
 // Tx creates a new transaction for the builder.
 // If a tx exists, all requests (select, update, insert, delete) will be handled in that transaction.
 func (b *Builder) Tx() error {
@@ -84,7 +88,10 @@ func (b *Builder) Commit() error {
 	if b.tx == nil {
 		return ErrNoTx
 	}
-	return b.tx.Commit()
+	fmt.Println("CALLED COMMIT")
+	err := b.tx.Commit()
+	b.tx = nil
+	return err
 }
 
 // Rollback the builder transaction.
@@ -93,7 +100,11 @@ func (b *Builder) Rollback() error {
 	if b.tx == nil {
 		return ErrNoTx
 	}
-	return b.tx.Rollback()
+	fmt.Println("CALLED ROLLBACK")
+
+	err := b.tx.Rollback()
+	b.tx = nil
+	return err
 }
 
 // Information - please see the Information type documentation.
@@ -255,6 +266,7 @@ func (b *Builder) exec(stmt string, args [][]interface{}) ([]sql.Result, error) 
 
 	// create a transaction if batching
 	if len(args) > 1 && b.tx == nil {
+		fmt.Println("********ADDED AUTOCOMMIT!!!!")
 		err = b.Tx()
 		if err != nil {
 			return nil, err
@@ -285,7 +297,11 @@ func (b *Builder) exec(stmt string, args [][]interface{}) ([]sql.Result, error) 
 			}
 			return nil, err
 		}
-		b.log(stmt, time.Since(start), args)
+		tx := ""
+		if b.tx != nil {
+			tx = fmt.Sprintf("with TX: %p ", b.tx)
+		}
+		b.log(tx+stmt, time.Since(start), args)
 
 		res = append(res, r)
 	}

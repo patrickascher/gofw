@@ -84,7 +84,7 @@ func TestField_column(t *testing.T) {
 	r := httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))
 	g := defaultGrid(r)
 	c := defaultCommon(g)
-	col := &orm.Column{}
+	col := &orm.Field{}
 	c.column = col
 	assert.Equal(t, col, c.getColumn())
 }

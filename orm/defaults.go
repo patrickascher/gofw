@@ -1,40 +1,49 @@
 package orm
 
 import (
-	"github.com/jinzhu/inflection"
-	"github.com/patrickascher/gofw/cache"
-	"github.com/patrickascher/gofw/server"
-	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/serenize/snaker"
 	"time"
+
+	"github.com/patrickascher/gofw/cache"
+	"github.com/patrickascher/gofw/logger"
+	"github.com/patrickascher/gofw/sqlquery"
+	fwStrings "github.com/patrickascher/gofw/strings"
 )
 
-// TableName returns a camelCase pluralization of the struct name.
-func (m *Model) TableName() string {
-	return snaker.CamelToSnake(inflection.Plural(structName(m.caller, false)))
+// is used for self referencing m2m relations.
+const defaultSelfReferenceAssociationForeignKey = "child_id"
+
+// DefaultSchemaName returns the configured schema of the builder.
+func (m Model) DefaultSchemaName() string {
+	return m.DefaultBuilder().Config().Schema
 }
 
-// DatabaseName will be empty by default.
-func (m *Model) DatabaseName() string {
-	return ""
+// DefaultDatabaseName returns the configured database of the builder.
+func (m Model) DefaultDatabaseName() string {
+	return m.DefaultBuilder().Config().Database
 }
 
-// DefaultCache is defining a in-memory cache with a ttl of 6 hours by default.
-func (m *Model) DefaultCache() (cache.Interface, time.Duration, error) {
-	if server.Cache() != nil {
-		return server.Cache(), 0, nil
-	}
+// DefaultTableName returns the struct name pluralized in snake_case.
+func (m Model) DefaultTableName() string {
+	return fwStrings.CamelToSnake(fwStrings.Plural(m.modelName(false)))
+}
 
+// DefaultLogger returns the global model logger.
+func (m Model) DefaultLogger() *logger.Logger {
+	return GlobalLogger
+}
+
+// DefaultCache returns the global cache.
+// The cache is set to 6 hours by default.
+func (m Model) DefaultCache() (cache.Interface, time.Duration, error) {
 	return GlobalCache, 6 * time.Hour, nil
 }
 
-// Builder returns the GlobalBuilder.
-// If it's not defined, a error will return.
-func (m *Model) Builder() (*sqlquery.Builder, error) {
+// DefaultBuilder returns the GlobalBuilder.
+func (m Model) DefaultBuilder() sqlquery.Builder {
+	return GlobalBuilder
+}
 
-	if GlobalBuilder != nil {
-		return GlobalBuilder, nil
-	}
-
-	return nil, ErrModelNoBuilder
+// DefaultStrategy return the default database strategy.
+func (m Model) DefaultStrategy() string {
+	return "eager"
 }

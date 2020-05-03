@@ -1,484 +1,581 @@
 package orm_test
 
 import (
-	"github.com/patrickascher/gofw/orm"
-	"github.com/patrickascher/gofw/sqlquery"
-	_ "github.com/patrickascher/gofw/sqlquery/driver"
-	"github.com/stretchr/testify/assert"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/patrickascher/gofw/cache"
+	"github.com/patrickascher/gofw/orm"
+	_ "github.com/patrickascher/gofw/orm/strategy"
+	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestModel_Initialize(t *testing.T) {
+type Role struct {
+	orm.Model
+	ID   int
+	Name orm.NullString
 
-}
-func TestModel_First(t *testing.T) {
-
-	customer := Customerfk{}
-
-	// not initialized
-	err := customer.First(nil)
-	if assert.Error(t, err) {
-		assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
-	}
-
-	err = customer.Initialize(&customer)
-	if assert.NoError(t, err) {
-		customer.SetStrategy("mock")
-		err = customer.First(nil)
-		if assert.NoError(t, err) {
-			assert.Equal(t, "First", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-			assert.Equal(t, &sqlquery.Condition{}, Strategy.c)
-		}
-
-		c := &sqlquery.Condition{}
-		c.Where("test IS NULL")
-		err = customer.First(c)
-		if assert.NoError(t, err) {
-			assert.Equal(t, "First", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-			assert.Equal(t, c, Strategy.c)
-		}
-	}
-}
-func TestModel_All(t *testing.T) {
-	customer := Customerfk{}
-
-	var res []Customerfk
-	// not initialized
-	err := customer.All(res, nil)
-	if assert.Error(t, err) {
-		assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
-	}
-
-	err = customer.Initialize(&customer)
-	if assert.NoError(t, err) {
-		customer.SetStrategy("mock")
-		err = customer.All(res, nil)
-		if assert.NoError(t, err) {
-			assert.Equal(t, "All", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-			assert.Equal(t, &sqlquery.Condition{}, Strategy.c)
-			assert.Equal(t, res, Strategy.res)
-
-		}
-
-		c := &sqlquery.Condition{}
-		c.Where("test IS NULL")
-		err = customer.All(res, c)
-		if assert.NoError(t, err) {
-			assert.Equal(t, "All", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-			assert.Equal(t, c, Strategy.c)
-			assert.Equal(t, res, Strategy.res)
-		}
-	}
-}
-func TestModel_Create(t *testing.T) {
-	customer := Customerfk{}
-
-	// not initialized
-	err := customer.Create()
-	if assert.Error(t, err) {
-		assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
-	}
-
-	err = customer.Initialize(&customer)
-	if assert.NoError(t, err) {
-		customer.SetStrategy("mock")
-		customer.FirstName.String = "abc"
-		customer.FirstName.Valid = true
-
-		customer.LastName.String = "def"
-		customer.LastName.Valid = true
-		err = customer.Create()
-		if assert.NoError(t, err) {
-			assert.Equal(t, "Create", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-		}
-
-		// 2nd call to check if the old transaction gets deleted after committing
-		err = customer.Create()
-		if assert.NoError(t, err) {
-			assert.Equal(t, "Create", Strategy.methodCalled)
-			assert.Equal(t, &customer, Strategy.model)
-		}
-	}
-}
-func TestModel_Update(t *testing.T) {
-	customer := Customerfk{}
-
-	// not initialized
-	err := customer.Update()
-	if assert.Error(t, err) {
-		assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
-	}
-
-	err = customer.Initialize(&customer)
-	if assert.NoError(t, err) {
-		customer.SetStrategy("mock")
-		err = customer.Update()
-
-		// error because the primary mandatory fields are empty
-		assert.Error(t, err)
-
-		// Everything OK
-		customer.ID = 5
-		err = customer.Update()
-		assert.NoError(t, err)
-		//		assert.Equal(t, &customer, Strategy.model)
-		assert.Equal(t, "Update", Strategy.methodCalled)
-		cExp := &sqlquery.Condition{}
-		b, _ := customer.Builder()
-
-		cExp.Where(b.QuoteIdentifier("id")+" = ?", 5)
-		assert.Equal(t, cExp, Strategy.c)
-
-		// call update again to check if the tx will get handled correctly
-		customer.ID = 5
-		err = customer.Update()
-		assert.NoError(t, err)
-		assert.Equal(t, &customer, Strategy.model)
-		assert.Equal(t, "Update", Strategy.methodCalled)
-		cExp = &sqlquery.Condition{}
-		cExp.Where(b.QuoteIdentifier("id")+" = ?", 5)
-		assert.Equal(t, cExp, Strategy.c)
-	}
+	Roles []*Role
 }
 
-func TestModel_Delete_SoftDelete(t *testing.T) {
-	err := deleteAll()
-	if assert.NoError(t, err) {
-		customer := Customerfk{}
+func truncate(ormI orm.Interface) error {
+	b := ormI.DefaultBuilder()
 
-		// not initialized
-		err := customer.Delete()
-		if assert.Error(t, err) {
-			assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
-		}
-
-		err = customer.Initialize(&customer)
-		if assert.NoError(t, err) {
-			customer.SetStrategy("mock")
-			err = customer.Delete()
-
-			// error because the primary mandatory fields are empty
-			assert.Error(t, err)
-
-			// error because zero rows were affected
-			customer.ID = 5
-			err = customer.Delete()
-			// assert.Error(t, err)
-
-			assert.NoError(t, err) // not anymore
-		}
+	// owner belongsTo
+	_, err := b.Delete("owners").Exec()
+	if err != nil {
+		return err
 	}
+
+	// wheels hasMany
+	_, err = b.Delete("wheels").Exec()
+	if err != nil {
+		return err
+	}
+
+	// wheels hasMany
+	_, err = b.Delete("wheels").Exec()
+	if err != nil {
+		return err
+	}
+
+	// components hasOne,hasMany poly
+	_, err = b.Delete("components").Exec()
+	if err != nil {
+		return err
+	}
+
+	// join table m2m drivers
+	_, err = b.Delete("car_drivers").Exec()
+	if err != nil {
+		return err
+	}
+
+	// drivers m2m
+	_, err = b.Delete("drivers").Exec()
+	if err != nil {
+		return err
+	}
+
+	// cars main
+	_, err = b.Delete("cars").Exec()
+	if err != nil {
+		return err
+	}
+
+	// roles join table
+	_, err = b.Delete("role_roles").Exec()
+	if err != nil {
+		return err
+	}
+
+	// roles
+	_, err = b.Delete("roles").Exec()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func TestModel_Delete(t *testing.T) {
-	customer := CustomerNoSoftDelete{}
+func createEntries(ormI orm.Interface) error {
+	b := ormI.DefaultBuilder()
 
-	// not initialized
-	err := customer.Delete()
-	if assert.Error(t, err) {
-		assert.Equal(t, orm.ErrModelNotInitialized.Error(), err.Error())
+	err := truncate(ormI)
+	if err != nil {
+		return err
 	}
 
-	err = customer.Initialize(&customer)
-	if assert.NoError(t, err) {
-		customer.SetStrategy("mock")
-		err = customer.Delete()
-
-		// error because the primary mandatory fields are empty
-		assert.Error(t, err)
-
-		// error because zero rows were affected
-		customer.ID = 5
-		err = customer.Delete()
+	// owners
+	_, err = b.Insert("owners").Columns("id", "name").Values([]map[string]interface{}{{"id": 1, "name": "John Doe"}, {"id": 2, "name": "Foo Bar"}}).Exec()
+	if err != nil {
+		return fmt.Errorf("owners: %w", err)
 	}
+
+	// cars
+	cars := []map[string]interface{}{
+		{"id": 1, "brand": "BMW", "owner_id": 1, "type": "M3", "year": 2000},
+		{"id": 2, "brand": "Mercedes", "owner_id": 2, "type": "SLK", "year": 2001},
+	}
+	_, err = b.Insert("cars").Columns("id", "brand", "owner_id", "type", "year").Values(cars).Exec()
+	if err != nil {
+		return fmt.Errorf("cars: %w", err)
+	}
+
+	// drivers
+	drivers := []map[string]interface{}{
+		{"id": 1, "name": "Pat"},
+		{"id": 2, "name": "Tom"},
+		{"id": 3, "name": "Marc"},
+	}
+	_, err = b.Insert("drivers").Columns("id", "name").Values(drivers).Exec()
+	if err != nil {
+		return fmt.Errorf("drivers: %w", err)
+	}
+
+	// owner hasMany
+	carDriversMap := []map[string]interface{}{
+		{"car_id": 1, "driver_id": 1},
+		{"car_id": 1, "driver_id": 2},
+		{"car_id": 2, "driver_id": 3},
+	}
+	_, err = b.Insert("car_drivers").Columns("car_id", "driver_id").Values(carDriversMap).Exec()
+	if err != nil {
+		return fmt.Errorf("car_drivers: %w", err)
+	}
+
+	// components
+	components := []map[string]interface{}{
+		{"id": 1, "car_id": 1, "car_type": "radio", "brand": "AEG", "note": "Bass"},
+		{"id": 2, "car_id": 1, "car_type": "liquid", "brand": "Molly", "note": "cheap"},
+		{"id": 3, "car_id": 2, "car_type": "liquid", "brand": "Molly", "note": "cheap"},
+	}
+	_, err = b.Insert("components").Columns("id", "car_id", "car_type", "brand", "note").Values(components).Exec()
+	if err != nil {
+		return fmt.Errorf("components: %w", err)
+	}
+
+	// roles
+	roles := []map[string]interface{}{
+		{"id": 1, "name": "Admin"},
+		{"id": 2, "name": "Writer"},
+		{"id": 3, "name": "User"},
+		{"id": 4, "name": "Guest"},
+	}
+	_, err = b.Insert("roles").Columns("id", "name").Values(roles).Exec()
+	if err != nil {
+		return fmt.Errorf("roles: %w", err)
+	}
+
+	// roles
+	rolesMap := []map[string]interface{}{
+		{"role_id": 1, "child_id": 2},
+		{"role_id": 1, "child_id": 3},
+		{"role_id": 2, "child_id": 3},
+	}
+	_, err = b.Insert("role_roles").Columns("role_id", "child_id").Values(rolesMap).Exec()
+	if err != nil {
+		return fmt.Errorf("role_roles: %w", err)
+	}
+
+	return nil
 }
 
-func TestModel_Count(t *testing.T) {
-	customer := Customerfk{}
+type car struct {
+	orm.Model
 
-	// not initialized
-	count, err := customer.Count(nil)
-	assert.Error(t, err)
-	assert.Equal(t, 0, count)
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+
+	Brand string `orm:"permission:w"`
+
+	// relation tests (belongsTo, m2m, hasMany)
+	Owner  *owner    `orm:"relation:belongsTo"`
+	Driver []*driver `orm:"relation:m2m"`
+	Wheels []wheel   `orm:"permission:w"`
+
+	// polymorphic tests (hasOne, hasMany)
+	Radio  radio    `orm:"polymorphic:Car;polymorphic_value:radio"`
+	Liquid []liquid `orm:"polymorphic:Car;polymorphic_value:liquid"`
+}
+type carWithoutCache struct {
+	orm.Model
+
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+}
+
+func (c carWithoutCache) DefaultTableName() string {
+	return "cars"
+}
+func (c carWithoutCache) DefaultCache() (cache.Interface, time.Duration, error) {
+	return nil, 0, nil
+}
+
+type carBackRef struct {
+	orm.Model
+
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+	Owner   *ownerBackRef `orm:"relation:belongsTo;fk:OwnerID"`
+}
+
+func (c carBackRef) DefaultTableName() string {
+	return "cars"
+}
+
+type ownerBackRef struct {
+	orm.Model
+
+	ID   int
+	Name orm.NullString
+
+	// relation test hasOne
+	Car *carBackRef `orm:"afk:OwnerID"`
+}
+
+func (o ownerBackRef) DefaultTableName() string {
+	return "owners"
+}
+
+type owner struct {
+	orm.Model
+
+	ID   int
+	Name orm.NullString
+
+	// relation test hasOne
+	//Car *car
+}
+
+type driver struct {
+	orm.Model
+
+	ID   int
+	Name orm.NullString
+	//Car  []*car `orm:"relation:m2m;join_table:car_drivers;"`
+}
+
+type wheel struct {
+	orm.Model
+
+	ID    int
+	Brand orm.NullString
+	Note  orm.NullString
+
+	CarID int
+}
+type radio struct {
+	orm.Model
+	Component
+}
+
+func (r radio) DefaultTableName() string {
+	return "components"
+}
+
+type liquid struct {
+	orm.Model
+	Component
+}
+
+func (l liquid) DefaultTableName() string {
+	return "components"
+}
+
+type Component struct {
+	ID    int
+	Brand orm.NullString
+	Note  orm.NullString
+
+	CarID   int
+	CarType string
+}
+
+type carNoBuilder struct {
+	orm.Model
+
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+}
+
+func (c carNoBuilder) DefaultBuilder() sqlquery.Builder {
+	return sqlquery.Builder{}
+}
+
+type carNoTableName struct {
+	orm.Model
+
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+}
+
+func (c carNoTableName) DefaultTableName() string {
+	return ""
+}
+func (c carNoTableName) DefaultDatabaseName() string {
+	return ""
+}
+
+type carErrCache struct {
+	orm.Model
+
+	ID      orm.NullInt `orm:"select:id"`
+	OwnerID orm.NullInt
+}
+
+func (c carErrCache) DefaultCache() (cache.Interface, time.Duration, error) {
+	return orm.GlobalCache, 6 * time.Hour, errors.New("cache error")
+}
+
+func TestModel_Init(t *testing.T) {
+	test := assert.New(t)
 
 	// ok
-	err = customer.Initialize(&customer)
+	c := &car{}
+	err := c.Init(c)
+	c.Liquid = append(c.Liquid, liquid{})
+	test.NoError(err)
+	test.Equal("orm_test.car", c.Scope().Name(true))
+	test.Equal(c, c.Scope().Caller())
+	test.True(len(c.Scope().Fields(orm.Permission{})) > 0)
+	test.True(len(c.Scope().Relations(orm.Permission{})) > 0)
+	id, err := c.Scope().Field("ID")
+	test.NoError(err)
+	id.Permission = orm.Permission{Read: true, Write: false}
+	test.Equal(orm.Permission{Read: true, Write: false}, id.Permission)
+
+	// ok from cache
+	cCache := &car{}
+	err = cCache.Init(cCache)
+	test.NoError(err)
+	test.Equal("orm_test.car", c.Scope().Name(true))
+	test.Equal(cCache, cCache.Scope().Caller())
+	test.True(len(cCache.Scope().Fields(orm.Permission{})) > 0)
+	test.True(len(cCache.Scope().Relations(orm.Permission{})) > 0)
+	test.False(len(cCache.Liquid) == 1)
+	id, err = c.Scope().Field("ID")
+	test.NoError(err)
+	test.Equal(orm.Permission{Read: true, Write: true}, id.Permission)
+
+	// error no cache is defined
+	c2 := &carWithoutCache{}
+	err = c2.Init(c2)
+	test.Error(err)
+
+	// no pointer value is set
+	c = &car{}
+	err = c.Init(nil)
+	test.Error(err)
+
+	// no builder is given
+	cBuilder := &carNoBuilder{}
+	err = cBuilder.Init(cBuilder)
+	test.Error(err)
+
+	// no tablename or database name is given
+	cTable := &carNoTableName{}
+	err = cTable.Init(cTable)
+	test.Error(err)
+}
+
+func TestModel_Scope(t *testing.T) {
+	c := car{}
+	err := c.Init(&c)
 	assert.NoError(t, err)
-	count, err = customer.Count(nil)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, count)
+	assert.IsType(t, &orm.Scope{}, c.Scope())
 }
 
-func TestModel_Table(t *testing.T) {
-
-}
-
-/*
-type Common struct {
-	DeletedAt sqlquery.NullTime
-}
-
-type Global struct {
-	Model
-
-	ID   int
-	Test sqlquery.NullString
-	//UserID User
-}
-
-type Post struct {
-	Model
-
-	ID   int
-	Post null.String
-	//UserID User
-}
-
-type History struct {
-	Model
-
-	ID     int
-	UserID int
-	Text   null.String
-}
-
-type Address struct {
-	Model
-
-	ID      int
-	UserID  int
-	Street  null.String
-	Zip     null.Int
-	Country null.String
-
-	//User   User // BelongsTo
-}
-
-type User struct {
-	Model
-
-	ID          int `orm:"column:id;permission:rw"`
-	Name        string
-	notExported bool
-
-	Adr      Address    //`fk:"table:"` //hasOne
-	History  []*History //hasmany
-	Posts    []Post     //m2m (auto check if user_posts table + 2 fields user_id, post_id), or defined in tag
-	Global   *Global
-	GlobalId int
-
-	Common
-}
-
-func TestModel_Initialize(t *testing.T) {
-
-	var err error
-	GlobalBuilder, err = helperBuilderMysql()
+func TestModel_SetWBList(t *testing.T) {
+	c := car{}
+	err := c.Init(&c)
 	assert.NoError(t, err)
 
-	start := time.Now()
-	u := User{}
-	err2 := u.Initialize(&u)
-	fmt.Println(u.SoftDelete())
+	// no list is defined
+	p, f := c.WBList()
+	assert.Equal(t, orm.WHITELIST, p)
+	assert.Equal(t, []string(nil), f)
 
-	assert.NoError(t, err2)
+	// defined list
+	c.SetWBList(orm.BLACKLIST, "ID")
+	p, f = c.WBList()
+	assert.Equal(t, orm.BLACKLIST, p)
+	assert.Equal(t, []string{"ID"}, f)
+}
 
-	fmt.Println(u.table.Associations["Adr"])
-	elapsed := time.Since(start)
-	fmt.Println("INIT took ", elapsed)
+func TestModel_Cache_SetCache(t *testing.T) {
+	c := car{}
 
-	fmt.Println("-----------------------")
+	// err orm is not init
+	cache, ttl, err := c.Cache()
+	assert.Equal(t, time.Duration(0), ttl)
+	assert.Equal(t, nil, cache)
+	assert.Error(t, err)
 
-	start = time.Now()
-	u2 := User{}
-	err2 = u2.Initialize(&u2)
-	elapsed = time.Since(start)
-	fmt.Println("Cache took ", elapsed)
-
-	//Global
-	assert.Equal(t, BelongsTo, u2.table.Associations["Global"].Type)
-	assert.Equal(t, "users", u2.table.Associations["Global"].StructTable.Information.Table)
-	assert.Equal(t, "global_id", u2.table.Associations["Global"].StructTable.Information.Name)
-	assert.Equal(t, "globals", u2.table.Associations["Global"].AssociationTable.Information.Table)
-	assert.Equal(t, "id", u2.table.Associations["Global"].AssociationTable.Information.Name)
-
-	//Address
-	assert.Equal(t, HasOne, u2.table.Associations["Adr"].Type)
-	assert.Equal(t, "users", u2.table.Associations["Adr"].StructTable.Information.Table)
-	assert.Equal(t, "id", u2.table.Associations["Adr"].StructTable.Information.Name)
-	assert.Equal(t, "addresses", u2.table.Associations["Adr"].AssociationTable.Information.Table)
-	assert.Equal(t, "user_id", u2.table.Associations["Adr"].AssociationTable.Information.Name)
-
-	//HistoryID
-	assert.Equal(t, HasMany, u2.table.Associations["History"].Type)
-	assert.Equal(t, "users", u2.table.Associations["History"].StructTable.Information.Table)
-	assert.Equal(t, "id", u2.table.Associations["History"].StructTable.Information.Name)
-	assert.Equal(t, "histories", u2.table.Associations["History"].AssociationTable.Information.Table)
-	assert.Equal(t, "user_id", u2.table.Associations["History"].AssociationTable.Information.Name)
-
-	// Posts
-	assert.Equal(t, ManyToMany, u2.table.Associations["Posts"].Type)
-	assert.Equal(t, "users", u2.table.Associations["Posts"].StructTable.Information.Table)
-	assert.Equal(t, "id", u2.table.Associations["Posts"].StructTable.Information.Name)
-	assert.Equal(t, "posts", u2.table.Associations["Posts"].AssociationTable.Information.Table)
-	assert.Equal(t, "id", u2.table.Associations["Posts"].AssociationTable.Information.Name)
-	assert.Equal(t, "user_posts", u2.table.Associations["Posts"].JunctionTable.Table)
-	assert.Equal(t, "user_id", u2.table.Associations["Posts"].JunctionTable.StructColumn)
-	assert.Equal(t, "post_id", u2.table.Associations["Posts"].JunctionTable.AssociationColumn)
-
-	fmt.Println(u.SoftDelete())
-	assert.NoError(t, err2)
-
-	fmt.Println("-----------------------")
-
-	start = time.Now()
-	u3 := User{}
-	err3 := u3.Initialize(&u3)
-	assert.Equal(t, 0, u3.ID)
-
-	err = u3.First(nil)
-	assert.Equal(t, 1, u3.ID)
-
-	assert.Equal(t, 1, u3.Adr.ID)
-	assert.Equal(t, 1, u3.Adr.UserID)
-	assert.Equal(t, "Obere Feld", u3.Adr.Street.String)
-	assert.Equal(t, int64(6500), u3.Adr.Zip.Int64)
-	assert.Equal(t, "AT", u3.Adr.Country.String)
-
-	assert.Equal(t, 1, u3.Global.ID)
-	assert.Equal(t, "test", u3.Global.Test.String)
-
-	assert.Equal(t, 2, len(u3.Posts))
-
+	err = c.Init(&c)
 	assert.NoError(t, err)
 
-	elapsed = time.Since(start)
-	fmt.Println("Cache took ", elapsed)
-
-	//Global
-	assert.Equal(t, BelongsTo, u3.table.Associations["Global"].Type)
-	assert.Equal(t, "users", u3.table.Associations["Global"].StructTable.Information.Table)
-	assert.Equal(t, "global_id", u3.table.Associations["Global"].StructTable.Information.Name)
-	assert.Equal(t, "globals", u3.table.Associations["Global"].AssociationTable.Information.Table)
-	assert.Equal(t, "id", u3.table.Associations["Global"].AssociationTable.Information.Name)
-
-	//Address
-	assert.Equal(t, HasOne, u3.table.Associations["Adr"].Type)
-	assert.Equal(t, "users", u3.table.Associations["Adr"].StructTable.Information.Table)
-	assert.Equal(t, "id", u3.table.Associations["Adr"].StructTable.Information.Name)
-	assert.Equal(t, "addresses", u3.table.Associations["Adr"].AssociationTable.Information.Table)
-	assert.Equal(t, "user_id", u3.table.Associations["Adr"].AssociationTable.Information.Name)
-
-	//HistoryID
-	assert.Equal(t, HasMany, u3.table.Associations["History"].Type)
-	assert.Equal(t, "users", u3.table.Associations["History"].StructTable.Information.Table)
-	assert.Equal(t, "id", u3.table.Associations["History"].StructTable.Information.Name)
-	assert.Equal(t, "histories", u3.table.Associations["History"].AssociationTable.Information.Table)
-	assert.Equal(t, "user_id", u3.table.Associations["History"].AssociationTable.Information.Name)
-
-	// Posts
-	assert.Equal(t, ManyToMany, u3.table.Associations["Posts"].Type)
-	assert.Equal(t, "users", u3.table.Associations["Posts"].StructTable.Information.Table)
-	assert.Equal(t, "id", u3.table.Associations["Posts"].StructTable.Information.Name)
-	assert.Equal(t, "posts", u3.table.Associations["Posts"].AssociationTable.Information.Table)
-	assert.Equal(t, "id", u3.table.Associations["Posts"].AssociationTable.Information.Name)
-	assert.Equal(t, "user_posts", u3.table.Associations["Posts"].JunctionTable.Table)
-	assert.Equal(t, "user_id", u3.table.Associations["Posts"].JunctionTable.StructColumn)
-	assert.Equal(t, "post_id", u3.table.Associations["Posts"].JunctionTable.AssociationColumn)
-
-	fmt.Println(u.SoftDelete())
-	assert.NoError(t, err3)
-
-	var users []User
-	test3 := User{}
-	err4 := test3.Initialize(&test3)
-	if assert.NoError(t, err4) {
-		err5 := test3.All(&users, nil)
-		assert.NoError(t, err5)
-
-		assert.Equal(t, 2, len(users))
-
-		assert.Equal(t, 1, users[0].ID)
-		assert.Equal(t, "Wall-E", users[0].Name)
-		assert.Equal(t, 2, len(users[0].Posts))
-		assert.Equal(t, "Obere Feld", users[0].Adr.Street.String)
-		assert.Equal(t, "test", users[0].Global.Test.String)
-		assert.Equal(t, 2, len(users[0].History))
-
-		assert.Equal(t, 3, users[1].ID)
-		assert.Equal(t, "Ascher", users[1].Name)
-		assert.Equal(t, 1, len(users[1].Posts))
-		//assert.Equal(t,(*Address)(nil), reflect.ValueOf(users[1].Adr).IsNil())
-		assert.Equal(t, "3test3", users[1].Global.Test.String)
-		assert.Equal(t, 0, len(users[1].History))
-		fmt.Println(users[0])
-		fmt.Println(users[1])
-
-	}
-
-	// create user
-	createUser := &User{}
-	err = createUser.Initialize(createUser)
+	// ok
+	cache, ttl, err = c.Cache()
 	assert.NoError(t, err)
-	createUser.Name = "LOL"
-	createUser.GlobalId = 1
+	assert.Equal(t, 6*time.Hour, ttl)
+	// set cache error model already init
+	err = c.SetCache(cache, ttl)
+	assert.Error(t, err)
 
-	//createUser.Global = &Global{}
-	//createUser.Global.Test = null.StringFrom("Test3")
-
-	createUser.History = append(createUser.History, &History{Text: null.StringFrom("#H1")})
-	createUser.History = append(createUser.History, &History{Text: null.StringFrom("#H2")})
-
-	createUser.Posts = append(createUser.Posts, Post{Post: null.StringFrom("azebenja")})
-	createUser.Posts = append(createUser.Posts, Post{})
-
-	err = createUser.Create()
+	// no cache
+	cNoCache := carWithoutCache{}
+	err = cNoCache.Init(&cNoCache)
+	assert.Error(t, err)
+	// set cache - error cache is nil
+	err = cNoCache.SetCache(nil, ttl)
+	assert.Error(t, err)
+	// set cache - ttl is 0
+	// 0 is infinity, so its allowed
+	err = cNoCache.SetCache(cache, 0)
+	assert.NoError(t, err)
+	// set cache - object was not init before
+	err = cNoCache.SetCache(cache, ttl)
+	assert.NoError(t, err)
+	// init now ok
+	err = cNoCache.Init(&cNoCache)
 	assert.NoError(t, err)
 
-	fmt.Println(createUser)
+	// err on default cache
+	cErrCache := carErrCache{}
+	err = cErrCache.Init(&cErrCache)
+	assert.Error(t, err)
+
+}
+
+func TestModel_First(t *testing.T) {
+	// create db entries
+	err := createEntries(&Role{})
+	assert.NoError(t, err)
+
+	c := car{}
+	// err - not initialized
+	err = c.First(nil)
+	assert.Error(t, err)
+
+	// init
+	err = c.Init(&c)
+	assert.NoError(t, err)
+
+	// fetch first
+	err = c.First(nil)
+	assert.NoError(t, err)
+	assert.True(t, c.ID.Int64 != 0)
+
+	err = truncate(&Role{})
+	assert.NoError(t, err)
+}
+
+func TestModel_All(t *testing.T) {
+	// create db entries
+	err := createEntries(&Role{})
+	assert.NoError(t, err)
+
+	c := car{}
+	var cRes []car
+	// err - not initialized
+	err = c.All(&cRes, nil)
+	assert.Error(t, err)
+
+	// init
+	err = c.Init(&c)
+	assert.NoError(t, err)
+
+	// err - result is nil
+	err = c.All(nil, nil)
+	assert.Error(t, err)
+
+	// err - result is no ptr
+	err = c.All(cRes, nil)
+	assert.Error(t, err)
+
+	// fetch all
+	err = c.All(&cRes, nil)
+	assert.NoError(t, err)
+	assert.True(t, len(cRes) > 0)
+}
+
+func TestModel_Create(t *testing.T) {
+	// create db entries
+	err := truncate(&Role{})
+	assert.NoError(t, err)
+
+	c := car{}
+
+	// err - not initialized
+	err = c.Create()
+	assert.Error(t, err)
+
+	// init
+	err = c.Init(&c)
+	assert.NoError(t, err)
+
+	// ok - no save action because its empty
+	err = c.Create()
+	assert.NoError(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
+
+	// err - brand is mandatory
+	c.ID = orm.NewNullInt(1)
+	err = c.Create()
+	assert.Error(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
+
+	// ok - brand is mandatory
+	c.Brand = "XY"
+	err = c.Create()
+	assert.NoError(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
 }
 
 func TestModel_Update(t *testing.T) {
-	// create user
-	updateUser := &User{}
-	err := updateUser.Initialize(updateUser)
-	assert.NoError(t, err)
-	updateUser.ID = 78
-	//updateUser.GlobalId=1
-	updateUser.Name = "aalfsdaa"
-	updateUser.Adr = Address{Street: null.StringFrom("updateds OBE")}
-	//	updateUser.Global = &Global{ID:56,Test:null.StringFrom("JOOH123O")}
-
-	updateUser.History = append(updateUser.History, &History{Text: null.StringFrom("aaaaaaa")})
-	updateUser.History = append(updateUser.History, &History{ID: 62, Text: null.StringFrom("bbbbbbb")})
-	updateUser.History = append(updateUser.History, &History{Text: null.StringFrom("cccccccc")})
-
-	updateUser.Posts = append(updateUser.Posts, Post{ID: 1000039, Post: null.StringFrom("test-a")})
-	updateUser.Posts = append(updateUser.Posts, Post{Post: null.StringFrom("test-b")})
-
-	err = updateUser.Update()
+	// create db entries
+	err := createEntries(&Role{})
 	assert.NoError(t, err)
 
-	c := &sqlquery.Condition{}
+	c := car{}
 
-	updateUser.First(c.Where("id = ?", 78))
-	fmt.Println(updateUser)
+	// err - not initialized
+	err = c.Update()
+	assert.Error(t, err)
 
+	// init
+	err = c.Init(&c)
+	assert.NoError(t, err)
+
+	// err - primary is not set
+	err = c.Update()
+	assert.Error(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
+
+	// err - brand is mandatory
+	c.ID = orm.NewNullInt(1)
+	err = c.Update()
+	assert.Error(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
+
+	// ok - brand is mandatory
+	c.Brand = "XY"
+	err = c.Update()
+	assert.NoError(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
+
+	// err - no changes
+	err = c.Update()
+	assert.Error(t, err)
+	assert.False(t, c.Scope().Builder().HasTx())
 }
 
 func TestModel_Delete(t *testing.T) {
-	// create user
-	createUser := &User{}
-	err := createUser.Initialize(createUser)
+	// create db entries
+	err := createEntries(&Role{})
 	assert.NoError(t, err)
-	createUser.ID = 80
-	err = createUser.Delete()
+
+	c := car{}
+
+	// err - not initialized
+	err = c.Delete()
+	assert.Error(t, err)
+
+	// init
+	err = c.Init(&c)
+	assert.NoError(t, err)
+
+	// err - not primaries set
+	err = c.Delete()
+	assert.Error(t, err)
+
+	//ok
+	c.ID = orm.NewNullInt(1)
+	err = c.Delete()
 	assert.NoError(t, err)
 
 }
-*/

@@ -2,11 +2,13 @@ package grid
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
 	"github.com/patrickascher/gofw/orm"
+	_ "github.com/patrickascher/gofw/orm/strategy"
 	"github.com/patrickascher/gofw/sqlquery"
 	_ "github.com/patrickascher/gofw/sqlquery/driver"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +41,7 @@ func TestGrid_Source(t *testing.T) {
 	cache, _ := cache.New("memory", memory.Options{GCInterval: 5 * time.Minute})
 	builder, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &builder
+	orm.GlobalBuilder = builder
 	c.SetCache(cache)
 
 	r := httptest.NewRequest("GET", "https://localhost/users?sort=ID,-FirstName&filter_ID=1", nil)
@@ -115,7 +117,7 @@ func TestGrid_Field_Relation(t *testing.T) {
 
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
@@ -174,13 +176,14 @@ func TestGrid_createFields(t *testing.T) {
 
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 8, len(g.fields))
+	fmt.Println(g.fields)
+	assert.Equal(t, 11, len(g.fields))
 
 	assert.Equal(t, "ID", g.fields["ID"].getTitle())
 	assert.Equal(t, "", g.fields["ID"].getDescription())
@@ -248,16 +251,16 @@ func TestGrid_createFields(t *testing.T) {
 	assert.True(t, g.fields["DeletedAt"].getFields() == nil)
 	assert.True(t, g.fields["DeletedAt"].getColumn() != nil)*/
 
-	assert.Equal(t, "AccountId", g.fields["AccountId"].getTitle())
-	assert.Equal(t, "", g.fields["AccountId"].getDescription())
-	assert.Equal(t, 7, g.fields["AccountId"].getPosition())
-	assert.Equal(t, false, g.fields["AccountId"].getHide())
-	assert.Equal(t, true, g.fields["AccountId"].getRemove())
-	assert.Equal(t, true, g.fields["AccountId"].getSort())
-	assert.Equal(t, true, g.fields["AccountId"].getFilter())
-	assert.Equal(t, "Integer", g.fields["AccountId"].getFieldType().Name())
-	assert.True(t, g.fields["AccountId"].getFields() == nil)
-	assert.True(t, g.fields["AccountId"].getColumn() != nil)
+	assert.Equal(t, "AccountID", g.fields["AccountID"].getTitle())
+	assert.Equal(t, "", g.fields["AccountID"].getDescription())
+	assert.Equal(t, 7, g.fields["AccountID"].getPosition())
+	assert.Equal(t, false, g.fields["AccountID"].getHide())
+	assert.Equal(t, true, g.fields["AccountID"].getRemove())
+	assert.Equal(t, true, g.fields["AccountID"].getSort())
+	assert.Equal(t, true, g.fields["AccountID"].getFilter())
+	assert.Equal(t, "Integer", g.fields["AccountID"].getFieldType().Name())
+	assert.True(t, g.fields["AccountID"].getFields() == nil)
+	assert.True(t, g.fields["AccountID"].getColumn() != nil)
 
 	assert.Equal(t, "Info", g.fields["Info"].getTitle())
 	assert.Equal(t, "", g.fields["Info"].getDescription())
@@ -292,7 +295,7 @@ func TestGrid_createFields(t *testing.T) {
 	assert.Equal(t, false, g.fields["Service"].getRemove())
 	assert.Equal(t, false, g.fields["Service"].getSort())
 	assert.Equal(t, true, g.fields["Service"].getFilter())
-	assert.Equal(t, "manyToMany", g.fields["Service"].getFieldType().Name())
+	assert.Equal(t, "m2m", g.fields["Service"].getFieldType().Name())
 	assert.Equal(t, 2, len(g.fields["Service"].getFields()))
 	assert.Equal(t, "ID", g.fields["Service"].getFields()["ID"].getTitle())
 	assert.Equal(t, "Name", g.fields["Service"].getFields()["Name"].getTitle())
@@ -317,7 +320,7 @@ func TestGrid_headerInfo(t *testing.T) {
 
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
@@ -341,7 +344,7 @@ func TestGrid_marshalModel(t *testing.T) {
 
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
@@ -393,7 +396,7 @@ func TestGrid_readOne(t *testing.T) {
 
 			b, err := HelperCreateBuilder()
 			assert.NoError(t, err)
-			orm.GlobalBuilder = &b
+			orm.GlobalBuilder = b
 
 			cust := Customerfk{}
 			err = g.SetSource(&cust, nil)
@@ -401,7 +404,8 @@ func TestGrid_readOne(t *testing.T) {
 
 			c := sqlquery.Condition{}
 			c.Where("id = ?", 1)
-			g.readOne(&c)
+			err = g.readOne(&c)
+			assert.NoError(t, err)
 
 			assert.Equal(t, 1, cust.ID)
 			assert.True(t, g.controller.Context().Response.Data("data") != nil)
@@ -423,13 +427,14 @@ func TestGrid_readAll(t *testing.T) {
 
 			b, err := HelperCreateBuilder()
 			assert.NoError(t, err)
-			orm.GlobalBuilder = &b
+			orm.GlobalBuilder = b
 
 			cust := Customerfk{}
 			err = g.SetSource(&cust, nil)
 			assert.NoError(t, err)
 
-			g.readAll()
+			err = g.readAll()
+			assert.NoError(t, err)
 
 			counter := reflect.ValueOf(g.controller.Context().Response.Data("data").(*[]Customerfk)).Elem().Interface().([]Customerfk)
 			assert.Equal(t, 5, len(counter))
@@ -453,7 +458,7 @@ func TestGrid_delete(t *testing.T) {
 
 			b, err := HelperCreateBuilder()
 			assert.NoError(t, err)
-			orm.GlobalBuilder = &b
+			orm.GlobalBuilder = b
 
 			cust := Customerfk{}
 			err = g.SetSource(&cust, nil)
@@ -468,13 +473,7 @@ func TestGrid_delete(t *testing.T) {
 			c = sqlquery.Condition{}
 			count, err := g.src.Count(&c)
 			assert.NoError(t, err)
-			assert.Equal(t, 5, count)
-
-			c = sqlquery.Condition{}
-			c.Where("id = ?", 1)
-			err = g.readOne(&c)
-			assert.NoError(t, err)
-			assert.True(t, cust.DeletedAt.Valid)
+			assert.Equal(t, 4, count)
 
 		}
 	}
@@ -491,7 +490,7 @@ func TestGrid_create(t *testing.T) {
 
 		b, err := HelperCreateBuilder()
 		assert.NoError(t, err)
-		orm.GlobalBuilder = &b
+		orm.GlobalBuilder = b
 
 		cust := Customerfk{}
 		err = g.SetSource(&cust, nil)
@@ -515,7 +514,7 @@ func TestGrid_update(t *testing.T) {
 
 			b, err := HelperCreateBuilder()
 			assert.NoError(t, err)
-			orm.GlobalBuilder = &b
+			orm.GlobalBuilder = b
 
 			cust := Customerfk{}
 			err = g.SetSource(&cust, nil)
@@ -537,7 +536,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust := Customerfk{}
 	err = g.SetSource(&cust, nil)
@@ -552,7 +551,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err = HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust2 := Customerfk{}
 	err = g.SetSource(&cust2, nil)
@@ -568,7 +567,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err = HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust3 := Customerfk{}
 	err = g.SetSource(&cust3, nil)
@@ -584,7 +583,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err = HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust4 := Customerfk{}
 	err = g.SetSource(&cust4, nil)
@@ -599,7 +598,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err = HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust5 := Customerfk{}
 	err = g.SetSource(&cust5, nil)
@@ -614,7 +613,7 @@ func TestGrid_Render(t *testing.T) {
 
 	b, err = HelperCreateBuilder()
 	assert.NoError(t, err)
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 
 	cust6 := Customerfk{}
 	err = g.SetSource(&cust6, nil)

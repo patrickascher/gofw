@@ -34,7 +34,7 @@ type Interface interface {
 	setJsonName(string)
 	getJsonName() string
 
-	getColumn() *orm.Column
+	getColumn() *orm.Field
 	getFields() map[string]Interface
 
 	getCallback() reflect.Value
@@ -72,11 +72,10 @@ type common struct {
 	sort   bool
 
 	fieldType FieldType
-	view      *value
 
-	column      *orm.Column
+	column      *orm.Field
 	jsonName    string
-	association *orm.Association
+	association *orm.Relation
 
 	callback     reflect.Value
 	callbackArgs []interface{}
@@ -162,7 +161,7 @@ func (c *common) setFieldType(f FieldType) {
 	c.fieldType = f
 }
 
-func (c *common) getColumn() *orm.Column {
+func (c *common) getColumn() *orm.Field {
 	return c.column
 }
 
@@ -266,7 +265,7 @@ func (f *field) getFields() map[string]Interface {
 
 // getFieldName returns the struct field name
 func (f *field) getFieldName() string {
-	return f.getColumn().StructField
+	return f.getColumn().Name
 }
 
 func (f *field) SetCallback(fn interface{}, args ...interface{}) {

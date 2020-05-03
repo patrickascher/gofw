@@ -138,7 +138,7 @@ func (g *Grid) SetSource(m orm.Interface, condition *sqlquery.Condition) error {
 	g.srcCondition = condition
 
 	// init model
-	err := m.Initialize(m)
+	err := m.Init(m)
 	if err != nil {
 		return err
 	}
@@ -295,7 +295,14 @@ func (g *Grid) Render() {
 		field := reflect.Indirect(reflect.ValueOf(g.src)).FieldByName(p[0])
 		if field.IsValid() {
 			fieldType := reflect.TypeOf(field.Interface())
-			modelType := orm.NewInstanceFromType(fieldType)
+
+			modelScope, err := g.src.Scope().NewScopeFromType(fieldType)
+			if err != nil {
+				g.controller.Error(500, err.Error())
+				return
+			}
+			modelType := reflect.Indirect(reflect.ValueOf(modelScope.Caller()))
+
 			method := modelType.Addr().MethodByName(fn[0])
 			// CHECK if method exists
 			if method.IsValid() {
@@ -351,35 +358,41 @@ func (g *Grid) Render() {
 		selectField := reflect.Indirect(reflect.ValueOf(g.src)).FieldByName(val[0])
 		selectFieldType := reflect.TypeOf(selectField.Interface())
 
-		modelType := orm.NewInstanceFromType(selectFieldType)
+		modelScope, err := g.src.Scope().NewScopeFromType(selectFieldType)
+		if err != nil {
+			g.controller.Error(500, err.Error())
+			return
+		}
+		modelType := reflect.Indirect(reflect.ValueOf(modelScope.Caller()))
+
 		model := modelType.Addr().Interface().(orm.Interface)
 
-		err = model.SetCache(g.controller.Cache(), 0)
+		/*err = model.SetCache(g.controller.Cache(), 0)
 		if err != nil {
 			g.controller.Error(500, err.Error())
 			return
 		}
-		err = model.Initialize(model)
+		err = model.Init(model)
 		if err != nil {
 			g.controller.Error(500, err.Error())
 			return
 		}
-
+		*/
 		resultSet := reflect.New(reflect.MakeSlice(reflect.SliceOf(modelType.Type()), 0, 0).Type()).Interface()
-		model.SetWhitelist(valueKey[0], textKey[0])
+		model.SetWBList(orm.WHITELIST, valueKey[0], textKey[0])
 
 		c := sqlquery.Condition{}
-		pkey := g.src.Table().PrimaryKeys() // TODO: what if more pkeys? not possible in M2M?
-		id, err := g.controller.Context().Request.Param(pkey[0].StructField)
+		pkey := g.src.Scope().PrimaryKeys() // TODO: what if more pkeys? not possible in M2M?
+		id, err := g.controller.Context().Request.Param(pkey[0].Name)
 		if err == nil {
-			for name, rel := range g.src.Table().Associations {
-				if name == val[0] && rel.Type == orm.ManyToManySR {
+			for _, rel := range g.src.Scope().Relations(orm.Permission{Read: true}) {
+				if rel.Field == val[0] && rel.Kind == orm.ManyToMany {
 					i, err := strconv.Atoi(id[0]) // TODO: what if a id is not an int?
 					if err != nil {
 						g.controller.Error(500, err.Error())
 						return
 					}
-					ids, err := whereIDLoop(i, rel.JunctionTable.Table, rel.JunctionTable.StructColumn, rel.JunctionTable.AssociationColumn)
+					ids, err := whereIDLoop(i, rel.JoinTable.Name, rel.JoinTable.ForeignKey, rel.JoinTable.AssociationForeignKey)
 					ids = append(ids, i)
 					if err != nil {
 						g.controller.Error(500, err.Error())
@@ -402,11 +415,11 @@ func (g *Grid) Render() {
 	case ViewGrid: // readAll
 		// callback before
 		if !g.disableCallback {
-			err := orm.CallMethodIfExist(g.src, []string{"GridBeforeViewAll", "GridBeforeView"}, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//	err := orm.CallMethodIfExist(g.src, []string{"GridBeforeViewAll", "GridBeforeView"}, g)
+			//	if err != nil {
+			//		g.controller.Error(500, err.Error())
+			//		return
+			//	}
 		}
 
 		err := g.readAll()
@@ -417,20 +430,20 @@ func (g *Grid) Render() {
 
 		// callback after
 		if !g.disableCallback {
-			err = orm.CallMethodIfExist(g.src, []string{"GridAfterViewAll", "GridAfterView"}, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//	err = orm.CallMethodIfExist(g.src, []string{"GridAfterViewAll", "GridAfterView"}, g)
+			//	if err != nil {
+			//		g.controller.Error(500, err.Error())
+			//		return
+			//	}
 		}
 	case ViewCreate: // readOne
 		// callback before
 		if !g.disableCallback {
-			err := orm.CallMethodIfExist(g.src, []string{"GridBeforeViewCreate", "GridBeforeView"}, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//	err := orm.CallMethodIfExist(g.src, []string{"GridBeforeViewCreate", "GridBeforeView"}, g)
+			//	if err != nil {
+			//		g.controller.Error(500, err.Error())
+			//		return
+			//	}
 		}
 		if g.config.Action.New.Disable {
 			g.controller.Error(500, ErrAction.Error())
@@ -441,28 +454,28 @@ func (g *Grid) Render() {
 
 		// callback after
 		if !g.disableCallback {
-			err := orm.CallMethodIfExist(g.src, []string{"GridAfterViewCreate", "GridAfterView"}, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//	err := orm.CallMethodIfExist(g.src, []string{"GridAfterViewCreate", "GridAfterView"}, g)
+			//	if err != nil {
+			//		g.controller.Error(500, err.Error())
+			//		return
+			//	}
 		}
 	case ViewEdit, ViewDetails: // readOne
 
-		callbacksBefore := []string{"GridBeforeViewDetails", "GridBeforeView"}
-		callbacksAfter := []string{"GridAfterViewDetails", "GridAfterView"}
+		//callbacksBefore := []string{"GridBeforeViewDetails", "GridBeforeView"}
+		//callbacksAfter := []string{"GridAfterViewDetails", "GridAfterView"}
 		if !g.disableCallback {
-			if mode == ViewEdit {
-				callbacksBefore = []string{"GridBeforeViewEdit", "GridBeforeView"}
-				callbacksAfter = []string{"GridAfterViewEdit", "GridAfterView"}
-			}
+			//if mode == ViewEdit {
+			//	callbacksBefore = []string{"GridBeforeViewEdit", "GridBeforeView"}
+			//	callbacksAfter = []string{"GridAfterViewEdit", "GridAfterView"}
+			//}
 
 			// callback before
-			err := orm.CallMethodIfExist(g.src, callbacksBefore, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//err := orm.CallMethodIfExist(g.src, callbacksBefore, g)
+			//if err != nil {
+			//	g.controller.Error(500, err.Error())
+			//	return
+			//}
 		}
 
 		if g.config.Action.Edit.Disable {
@@ -478,7 +491,7 @@ func (g *Grid) Render() {
 		}
 
 		// request data
-		g.src.DisableCustomSql(true) // only has to get disabled here, in the other orm modes its not getting used.
+		//g.src.DisableCustomSql(true) // only has to get disabled here, in the other orm modes its not getting used.
 		err = g.readOne(c)
 		if err != nil {
 			g.controller.Error(500, err.Error())
@@ -487,11 +500,11 @@ func (g *Grid) Render() {
 
 		// callback after
 		if !g.disableCallback {
-			err = orm.CallMethodIfExist(g.src, callbacksAfter, g)
-			if err != nil {
-				g.controller.Error(500, err.Error())
-				return
-			}
+			//	err = orm.CallMethodIfExist(g.src, callbacksAfter, g)
+			//	if err != nil {
+			//		g.controller.Error(500, err.Error())
+			//		return
+			//	}
 		}
 	case CREATE: // create entry
 		err := g.create()
@@ -550,26 +563,26 @@ func getRelationName(v reflect.Value) string {
 func (g *Grid) createFields(m orm.Interface, parent *relation) error {
 
 	//Columns
-	orm.SetDefaultPermission(m, true)
-
-	for _, col := range m.Table().Columns(orm.READVIEW) {
+	//orm.SetDefaultPermission(m, true)
+	tmpFields := m.Scope().Fields(orm.Permission{Read: true})
+	for k, col := range tmpFields {
 
 		field := defaultField(g)
-		field.setTitle(col.StructField)
+		field.setTitle(col.Name)
 		// Hide autoincrement field in create and update. Also hide fk fields.
-		if col.Information.Autoincrement == true || (parent != nil && parent.association.AssociationTable.StructField == col.StructField) {
+		if col.Information.Autoincrement == true || (parent != nil && parent.association.AssociationForeignKey.Name == col.Name) {
 			field.hide.set(true)
 			//field.hide.Create(true).Edit(true)
 		}
 		field.setPosition(col.Information.Position)
 		field.getFieldType().SetName(col.Information.Type.Kind())
 
-		if reflect.ValueOf(m).MethodByName("GridCallback" + col.StructField).IsValid() {
-			field.SetCallback("GridCallback" + col.StructField)
+		if reflect.ValueOf(m).MethodByName("GridCallback" + col.Name).IsValid() {
+			field.SetCallback("GridCallback" + col.Name)
 		}
 
 		// set default fieldName (json name tag)
-		f, ok := reflect.TypeOf(m).Elem().FieldByName(col.StructField)
+		f, ok := reflect.TypeOf(m).Elem().FieldByName(col.Name)
 		if ok {
 			jsonTagName := jsonTagName(f.Tag.Get("json"))
 			if jsonTagName != "" {
@@ -578,22 +591,22 @@ func (g *Grid) createFields(m orm.Interface, parent *relation) error {
 		}
 
 		// disable sort und filter on custom types
-		if col.Information.Type.Kind() == orm.CustomImpl {
-			field.SetFilter(false).SetSort(false)
-		}
+		//if col.Information.Type.Kind() == orm.CustomImpl {
+		//	field.SetFilter(false).SetSort(false)
+		//}
 
 		// setReadOnly
 		if col.Permission.Read == true && col.Permission.Write == false {
 			field.SetReadOnly(true)
 		}
 
-		field.column = col // adding column, maybe we need some reference later on. TODO check if needed
+		field.column = &tmpFields[k] // adding column, maybe we need some reference later on. TODO check if needed
 
 		// add field to grid fields
 		if parent != nil {
-			parent.fields[col.StructField] = field
+			parent.fields[col.Name] = field
 		} else {
-			g.fields[col.StructField] = field
+			g.fields[col.Name] = field
 		}
 	}
 
@@ -601,44 +614,53 @@ func (g *Grid) createFields(m orm.Interface, parent *relation) error {
 	// relations are getting a high position number to not interfere with the normal fields.
 	// The position will get normalized later again.
 	positionRelation := relationCounter
-	for fieldName, rel := range m.Table().Associations {
+	for _, rel := range m.Scope().Relations(orm.Permission{Read: true}) {
 
-		if parent != nil && parent.skipRelation == fieldName {
+		if parent != nil && parent.skipRelation == rel.Field {
 			continue // self reference infinity loop TODO better solution...
 		}
 
 		r := defaultRelation(g)
-		r.setTitle(fieldName)
+		r.setTitle(rel.Field)
 		r.setPosition(positionRelation)
 
-		nv := orm.NewInstanceFromType(reflect.ValueOf(m).Elem().FieldByName(fieldName).Type())
+		modelScope, err := g.src.Scope().NewScopeFromType(reflect.ValueOf(m).Elem().FieldByName(rel.Field).Type())
+		if err != nil {
+			return err
+		}
+		nv := reflect.Indirect(reflect.ValueOf(modelScope.Caller()))
+
 		customFieldType := nv.Addr().MethodByName("GridFieldType")
 		if customFieldType.IsValid() {
 			in := make([]reflect.Value, 1)
 			in[0] = reflect.ValueOf(g)
 			r.setFieldType(customFieldType.Call(in)[0].Interface().(FieldType))
 		} else {
-			r.getFieldType().SetName(rel.Type)
+			r.getFieldType().SetName(rel.Kind)
 		}
 
-		r.setFieldName(fieldName)
+		r.setFieldName(rel.Field)
 
-		r.association = rel // needed to automatically hide some relation fields
+		r.association = &rel // needed to automatically hide some relation fields
 		positionRelation++
 
 		// checking if relation field exists
-		rv := reflect.Indirect(reflect.ValueOf(m)).FieldByName("caller").Elem().Elem().FieldByName(fieldName)
+		rv := reflect.Indirect(reflect.ValueOf(m)).FieldByName("caller").Elem().Elem().FieldByName(rel.Field)
 		if !rv.IsValid() {
 			continue
 		}
 
 		// check if field Callback exists
 		// schema: GridCallback{FieldName}
-		if reflect.ValueOf(m).MethodByName("GridCallback" + fieldName).IsValid() {
-			r.SetCallback("GridCallback" + fieldName)
+		if reflect.ValueOf(m).MethodByName("GridCallback" + rel.Field).IsValid() {
+			r.SetCallback("GridCallback" + rel.Field)
 		}
 
-		reflectRel := orm.NewInstanceFromType(reflect.ValueOf(m).Elem().FieldByName(fieldName).Type())
+		modelScope, err = g.src.Scope().NewScopeFromType(reflect.ValueOf(m).Elem().FieldByName(rel.Field).Type())
+		if err != nil {
+			return err
+		}
+		reflectRel := reflect.Indirect(reflect.ValueOf(modelScope.Caller()))
 		if reflectRel.Addr().MethodByName("GridCallback").IsValid() {
 			fmt.Println("---->", reflectRel.Addr().MethodByName("GridCallback").Interface())
 			r.SetCallback(reflectRel.Addr().MethodByName("GridCallback").Interface())
@@ -652,21 +674,23 @@ func (g *Grid) createFields(m orm.Interface, parent *relation) error {
 
 		// add field to grid fields
 		if parent == nil {
-			g.fields[fieldName] = r
+			g.fields[rel.Field] = r
 		} else {
-			parent.fields[fieldName] = r
+			parent.fields[rel.Field] = r
 		}
 
 		// check relations
-		r.skipRelation = fieldName
+		r.skipRelation = rel.Field
 
-		err = g.createFields(relationModel.Value().(orm.Interface).Caller(), r)
+		mm := relationModel.Value().(orm.Model)
+		mmmm := &mm
+		err = g.createFields(mmmm.Scope().Caller(), r)
 		if err != nil {
 			return err
 		}
 
 		// add select for belongsTo relations, and remove the relationField ex UserID in main struct.
-		if !customFieldType.IsValid() && (r.getFieldType().Name() == orm.BelongsTo || r.getFieldType().Name() == orm.ManyToMany || r.getFieldType().Name() == orm.ManyToManySR) {
+		if !customFieldType.IsValid() && (r.getFieldType().Name() == orm.BelongsTo || r.getFieldType().Name() == orm.ManyToMany) {
 			sel := &Select{}
 			for _, col := range r.getFields() {
 				if col.getPosition() == 1 {
@@ -679,7 +703,7 @@ func (g *Grid) createFields(m orm.Interface, parent *relation) error {
 
 			r.getFieldType().SetOption("select", sel)
 
-			if val, ok := g.fields[rel.StructTable.StructField]; r.getFieldType().Name() == orm.BelongsTo && ok {
+			if val, ok := g.fields[rel.ForeignKey.Name]; r.getFieldType().Name() == orm.BelongsTo && ok {
 				val.setRemove(true)
 			}
 		}
@@ -788,7 +812,7 @@ func (g *Grid) readAll() error {
 	}
 
 	// request all data
-	g.src.SetBlacklist(g.blacklistedFields(nil, "")...)
+	g.src.SetWBList(orm.BLACKLIST, g.blacklistedFields(nil, "")...)
 	err = g.src.All(resultSlice, c)
 	if err != nil {
 		return err
@@ -826,6 +850,7 @@ func (g *Grid) create() error {
 	}
 
 	err = g.src.Create()
+	fmt.Println(err)
 	if err != nil {
 		return err
 
@@ -833,14 +858,13 @@ func (g *Grid) create() error {
 
 	//response with the pkey values
 	pkeys := make(map[string]interface{}, 0)
-	for _, col := range g.src.Table().Cols {
+	for _, col := range g.src.Scope().Fields(orm.Permission{Read: true}) {
 		if col.Information.PrimaryKey {
-			pkeys[col.StructField] = reflect.Indirect(reflect.ValueOf(g.src)).FieldByName(col.StructField).Interface()
+			pkeys[col.Name] = reflect.Indirect(reflect.ValueOf(g.src)).FieldByName(col.Name).Interface()
 		}
 	}
+	// response with LastInsertedID to reload the page.
 	g.controller.Set("pkeys", pkeys)
-
-	// response with the pkey(s) value
 	return nil
 }
 

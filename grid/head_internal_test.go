@@ -37,7 +37,7 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	b, err := HelperCreateBuilder()
 	assert.NoError(t, err)
 
-	orm.GlobalBuilder = &b
+	orm.GlobalBuilder = b
 	custom := Customerfk{}
 	err = g.SetSource(&custom, nil)
 	assert.NoError(t, err)
@@ -90,23 +90,27 @@ func TestHead_headerFieldsLoop(t *testing.T) {
 	// check if LastName was removed
 	assert.True(t, head[2].Title != "LastName")
 
-	assert.Equal(t, "Info", head[2].Title)
-	assert.Equal(t, 3, len(head[2].Fields))
+	assert.Equal(t, "CreatedAt", head[2].Title)
+	assert.Equal(t, "UpdatedAt", head[3].Title)
+	assert.Equal(t, "DeletedAt", head[4].Title)
+
+	assert.Equal(t, "Info", head[5].Title)
+	assert.Equal(t, 3, len(head[5].Fields))
 
 	//assert.Equal(t, 3, head[2].Position)
 
-	assert.Equal(t, "Orders", head[3].Title)
-	assert.Equal(t, 3, len(head[3].Fields))
+	assert.Equal(t, "Orders", head[6].Title)
+	assert.Equal(t, 3, len(head[6].Fields))
 
 	//assert.Equal(t, 4, head[3].Position)
 
-	assert.Equal(t, "Service", head[4].Title)
-	assert.Equal(t, 2, len(head[4].Fields))
+	assert.Equal(t, "Service", head[7].Title)
+	assert.Equal(t, 2, len(head[7].Fields))
 
 	//assert.Equal(t, 5, head[4].Position)
 
-	assert.Equal(t, "Account", head[5].Title)
-	assert.Equal(t, 2, len(head[5].Fields))
+	assert.Equal(t, "Account", head[8].Title)
+	assert.Equal(t, 2, len(head[8].Fields))
 
 	//assert.Equal(t, 6, head[5].Position)
 }

@@ -1,478 +1,469 @@
 package orm
 
 import (
+	"errors"
 	"fmt"
-	"github.com/jinzhu/inflection"
-	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/serenize/snaker"
 	"reflect"
-	"strings"
-	"unsafe"
+	strings2 "strings"
+
+	"github.com/patrickascher/gofw/strings"
 )
 
-// getRelationByTag returns the given relation tag type.
-// If no relation tag is set, it will return an empty string.
-// If the type is different than hasOne,belongsTo,hasMany or manyToMany, an error will return.
-func getRelationByTag(tag string) (string, error) {
-	// User defined relation type
-	switch tag {
-	case HasOne, BelongsTo, HasMany, ManyToMany:
-		return tag, nil
-	case "":
-		return "", nil
-	default:
-		return "", fmt.Errorf(ErrRelationType.Error(), tag)
-	}
+// available relations.
+const (
+	HasOne     = "hasOne"
+	BelongsTo  = "belongsTo"
+	HasMany    = "hasMany"
+	ManyToMany = "m2m"
+)
+
+// struct tag definition.
+const (
+	tagRelation                  = "relation"
+	tagPolymorphic               = "polymorphic"
+	tagPolymorphicValue          = "polymorphic_value"
+	tagForeignKey                = "fk"
+	tagAssociationForeignKey     = "afk"
+	tagJoinTable                 = "join_table"
+	tagJoinForeignKey            = "join_fk"
+	tagJoinAssociationForeignKey = "join_afk"
+)
+
+// error messages
+var (
+	errStructField           = "orm: field %s does not exist in %s"
+	errSelfReference         = errors.New("orm: self reference is only allowed on many to many")
+	errRelationKind          = "orm: %s.%s relation kind %s is not allowed on %s"
+	errJoinFK                = "orm: fk field %s or association fk field %s does not exit in table %s"
+	errPolymorphicNotAllowed = "orm: %s - polymorphic is not allowed on relation type %s"
+	errBackReference         = "orm: back-reference fields %s must be a %s in %s"
+)
+
+// JoinTable holds the information for the m2m junction table.
+// The name, foreignKey and associationForeignKey are the direct column names of the db table.
+type JoinTable struct {
+	Name                  string
+	ForeignKey            string
+	AssociationForeignKey string
 }
 
-// getRelationByType is checking the relation type by struct type.
-// Ptr or struct are defined as hasOne or belongsTo - it checks the foreign key to detect which relations it is.
-// A slice is defined as hasMany or manyToMany - it checks if a junction table exists to detect which relation it is.
-func getRelationByType(mainModel Interface, relationModel Interface, rel reflect.StructField) (string, error) {
+// Polymorphic is available for hasOne and hasMany relationships.
+type Polymorphic struct {
+	Field Field
+	Type  Field
+	Value string
+}
 
-	if rel.Type.Kind() == reflect.Ptr || rel.Type.Kind() == reflect.Struct {
+// Relation keeps some information about the relation type and connection fields.
+type Relation struct {
+	// Type for easier reflection
+	Type reflect.Type
+	// Kind of the relation (hasOne, hasMany,...)
+	Kind string
+	// The struct field name
+	Field string
+	// FK of the main struct
+	ForeignKey Field
+	// AFK of the child struct
+	AssociationForeignKey Field
+	// Self referencing relationship
+	SelfReference bool
+	// Custom struct without orm.Model embedded
+	Custom bool
 
-		// checking DB hasOne
-		fk, err := getForeignKey(relationModel, mainModel, rel)
+	Permission  Permission
+	Validator   *validator
+	Polymorphic Polymorphic
+	JoinTable   JoinTable
+}
+
+// foreignKey of the model by tag.
+// If the tag is empty, the first primary field will be taken.
+// Error will return if the field does not exist.
+// Primary field always exists (already checked in createFields).
+// TODO change if more than one pk are allowed
+func (m *Model) foreignKey(tag string) (Field, error) {
+	scope := Scope{model: m}
+
+	if tag != "" {
+		f, err := scope.Field(tag)
 		if err != nil {
-			// return "", err //TODO only allow field not found errors here
+			return Field{}, err
 		}
 
-		if fk != nil {
-			// checking if manually a fk was set which detects a belongsTo
-			if fk.Name == BelongsTo {
-				return BelongsTo, nil
-			}
-			return HasOne, nil
-		}
-
-		// checking DB belongsTo
-		fk, err = getForeignKey(mainModel, relationModel, rel)
-		if err != nil {
-			return "", err
-		}
-		if fk != nil {
-			return BelongsTo, nil
-		}
-
-		return HasOne, nil // TODO here should be an error - not detected????
+		return f, nil
 	}
 
-	if rel.Type.Kind() == reflect.Slice {
-		if hasManyToMany(mainModel, relationModel) {
+	return scope.PrimaryKeys()[0], nil
+}
+
+// polymorphicRestriction - if there are polymorphic tags set on belongsTo,M2M an error will return.
+func polymorphicRestriction(tags map[string]string, field string, rel string) error {
+	if _, ok := tags[tagPolymorphic]; ok {
+		return fmt.Errorf(errPolymorphicNotAllowed, field, rel)
+	}
+	if _, ok := tags[tagPolymorphicValue]; ok {
+		return fmt.Errorf(errPolymorphicNotAllowed, field, rel)
+
+	}
+	return nil
+}
+
+// polymorphic of the relation by tag.
+// If a polymorphic is defined, it will check if the needed fields exist.
+// Error will return if {name}ID {name}Type does not exist.
+// As default value the struct name is taken.
+func (m Model) polymorphic(tags map[string]string, rel Interface) (Polymorphic, error) {
+	if v, ok := tags[tagPolymorphic]; ok {
+		// {name}ID
+		f, err := rel.Scope().Field(v + "ID")
+		if err != nil {
+			return Polymorphic{}, err
+		}
+		// {name}Type
+		t, err := rel.Scope().Field(v + "Type")
+		if err != nil {
+			return Polymorphic{}, err
+		}
+		// value
+		val := ""
+		if v, ok := tags[tagPolymorphicValue]; ok {
+			val = v
+		}
+		if val == "" {
+			val = m.modelName(false)
+		}
+
+		return Polymorphic{Field: f, Type: t, Value: val}, nil
+	}
+
+	return Polymorphic{}, nil
+}
+
+// associationForeignKey will return the defined a.fk by tag.
+// If no tag is defined, by default the a.fk will be the parent struct {name}ID.
+// Error will return if the field does not exist.
+func (m Model) associationForeignKey(fieldName string, rel Interface) (Field, error) {
+	if fieldName == "" {
+		fieldName = m.modelName(false) + "ID"
+	}
+
+	return rel.Scope().Field(fieldName)
+}
+
+// joinTable builds a JoinTable{} by tag or default values.
+// Tags "join_table, join_fk, join_afk" can be used to configure the join Table.
+// If there are no tags defined, the following defaults will be used.
+// 		join_table: Parent struct name + child struct name in plural (customer_addresses).
+// 		join_fk: parent struct name + parent struct pkey (customer_id)
+// 		join_afk: child struct name + child struct pkey (address_id)
+// A check will be called if the table and fields exist in the database, otherwise an error will return.
+func joinTable(m Interface, rel Interface, tags map[string]string, selfRef bool) (JoinTable, error) {
+	joinTable := tags[tagJoinTable]
+	joinFK := tags[tagJoinForeignKey]
+	joinAFK := tags[tagJoinAssociationForeignKey]
+	if joinTable == "" {
+		joinTable = strings.CamelToSnake(strings.Plural(m.model().modelName(false) + rel.model().modelName(false)))
+	}
+	if joinFK == "" {
+		fk, _ := m.model().foreignKey(tags[tagForeignKey])
+		joinFK = strings.CamelToSnake(m.model().modelName(false) + fk.Name)
+	}
+	if joinAFK == "" {
+		if !selfRef {
+			afk, _ := rel.model().foreignKey(tags[tagAssociationForeignKey])
+			joinAFK = strings.CamelToSnake(rel.model().modelName(false) + afk.Name)
+		} else {
+			joinAFK = defaultSelfReferenceAssociationForeignKey
+		}
+	}
+
+	// check if the database table exists
+	b := m.Scope().Builder()
+	cols, err := b.Information(m.DefaultDatabaseName()+"."+joinTable).Describe(joinFK, joinAFK)
+	if err != nil {
+		return JoinTable{}, err
+	}
+	// check if the required fields exist.
+	if len(cols) != 2 {
+		return JoinTable{}, fmt.Errorf(errJoinFK, joinFK, joinAFK, joinTable)
+	}
+
+	return JoinTable{Name: joinTable, ForeignKey: joinFK, AssociationForeignKey: joinAFK}, nil
+}
+
+// backReferencePointer is checking if the backreference is a * or a []*.
+// TODO rename the function, because this is only checking if the given field is a * or a []*.
+func (m Model) backReferencePointer(relation reflect.StructField) error {
+	if (relation.Type.Kind() == reflect.Struct) ||
+		(relation.Type.Kind() == reflect.Slice && relation.Type.Elem().Kind() != reflect.Ptr) {
+		v := "ptr"
+		if relation.Type.Kind() == reflect.Slice {
+			v = "[]ptr"
+		}
+		return fmt.Errorf(errBackReference, relation.Name, v, m.modelName(true))
+	}
+
+	return nil
+}
+
+// createRelations adds a relation to the relations map.
+// * Relations will be checked against the type.
+// * Relation loops will be avoided, self referencing is allowed.
+// * If the fk, a.fk, join table or polymorphic field does not exist, an error will return.
+// * The configured relation is added to the orm model.
+// * validation has the only function to store the user added tags. Needed for grid frontend later on. The isValid function validates the whole struct anyway.
+func (m *Model) createRelations() error {
+
+	for _, relation := range m.structFields(m.caller, true) {
+		// parse tags
+		tags := parseTags(relation.Tag.Get(tagName))
+
+		validator := &validator{Config: relation.Tag.Get(tagValidate)}
+
+		// get relation kind by tag or default definition.
+		rel, err := m.relationKind(tags, relation)
+		if err != nil {
+			return err
+		}
+
+		// custom relationship
+		if _, ok := tags[tagCustom]; ok {
+			m.relations = append(m.relations, Relation{Validator: validator, Kind: rel, SelfReference: false, Field: relation.Name, Custom: true})
+			continue
+		}
+
+		// get an instance of the given type.
+		v := newValueInstanceFromType(relation.Type)
+		// check if its a self reference
+		var rModel Interface
+		selfRef := m.modelName(true) == v.Type().String()
+		if selfRef && rel != ManyToMany {
+			return errSelfReference
+		}
+
+		// if the orm model type was already loaded in a parent instance and if the fields are pointer or []*.
+		if loadedRel, err := m.scope.Parent(v.Type().String()); err == nil {
+			// set model instead of initialize it.
+			rModel = loadedRel.caller
+
+			// checking if both fields are * or []*
+			// this block has to get rewritten when the back-referencing will be needed.
+			err = m.backReferencePointer(relation)
+			if err != nil {
+				return err
+			}
+			// needed because the parent relations are not initialized yet.
+			for _, r := range m.structFields(rModel, true) {
+				if strings2.Replace(strings2.Replace(r.Type.String(), "[]", "", -1), "*", "", -1) == m.name {
+					err = rModel.model().backReferencePointer(r)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			// Initialize the relation model
+			// loops are avoided.
+			rModel, err = m.initializeModelByValue(v)
+			if err != nil {
+				return err
+			}
+		}
+
+		defaultPermission := Permission{Write: true, Read: true}
+		if v, ok := tags[tagPermission]; ok {
+			defaultPermission.Read = false
+			defaultPermission.Write = false
+			if strings2.Contains(v, "r") {
+				defaultPermission.Read = true
+			}
+			if strings2.Contains(v, "w") {
+				defaultPermission.Write = true
+			}
+		}
+
+		// relation type switch
+		switch rel {
+		case HasOne, HasMany:
+			// HasOne or HasMany relation.
+			// FK tags are checked first, if none was found, the first primary key is used.
+			// AFK tags are checked first, if none was found the field name is parent model name + ID
+			// If a polymorphic is defined, the AFK will be ignored
+			fk, err := m.foreignKey(tags[tagForeignKey])
+			if err != nil {
+				return err
+			}
+
+			poly, err := m.polymorphic(tags, rModel)
+			if err != nil {
+				return err
+			}
+
+			// a.fk is not needed if there is a polymorphic.
+			var afk Field
+			if poly.Value == "" {
+				afk, err = m.associationForeignKey(tags[tagAssociationForeignKey], rModel)
+				if err != nil {
+					return err
+				}
+			}
+			m.relations = append(m.relations, Relation{Validator: validator, Type: v.Type(), Permission: defaultPermission, Kind: rel, SelfReference: selfRef, Field: relation.Name, ForeignKey: fk, Polymorphic: poly, AssociationForeignKey: afk})
+		case BelongsTo:
+			// Polymorphic is not allowed on m2m
+			err = polymorphicRestriction(tags, relation.Name, rel)
+			if err != nil {
+				return err
+			}
+
+			// BelongsTo relation.
+			// FK tags are checked first, if none was found, the field name is child model name + ID
+			// AFK tags are checked first, if none was found the first primary key is taken.
+			fk, err := rModel.model().associationForeignKey(tags[tagForeignKey], m)
+			if err != nil {
+				return err
+			}
+			afk, err := rModel.model().foreignKey(tags[tagAssociationForeignKey])
+			if err != nil {
+				return err
+			}
+
+			m.relations = append(m.relations, Relation{Validator: validator, Type: v.Type(), Permission: defaultPermission, Kind: rel, SelfReference: selfRef, Field: relation.Name, ForeignKey: fk, AssociationForeignKey: afk})
+		case ManyToMany:
+			// Polymorphic is not allowed on m2m
+			err = polymorphicRestriction(tags, relation.Name, rel)
+			if err != nil {
+				return err
+			}
+
+			// ManyToMany relation.
+			//
+			// Customer ID
+			// FK (ID), AFK = (ID)
+			// join_table = customer_addresses customer_id, address_id
+			// Address ID
+			fk, err := m.foreignKey(tags[tagForeignKey])
+			if err != nil {
+				return err
+			}
+			afk, err := rModel.model().foreignKey(tags[tagAssociationForeignKey])
+			if err != nil {
+				return err
+			}
+
+			jTable, err := joinTable(m, rModel, tags, selfRef)
+			if err != nil {
+				return err
+			}
+
+			m.relations = append(m.relations, Relation{Validator: validator, Type: v.Type(), Permission: defaultPermission, Kind: rel, SelfReference: selfRef, Field: relation.Name, ForeignKey: fk, AssociationForeignKey: afk, JoinTable: jTable})
+		}
+	}
+
+	return nil
+}
+
+// isTagRelationAllowed checks if the given tag or default is allowed with the used struct type.
+func isTagRelationAllowed(field reflect.StructField, r string) bool {
+
+	// struct, ptr
+	if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) {
+		if r == HasOne || r == BelongsTo {
+			return true
+		}
+		return false
+	}
+
+	// []
+	if field.Type.Kind() == reflect.Slice {
+		if r == HasMany || r == ManyToMany {
+			return true
+		}
+	}
+
+	return false
+}
+
+// relationKind return the relation as string.
+// An error will return if its a misconfiguration.
+// hasOne,belongsTo must be a struct or a ptr to a struct. (default: struct,ptr to struct = hasOne).
+// hasMany,m2m must be a slice (default: slice = hasMany).
+// self referencing (default value is manyToMany).
+func (m Model) relationKind(tags map[string]string, field reflect.StructField) (string, error) {
+
+	// check if tag relation is set and valid
+	if tag, ok := tags[tagRelation]; ok {
+		if !isTagRelationAllowed(field, tag) {
+			return "", fmt.Errorf(errRelationKind, m.name, field.Name, tag, field.Type.Kind())
+		}
+		return tag, nil
+	}
+
+	// default values
+	if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) {
+		return HasOne, nil
+	}
+	if field.Type.Kind() == reflect.Slice {
+		// self reference is m2m by default
+		if strings2.Replace(field.Type.Elem().String(), "*", "", -1) == m.modelName(true) {
 			return ManyToMany, nil
 		}
 		return HasMany, nil
 	}
 
-	return "", nil // TODO here should be an error - not detected????
+	return "", fmt.Errorf(errRelationKind, m.name, field.Name, field.Name, field.Type.Kind())
 }
 
-// hasManyToMany checks if a junction table exists for the two given models (Interface).
-// The struct names of the models are getting combined to a plural snakestyle ex: UserPost = checking table name -> user_posts
-// Returns true if the table exists.
-func hasManyToMany(mainModel Interface, relationModel Interface) bool {
-	// TODO create a tag to define junction table name + fk
-	junctionTable := snaker.CamelToSnake(inflection.Plural(structName(mainModel, false) + structName(relationModel, false)))
-	cols, _ := mainModel.Table().Builder.Information(junctionTable).Describe()
-	if len(cols) > 0 {
-		return true
-	}
-	return false
+// implementsInterface checks if the given field type implements the orm interface.
+func implementsInterface(field reflect.StructField) bool {
+	i := reflect.TypeOf((*Interface)(nil)).Elem()
+	v := newValueInstanceFromType(field.Type)
+
+	return v.Addr().Type().Implements(i)
 }
 
-// getManyToMany returns the foreign keys of the relations.
-// At the moment no junctionTable name or FK can be set by Tag.
-// Returns an error if field does not exist in struct or table does not exist (builder).
-func getManyToMany(mainModel Interface, relationModel Interface) ([]*sqlquery.ForeignKey, error) {
-	junctionTable := snaker.CamelToSnake(inflection.Plural(structName(mainModel, false) + structName(relationModel, false)))
-	_, err := mainModel.Table().Builder.Information(junctionTable).Describe()
-	if err != nil {
-		return nil, err
-	}
-	var fks []*sqlquery.ForeignKey
+// newValueInstanceOfField creates a new value of the type.
+// It ensures that the return value is a Value and no Pointer.
+// If a Slice is given, it will take the struct type defined in the slice.
+func newValueInstanceFromType(field reflect.Type) reflect.Value {
 
-	// check if its a self-reference
-	if structName(mainModel, true) == structName(relationModel, true) {
-
-		fKeys, err := mainModel.Table().Builder.Information(junctionTable).ForeignKeys()
-		if err != nil {
-			return nil, err
+	// convert slice to single element
+	var v reflect.Value
+	if field.Kind() == reflect.Slice {
+		//handel ptr
+		if field.Elem().Kind() == reflect.Ptr {
+			v = reflect.New(field.Elem().Elem())
+		} else {
+			v = reflect.New(field.Elem())
 		}
-
-		for _, fk := range fKeys {
-			if fk.Secondary.Table == mainModel.Table().Name {
-				fks = append(fks, fk)
-			}
+	} else {
+		if field.Kind() == reflect.Ptr {
+			v = reflect.New(field.Elem())
+		} else {
+			v = reflect.New(field)
 		}
-
-		return fks, nil
 	}
 
-	// junction table - relation model
-	fk2, err := getForeignKeyByDb(relationModel, mainModel, junctionTable)
-
-	if err != nil {
-		return nil, err
-	}
-	fks = append(fks, fk2)
-
-	// junction table - main model
-	fk, err := getForeignKeyByDb(mainModel, relationModel, junctionTable)
-	if err != nil {
-		return nil, err
-	}
-	fks = append(fks, fk)
-
-	return fks, nil
+	// convert from ptr to value
+	return reflect.Indirect(v)
 }
 
-// getRelation combines getRelationByTag and getRelationByType.
-// Tag has higher priority than the automatic logic.
-// Returns the errors of getRelationBy or getRelationByType.
-func getRelation(mainModel Interface, relationModel Interface, relation reflect.StructField) (string, error) {
+// initializeModelByValue init a reflect.Value.
+// * Its checked against the already initialized relations to avoid loops.
+// * The parent cache will be passed to the child model.
+// * The parent initRelations will be passed to the child model.
+// * The model gets initialized and an ptr to the model will be returned.
+// getStructFields already checks if the relation implements the orm interface.
+func (m Model) initializeModelByValue(r reflect.Value) (Interface, error) {
+	rel := r.Addr().Interface().(Interface)
+	rel.model().cache, rel.model().cacheTTL = m.cache, m.cacheTTL
+	rel.model().parentModel = &m
 
-	// checking if a relation is defined by tag
-	rel, err := getRelationByTag(relation.Tag.Get(TagRelation))
-	if err != nil {
-		return "", err
-	}
-	if rel != "" {
-		return rel, nil
-	}
-
-	// automatic logic
-	return getRelationByType(mainModel, relationModel, relation)
-}
-
-// getForeignKeyByTag return the given foreignKey tag.
-// If no fk tag is set, a nil pointer will return.
-// If the defined field is not found in the underlying struct, an error will return.
-// If the FK is set by TAG the name of the foreign key will be "tag" as identifier for a user added fks.
-func getForeignKeyByTag(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery.ForeignKey, error) {
-
-	// if tag is empty
-	fk := relation.Tag.Get(TagFK)
-	fk = strings.TrimSpace(fk)
-	if fk == "" {
-		return nil, nil
-	}
-
-	// declarations
-	foreignKey := &sqlquery.ForeignKey{}
-
-	// if only a single field is defined in the tag
-	if !strings.Contains(fk, TagSeparator) {
-
-		rel, err := getRelationByTag(relation.Tag.Get(TagRelation))
-		if err != nil {
-			return nil, err
-		}
-
-		// checking field has a belongsTo relation or by the field definition
-		if rel == BelongsTo || (fieldExists(mainModel, structName(relationModel, false)+fk) && fieldExists(relationModel, fk)) { //TODO create tests for belongsTo TAG
-			foreignKey.Name = BelongsTo
-			col, err := getColumnNameFromField(mainModel, structName(relationModel, false)+fk)
-			if err != nil {
-				return nil, err
-			}
-			relCol, err := getColumnNameFromField(relationModel, fk)
-			if err != nil {
-				return nil, err
-			}
-			foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
-			foreignKey.Secondary = sqlquery.Relation{Table: relationModel.Table().Name, Column: relCol}
-			return foreignKey, nil
-		}
-
-		// definition for all other relation types (hasOne, hasMany, manyToMany)
-		foreignKey.Name = "tag"
-		col, err := getColumnNameFromField(mainModel, fk)
-		if err != nil {
-			return nil, err
-		}
-
-		relCol, err := getColumnNameFromField(relationModel, structName(mainModel, false)+fk)
-		if err != nil {
-			// if its a custom type, check the StructField instead of Table.Cols.
-			relCol = structName(mainModel, false) + fk
-			if !reflect.Indirect(reflect.ValueOf(relationModel)).FieldByName(relCol).IsValid() {
-				return nil, err
-			}
-		}
-		foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
-		tn := "" // needed for custom types - set an empty Table name otherwise stategy will break
-		if relationModel.Table() != nil {
-			tn = relationModel.Table().Name
-		}
-		foreignKey.Secondary = sqlquery.Relation{Table: tn, Column: relCol}
-		return foreignKey, nil
-
-	}
-
-	parsedFK, err := parseTags(fk)
+	// init
+	err := rel.Init(rel)
 	if err != nil {
 		return nil, err
 	}
 
-	col, err := getColumnNameFromField(mainModel, parsedFK["field"])
-	if err != nil {
-		return nil, err
-	}
-
-	relCol, err := getColumnNameFromField(relationModel, parsedFK["associationField"])
-	if err != nil {
-		// if its a custom type, check the StructField instead of Table.Cols.
-		relCol = parsedFK["associationField"]
-		if !reflect.Indirect(reflect.ValueOf(relationModel)).FieldByName(relCol).IsValid() {
-			return nil, err
-		}
-	}
-
-	foreignKey.Name = "tag"
-	if strings.HasPrefix(parsedFK["field"], structName(relationModel, false)) {
-		foreignKey.Name = BelongsTo //TODO create tests for belongsTo TAG
-	}
-	foreignKey.Primary = sqlquery.Relation{Table: mainModel.Table().Name, Column: col}
-	tn := "" // needed for custom types - set an empty Table name otherwise stategy will break
-	if relationModel.Table() != nil {
-		tn = relationModel.Table().Name
-	}
-	foreignKey.Secondary = sqlquery.Relation{Table: tn, Column: relCol}
-	return foreignKey, nil
-
-}
-
-// getForeignKeyByDb checks if there is a foreign key for the given models (Interface) defined.
-// A third parameter can be used for other table names like to check a junction table for example.
-// It will return an error if the struct field does not exist. (checked in both models (Interfaces)).
-// Will return no error if the foreign key was not found - is done in addRelation for a better error message.
-func getForeignKeyByDb(mainModel Interface, relationModel Interface, specialTable string) (*sqlquery.ForeignKey, error) {
-
-	db, mainTable := mainModel.Table().Database, mainModel.Table().Name
-	relationTable := relationModel.Table().Name
-
-	tableName := db + "." + mainTable
-	var st string
-	if specialTable != "" {
-		tableName = specialTable
-		_, st = getDatabaseAndTableByString(specialTable) //split db and table if a . is given
-	}
-
-	fKeys, err := mainModel.Table().Builder.Information(tableName).ForeignKeys()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, fKey := range fKeys {
-		if (fKey.Primary.Table == mainTable && fKey.Secondary.Table == relationTable) || (fKey.Primary.Table == st && fKey.Secondary.Table == relationTable) {
-
-			if relationTable == fKey.Secondary.Table {
-
-				if specialTable == "" && !columnExists(mainModel, fKey.Primary.Column) { // on junctionTable this is not necessary because its called twice and only fk.Secondary is important to check!
-					return nil, fmt.Errorf(ErrModelFieldNotFound.Error(), fKey.Primary.Column, structName(mainModel, true))
-				}
-
-				if !columnExists(relationModel, fKey.Secondary.Column) {
-					return nil, fmt.Errorf(ErrModelFieldNotFound.Error(), fKey.Secondary.Column, structName(relationModel, true))
-				}
-			}
-
-			return fKey, nil
-		}
-	}
-
-	return nil, nil
-}
-
-// getForeignKey combines getForeignKeyByTag and getForeignKeyByDb.
-// Will return errors of getForeignKeyByTag / getForeignKeyByDb.
-func getForeignKey(mainModel Interface, relationModel Interface, relation reflect.StructField) (*sqlquery.ForeignKey, error) {
-	// checking fk tag
-	fk, err := getForeignKeyByTag(mainModel, relationModel, relation)
-	if err != nil {
-		return nil, err
-	}
-	if fk != nil {
-		return fk, nil
-	}
-
-	// returning defined logic
-	return getForeignKeyByDb(mainModel, relationModel, "")
-}
-
-// addRelation adds a relation to the table.Associations map.
-// The key is the struct field name.
-// Will return an errors of methods getForeignKey / getManyToMany.
-func (m *Model) addRelation(model Interface) error {
-	//TODO foreignKey was maybe already called before in getRelationByType (m2m) - performance improvements multiple describe.
-RelationLoop:
-	for _, relation := range m.getFieldsOrRelations(model, true) {
-		// check if its a struct relation loop
-		// TODO fix: example Customer -> Order -> Customer. Customer hasOne Order and Order belongsTo Customer. If its getting initialized like this. the next time you initialize Order, the belongsTo relation is missing.
-		if m.isStructLoop(relation.Type.String()) {
-			continue
-		}
-
-		// create new instance and initialize it
-		relationModel := newValueInstanceFromType(relation.Type)
-
-		// checking if its a self-reference
-		if structName(relationModel.Interface(), true) == structName(model, true) {
-			f := relationModel.FieldByName("skipRel")
-			f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
-			f.Set(reflect.ValueOf(true))
-		}
-
-		// checking if its a custom implementation
-		relationModelExec := relationModel.Addr().Interface().(Interface)
-		customImp := relationModelExec.Custom()
-		tags, err := parseTags(relation.Tag.Get(TagName))
-		if err != nil {
-			return err
-		}
-		for k := range tags {
-			switch k {
-			case "custom":
-				customImp = true
-			}
-		}
-		if customImp {
-			custType := CustomStruct
-			if relation.Type.Kind() == reflect.Slice {
-				custType = CustomSlice
-			}
-
-			fk, err := getForeignKeyByTag(model, relationModel.Addr().Interface().(Interface), relation)
-			if err != nil {
-				return err
-			}
-			var structCol *Column
-			var associationCol *Column
-
-			if fk == nil {
-				//Default logic fields must exist = Main Struct "ID", Child Struct "NameOfMainStructID"
-
-				// structCol always exists, because the ID field is mandatory in the orm.
-				structCol = &Column{}
-				structCol.StructField = "ID"
-				structCol.Information = &sqlquery.Column{Name: "ID"}
-
-				// checking if the Field "NameOfMainStructID" exists.
-				associationCol = &Column{}
-				associationCol.StructField = structName(model, false) + "ID"
-				associationCol.Information = &sqlquery.Column{Name: associationCol.StructField}
-				f := relationModel.FieldByName(associationCol.StructField)
-				if !f.IsValid() {
-					return fmt.Errorf(ErrForeignKeyNotFound.Error(), custType, relation.Name, structName(model, true))
-				}
-			} else {
-				structCol, err = m.table.columnByName(fk.Primary.Column)
-				if err != nil {
-					return err
-				}
-
-				associationCol = &Column{}
-				associationCol.StructField = fk.Secondary.Column
-				associationCol.Information = &sqlquery.Column{Name: fk.Secondary.Column}
-			}
-
-			m.table.Associations[relation.Name] = &Association{Type: custType, StructTable: structCol, AssociationTable: associationCol}
-
-			err = relationModel.Addr().Interface().(Interface).SetStrategy("custom")
-			if err != nil {
-				return err
-			}
-
-			err = m.initializeModelByValue(relationModel)
-			if err != nil {
-				return err
-			}
-
-			continue RelationLoop
-		}
-
-		// initialize relation model
-		err = m.initializeModelByValue(relationModel)
-		if err != nil {
-			return err
-		}
-
-		rel, err := getRelation(model, relationModel.Addr().Interface().(Interface), relation)
-		if err != nil {
-			return err
-		}
-
-		switch rel {
-		case HasOne, HasMany:
-
-			fk, err := getForeignKey(relationModel.Addr().Interface().(Interface), model, relation)
-			if err != nil {
-				return err
-			}
-			if fk == nil {
-				return fmt.Errorf(ErrForeignKeyNotFound.Error(), rel, relation.Name, structName(model, true))
-			}
-
-			structCol, err := m.table.columnByName(fk.Secondary.Column)
-			if err != nil {
-				return err
-			}
-
-			associationCol, err := relationModel.Addr().Interface().(Interface).Table().columnByName(fk.Primary.Column)
-			if err != nil {
-				return err
-			}
-
-			m.table.Associations[relation.Name] = &Association{Type: rel, StructTable: structCol, AssociationTable: associationCol}
-
-		case BelongsTo:
-			fk, err := getForeignKey(model, relationModel.Addr().Interface().(Interface), relation)
-			if err != nil {
-				return err
-			}
-			if fk == nil {
-				return fmt.Errorf(ErrForeignKeyNotFound.Error(), BelongsTo, relation.Name, structName(model, true))
-			}
-
-			structCol, err := m.table.columnByName(fk.Primary.Column)
-			if err != nil {
-				return err
-			}
-
-			associationCol, err := relationModel.Addr().Interface().(Interface).Table().columnByName(fk.Secondary.Column)
-			if err != nil {
-				return err
-			}
-
-			m.table.Associations[relation.Name] = &Association{Type: BelongsTo, StructTable: structCol, AssociationTable: associationCol}
-
-		case ManyToMany:
-			fks, err := getManyToMany(model, relationModel.Addr().Interface().(Interface))
-			if err != nil {
-				return err
-			}
-
-			if len(fks) != 2 || fks[0] == nil || fks[1] == nil {
-				return fmt.Errorf(ErrForeignKeyNotFound.Error(), ManyToMany, relation.Name, structName(model, true))
-			}
-			jT := &JunctionTable{Table: fks[0].Primary.Table, StructColumn: fks[0].Primary.Column, AssociationColumn: fks[1].Primary.Column}
-
-			structCol, err := m.table.columnByName(fks[0].Secondary.Column)
-			if err != nil {
-				return err
-			}
-
-			associationCol, err := relationModel.Addr().Interface().(Interface).Table().columnByName(fks[1].Secondary.Column)
-			if err != nil {
-				return err
-			}
-			tpe := ManyToMany
-			if structCol.Information.Table == associationCol.Information.Table {
-				tpe = ManyToManySR
-			}
-			m.table.Associations[relation.Name] = &Association{Type: tpe, StructTable: structCol, AssociationTable: associationCol, JunctionTable: jT}
-		}
-	}
-	return nil
+	return r.Addr().Interface().(Interface), nil
 }

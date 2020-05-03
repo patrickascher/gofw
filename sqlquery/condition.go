@@ -43,6 +43,10 @@ type Condition struct {
 	error error
 }
 
+func NewCondition() *Condition {
+	return &Condition{}
+}
+
 // Config returns the requested condition.
 // The first argument defines if the result should include the values or not.
 // Caution, the values are not escaped and should only be used for test or debugging. On database level these are placeholders and getting escaped by the driver.

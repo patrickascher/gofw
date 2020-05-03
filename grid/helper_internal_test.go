@@ -279,19 +279,19 @@ type Customerfk struct {
 	ID        int
 	FirstName null.String
 	LastName  null.String
-	AccountId int
+	AccountID orm.NullInt
 
-	Info    Contactfk   // hasOne
-	Orders  []Orderfk   // hasMany
-	Service []Servicefk // manyToMany
-	Account Accountfk   // belongsTo
+	Info    Contactfk   `orm:"afk:CustomerID"`                                       // hasOne
+	Orders  []Orderfk   `orm:"afk:CustomerID"`                                       // hasMany
+	Service []Servicefk `orm:"relation:m2m;join_fk:customer_id;join_afk:service_id"` // manyToMany
+	Account Accountfk   `orm:"relation:belongsTo;fk:AccountID"`                      // belongsTo
 }
 
 type Accountfk struct {
 	orm.Model
 
 	ID   int
-	Name string
+	Name orm.NullString
 }
 
 type Orderfk struct {
