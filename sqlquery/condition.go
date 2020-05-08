@@ -266,13 +266,15 @@ func stmtMapManipulation(c *Condition, stmt string, args []interface{}, conditio
 			if reflect.ValueOf(args[i]).Kind() == reflect.Array || reflect.ValueOf(args[i]).Kind() == reflect.Slice {
 				//split after placeholder and only replace the map placeholder
 				spStmt := strings.SplitAfter(stmt, PLACEHOLDER)
-				spStmt[i] = strings.Replace(spStmt[i], PLACEHOLDER, PLACEHOLDER+strings.Repeat(", "+PLACEHOLDER, reflect.ValueOf(args[i]).Len()-1), -1)
+				// because of this logic, the append placeholders need a different name without ?. TODO create a more prof. solution.
+				spStmt[i] = strings.Replace(spStmt[i], PLACEHOLDER, PLACEHOLDER+strings.Repeat(", "+PLACEHOLDER_APPEND, reflect.ValueOf(args[i]).Len()-1), -1)
 				stmt = strings.Join(spStmt, "")
 			}
 			// add single or (map,slice) arguments
 			c.addArgument(conditionType, args[i])
 		}
 	}
+	stmt = strings.Replace(stmt, PLACEHOLDER_APPEND, PLACEHOLDER, -1)
 
 	return stmt
 }

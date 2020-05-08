@@ -6,6 +6,7 @@ import (
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const (
@@ -127,11 +128,12 @@ func (g *Grid) SetSource(src SourceI) error {
 	g.sourceAdded = true
 
 	// get the source fields
+	t := time.Now()
 	g.fields, err = g.src.Fields(g)
+	fmt.Println("FIELDS::", time.Since(t))
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -248,10 +250,6 @@ func (g *Grid) Render() {
 		}
 		return
 	case VTable:
-		// add header as long as the param noheader is not given.
-		if _, err := g.controller.Context().Request.Param("noheader"); err != nil {
-			g.controller.Set("head", g.sortFields())
-		}
 
 		c, err := g.conditionAll()
 		if err != nil {
@@ -259,15 +257,24 @@ func (g *Grid) Render() {
 			return
 		}
 
+		fmt.Println("C BEFORE", c)
+
+		// add header as long as the param noheader is not given.
 		pagination, err := g.newPagination(c)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
-		g.controller.Set("pagination", pagination)
+
+		if _, err := g.controller.Context().Request.Param("noheader"); err != nil {
+			g.controller.Set("head", g.sortFields())
+			g.controller.Set("pagination", pagination)
+		}
 
 		// adding config
 		g.controller.Set("config", g.config)
+
+		fmt.Println("C AFTER", c)
 
 		values, err := g.src.All(c, g)
 		if err != nil {

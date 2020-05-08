@@ -387,6 +387,11 @@ func (m *Model) First(c *sqlquery.Condition) error {
 		return fmt.Errorf(errInit.Error(), reflect.TypeOf(m.caller))
 	}
 
+	// reset loop detection TODO in every mode (ALL,CREATE,UPDATE,DELETE)
+	if m.parentModel == nil {
+		m.loopDetection = nil
+	}
+
 	// TODO Callbacks before
 
 	// create sql condition

@@ -200,3 +200,26 @@ func TestCondition_WhereEmpty(t *testing.T) {
 	test.Equal("", c.Config(true, sqlquery.WHERE))
 	test.Equal("", c.Config(false, sqlquery.WHERE))
 }
+
+func TestCondition_WhereExample(t *testing.T) {
+	test := assert.New(t)
+	c := sqlquery.Condition{}
+
+	var arguments []interface{}
+	var where []string
+
+	where = append(where, "(STANDORT = ? AND CAR IN (?))")
+	where = append(where, "(STANDORT = ?)")
+	where = append(where, "(STANDORT = ? AND CAR IN (?))")
+
+	arguments = append(arguments, "INNSBRUCK")
+	arguments = append(arguments, []string{"BMW", "BMW2"})
+	arguments = append(arguments, "WERNDORF_2")
+	arguments = append(arguments, "SENEC2")
+	arguments = append(arguments, []string{"KTM1", "KTM2", "KTM3"})
+
+	c.Where(strings.Join(where, " OR "), arguments...)
+
+	test.Equal("WHERE (STANDORT = INNSBRUCK AND CAR IN (BMW, BMW2)) OR (STANDORT = WERNDORF_2) OR (STANDORT = SENEC2 AND CAR IN (KTM1, KTM2, KTM3))", c.Config(true, sqlquery.WHERE))
+	test.Equal("WHERE (STANDORT = ? AND CAR IN (?, ?)) OR (STANDORT = ?) OR (STANDORT = ? AND CAR IN (?, ?, ?))", c.Config(false, sqlquery.WHERE))
+}

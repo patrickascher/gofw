@@ -44,7 +44,7 @@ func (m *mockDriver) QuoteCharacterColumn() string {
 	return "'"
 }
 
-func (m *mockDriver) Describe(b *sqlquery.Builder, db string, table string, cols []string) ([]*sqlquery.Column, error) {
+func (m *mockDriver) Describe(b *sqlquery.Builder, db string, table string, cols []string) ([]sqlquery.Column, error) {
 	m.describeDb = db
 	m.describeTable = table
 	m.describeCols = cols

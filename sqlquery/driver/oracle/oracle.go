@@ -9,11 +9,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/patrickascher/gofw/sqlquery/types"
-	"strings"
-
 	_ "github.com/mattn/go-oci8"
 	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/patrickascher/gofw/sqlquery/types"
+	"strings"
 )
 
 // Error messages.
@@ -89,11 +88,13 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 		return nil, err
 	}
 
-	defer rows.Close()
+	defer func() {
+		rows.Close()
+	}()
 
 	var cols []sqlquery.Column
-
 	for rows.Next() {
+
 		var c sqlquery.Column
 		c.Table = table // adding Table info
 
@@ -101,6 +102,7 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
 			return nil, err
 		}
+
 		c.Type = o.TypeMapping(t, c)
 		cols = append(cols, c)
 	}

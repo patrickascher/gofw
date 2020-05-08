@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/patrickascher/gofw/grid"
 	"github.com/patrickascher/gofw/slices"
 	"github.com/patrickascher/gofw/sqlquery"
@@ -127,7 +128,9 @@ func gridFields(scope *Scope, g *grid.Grid, parent string) ([]grid.Field, error)
 
 		// add options for BelongsTo and ManyToMany relations.
 		if r.Kind == BelongsTo || r.Kind == ManyToMany {
-			field.SetOption(grid.FeSelect, grid.Select{TextField: "Name", ValueField: r.AssociationForeignKey.Name})
+
+			// experimental (model,id, title...) by default always the third field is taken.
+			field.SetOption(grid.FeSelect, grid.Select{TextField: r.Type.Field(2).Name, ValueField: r.AssociationForeignKey.Name})
 		}
 
 		// recursively add fields
@@ -338,9 +341,17 @@ func (g *gridSource) All(c *sqlquery.Condition, grid *grid.Grid) (interface{}, e
 }
 
 func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
+
 	err := g.unmarshalModel(grid)
 	if err != nil {
 		return nil, err
+	}
+
+	// TODO CREATE CALLBACKS on CREATE
+	fmt.Println(reflect.TypeOf(g.orm).String(), reflect.TypeOf(g.orm).String() == "*auth.User")
+	if reflect.TypeOf(g.orm).String() == "*auth.User" {
+		fmt.Println("CALLED CHANGE PW")
+		reflect.ValueOf(g.orm.Scope().Caller()).MethodByName("SetPassword").Call([]reflect.Value{reflect.ValueOf(g.orm.Scope().CallerField("Password").Interface().(NullString).String)})
 	}
 
 	err = g.orm.Create()
@@ -394,9 +405,9 @@ func (g *gridSource) Count(c *sqlquery.Condition, grid *grid.Grid) (int, error) 
 // Only struct fields are allowed.
 // Empty struct is not allowed.
 // Errors will return if one of the rules are not satisfied.
-func (g *gridSource) unmarshalModel(grid *grid.Grid) error {
-	// reading the body request
-	body := grid.Controller().Context().Request.Raw().Body
+func (g *gridSource) unmarshalModel(gr *grid.Grid) error {
+	body := gr.Controller().Context().Request.Raw().Body
+
 	if body == nil {
 		return ErrRequestBody
 	}

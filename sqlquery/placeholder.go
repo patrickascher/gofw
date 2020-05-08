@@ -9,6 +9,7 @@ import (
 )
 
 // PLACEHOLDER character.
+const PLACEHOLDER_APPEND = "§§"
 const PLACEHOLDER = "?"
 
 // Placeholder is used to ensure an unique placeholder for different database adapters.

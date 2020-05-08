@@ -28,12 +28,16 @@ func (g *Grid) newPagination(c *sqlquery.Condition) (*pagination, error) {
 		c = &sqlquery.Condition{}
 	}
 
-	count, err := g.src.Count(c, g)
-	if err != nil {
-		return nil, err
+	// only count if header is needed - performance
+	if _, err := g.controller.Context().Request.Param("noheader"); err != nil {
+		count, err := g.src.Count(c, g)
+		if err != nil {
+			return nil, err
+		}
+		p.Total = count
 	}
+
 	p.Limit = p.paginationParam(g, "limit")
-	p.Total = count
 	p.TotalPages = p.totalPages()
 	p.CurrentPage = p.paginationParam(g, "page")
 	p.Next = p.next()

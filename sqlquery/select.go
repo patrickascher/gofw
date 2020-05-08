@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -163,9 +164,43 @@ func (s *Select) render() (string, []interface{}, error) {
 			selectStmt = selectStmt + joinStmt
 		}
 	}
+
+	// ORACLE DISABLE OFFSET + LIMIT
+	// TODO move to oracle driver, create a render interface?
+	var limit int
+	var offset int
+	var err error
+	if s.builder.driver.Config().Driver == "oracle" {
+		if _limit := s.condition.Config(true, LIMIT); _limit != "" {
+			limit, err = strconv.Atoi(strings.Replace(_limit, "LIMIT ", "", -1))
+			if err != nil {
+				return "", nil, err
+			}
+		}
+
+		if _offset := s.condition.Config(true, OFFSET); _offset != "" {
+			offset, err = strconv.Atoi(strings.Replace(_offset, "OFFSET ", "", -1))
+			if err != nil {
+				return "", nil, err
+			}
+		}
+
+		s.condition.Reset(OFFSET, LIMIT)
+	}
+
 	conditionStmt, err := s.condition.render(s.builder.driver.Placeholder())
 	if conditionStmt != "" {
 		conditionStmt = " " + conditionStmt
+	}
+
+	fmt.Println("CONDITION", conditionStmt)
+	// ORACLE EXCEPTION
+	// TODO move to oracle driver, create a render interface?
+	if s.builder.driver.Config().Driver == "oracle" && (limit != 0 || offset != 0) {
+		fmt.Println("OFFSET", offset)
+		fmt.Println("LIMIT", limit)
+
+		return "SELECT " + columns + " FROM (SELECT " + columns + ",rownum as rnum FROM (" + selectStmt + conditionStmt + ") WHERE rownum<=" + strconv.Itoa(offset+limit) + ") WHERE rnum>" + strconv.Itoa(offset), s.condition.arguments(), err
 	}
 
 	return selectStmt + conditionStmt, s.condition.arguments(), err

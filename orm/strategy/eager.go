@@ -62,6 +62,13 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 		switch relation.Kind {
 		case orm.HasOne, orm.BelongsTo:
 			addWhere(scope, relation, c)
+
+			// CUSTOM Condition on relations, TODO improvements
+			fmt.Println("......->", scope.Model().RelationCondition(relation.Field))
+			if v := scope.Model().RelationCondition(relation.Field); v != nil {
+				c = v
+			}
+
 			err = rel.First(c)
 			if err != nil {
 				// reset initialized model to zero value.
@@ -83,6 +90,15 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 			// CUSTOM Condition on relations, TODO improvements
 			if v := scope.Model().RelationCondition(relation.Field); v != nil {
 				c = v
+			}
+
+			// reset the slice.
+			// needed if there is something like append slice -> update -> first (would doulbe the slices)
+			if scope.CallerField(relation.Field).Type().Elem().Kind() == reflect.Ptr {
+
+				scope.CallerField(relation.Field).Set(reflect.New(reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(reflect.New(relation.Type).Interface())), 0, 0).Type()).Elem())
+			} else {
+				scope.CallerField(relation.Field).Set(reflect.New(reflect.MakeSlice(reflect.SliceOf(relation.Type), 0, 0).Type()).Elem())
 			}
 
 			err = rel.All(scope.CallerField(relation.Field).Addr().Interface(), c)
