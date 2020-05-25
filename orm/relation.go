@@ -91,7 +91,7 @@ func (m *Model) foreignKey(tag string) (Field, error) {
 			return Field{}, err
 		}
 
-		return f, nil
+		return *f, nil
 	}
 
 	return scope.PrimaryKeys()[0], nil
@@ -134,7 +134,7 @@ func (m Model) polymorphic(tags map[string]string, rel Interface) (Polymorphic, 
 			val = m.modelName(false)
 		}
 
-		return Polymorphic{Field: f, Type: t, Value: val}, nil
+		return Polymorphic{Field: *f, Type: *t, Value: val}, nil
 	}
 
 	return Polymorphic{}, nil
@@ -148,7 +148,12 @@ func (m Model) associationForeignKey(fieldName string, rel Interface) (Field, er
 		fieldName = m.modelName(false) + "ID"
 	}
 
-	return rel.Scope().Field(fieldName)
+	f, err := rel.Scope().Field(fieldName)
+	// because Field is now returning a ptr
+	if f == nil {
+		f = &Field{}
+	}
+	return *f, err
 }
 
 // joinTable builds a JoinTable{} by tag or default values.

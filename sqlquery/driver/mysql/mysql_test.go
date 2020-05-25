@@ -2,9 +2,10 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package driver
+package mysql
 
 import (
+	"github.com/patrickascher/gofw/sqlquery/types"
 	"testing"
 
 	"github.com/patrickascher/gofw/sqlquery"
@@ -48,6 +49,10 @@ func TestMysql_TypeMapping(t *testing.T) {
 		{raw: "datetime", kind: "DateTime"},
 		{raw: "timestamp", kind: "DateTime"},
 
+		{raw: "enum('NR','ART')", kind: "Select"},
+		{raw: "enum(0,1)", kind: "Bool"},
+		{raw: "tinyint(1)", kind: "Bool"},
+
 		{raw: "xxx", kind: "nil"},
 	}
 	for _, tt := range tests {
@@ -60,6 +65,9 @@ func TestMysql_TypeMapping(t *testing.T) {
 			} else {
 				test.Equal(tt.kind, ct.Kind())
 				test.Equal(tt.raw, ct.Raw())
+				if ct.Kind() == "Select" {
+					test.Equal([]string{"NR", "ART"}, ct.(types.Select).Items())
+				}
 			}
 		})
 	}

@@ -33,6 +33,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/cache/memory"
+	"github.com/patrickascher/gofw/logger/console"
+	"github.com/patrickascher/gofw/slices"
+	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -41,7 +45,7 @@ import (
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/logger"
 	"github.com/patrickascher/gofw/sqlquery"
-	_ "github.com/patrickascher/gofw/sqlquery/driver"
+	_ "github.com/patrickascher/gofw/sqlquery/driver/mysql"
 )
 
 const (
@@ -50,6 +54,7 @@ const (
 	DELETE = "delete"
 	FIRST  = "first"
 	ALL    = "all"
+	COUNT  = "count"
 )
 
 const (
@@ -69,13 +74,13 @@ var (
 )
 
 var (
-	errNoCache    = errors.New("orm: no cache or cache duration is defined")
+	errNoCache    = errors.New("orm: no cache is defined")
 	errInitPtr    = errors.New("orm: model must be a ptr")
 	errBuilder    = errors.New("orm: no builder is defined")
 	errDb         = errors.New("orm: db or table name is not defined")
-	errBeforeInit = errors.New("orm: %s must be called before the Init method")
-	errInit       = errors.New("orm: must be initialized before")
-	errResultPtr  = errors.New("orm: result variable must be a ptr in %s.All()")
+	errBeforeInit = "orm: %s must be called before the Init method"
+	errInit       = "orm: model must be initialized before %s is called in %s"
+	errResultPtr  = "orm: result variable must be a ptr in %s.All()"
 
 	ErrUpdateNoChanges = errors.New("orm: the model %s was not updated because there were no changes")
 )
@@ -85,41 +90,40 @@ func init() {
 	// global validator
 	validate = valid.New()
 	validate.SetTagName(tagValidate)
-	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullString{}, NullTime{})
-	/*
-		c := sqlquery.Config{}
-		c.Driver = "mysql"
-		c.Database = "orm_test"
-		c.Schema = "public"
-		c.Username = "root"
-		c.Password = "root"
-		c.Host = "127.0.0.1"
-		c.Port = 3319
-		c.Debug = true
+	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullBool{}, NullString{}, NullTime{})
 
-		var err error
-		GlobalBuilder, err = sqlquery.New(c, nil)
-		if err != nil {
-			log.Fatal(err)
-		}
+	c := sqlquery.Config{}
+	c.Driver = "mysql"
+	c.Database = "orm_test"
+	c.Schema = "public"
+	c.Username = "root"
+	c.Password = "root"
+	c.Host = "127.0.0.1"
+	c.Port = 3319
+	c.Debug = true
 
-		GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
-		if err != nil {
-			log.Fatal(err)
-		}
+	var err error
+	GlobalBuilder, err = sqlquery.New(c, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		cLogger, err := console.New(console.Options{Color: true})
-		err = logger.Register("model", logger.Config{Writer: cLogger})
-		if err != nil {
-			log.Fatal(err)
-		}
-		GlobalLogger, err = logger.Get("model")
-		if err != nil {
-			log.Fatal(err)
-		}
+	GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		GlobalBuilder.SetLogger(GlobalLogger)
-	*/
+	cLogger, err := console.New(console.Options{Color: true})
+	err = logger.Register("model", logger.Config{Writer: cLogger})
+	if err != nil {
+		log.Fatal(err)
+	}
+	GlobalLogger, err = logger.Get("model")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	GlobalBuilder.SetLogger(GlobalLogger)
 
 }
 
@@ -152,7 +156,8 @@ type Interface interface {
 	Delete() error
 	Count(c *sqlquery.Condition) (int, error)
 
-	// experimental
+	// experimental TODO: pass it to the child relations to guarantee its working recursively.
+	// at the moment its only working depth 1
 	SetRelationCondition(string, sqlquery.Condition)
 }
 
@@ -174,6 +179,8 @@ type Model struct {
 	parentModel *Model
 	// changedValues, needed for update, that only changed values are updated
 	changedValues []ChangedValue
+	// takeSnapshot is used to compare the updated values with the existing ones in the database.
+	takeSnapshot bool
 	// white/black list
 	wbList *whiteBlackList
 	// identifier for a loop
@@ -191,6 +198,9 @@ type Model struct {
 
 	//experimental
 	relationCondition map[string]sqlquery.Condition
+
+	// references
+	updateReferencesOnly bool
 
 	// Embedded time fields
 	CreatedAt *NullTime `orm:"permission:w" json:",omitempty"`
@@ -228,7 +238,6 @@ func (m *Model) Init(c Interface) error {
 
 	// check if cache exists
 	if m.cache.Exist(m.name) {
-		//m.DefaultLogger().Debug("Init cached", m.modelName(false)) //TODO can be removed
 		v, err := m.cache.Get(m.name)
 		if err != nil {
 			return err
@@ -238,62 +247,58 @@ func (m *Model) Init(c Interface) error {
 		m.caller = c
 		m.parentModel = nil
 		m.scope = &Scope{m}
+	} else {
+		// set scope
+		m.scope = &Scope{m}
 
-		m.copyFieldRelationSlices()
+		// set builder
+		b := c.DefaultBuilder()
+		if b.Driver() == nil {
+			return errBuilder
+		}
+		m.builder = b
 
-		return nil
+		// check if database name and table name is defined.
+		if c.DefaultDatabaseName() == "" || c.DefaultTableName() == "" {
+			return errDb
+		}
+
+		// build all exported struct fields
+		err := m.createFields()
+		if err != nil {
+			return err
+		}
+
+		// build all exported relations.
+		err = m.createRelations()
+		if err != nil {
+			return err
+		}
+
+		// must be called here because the relations are required
+		err = m.addDBValidation()
+		if err != nil {
+			return err
+		}
+
+		// todo set strategy
+		// todo callbacks
+
+		// set model as value
+		m.isInitialized = true
+		err = m.cache.Set(m.name, *m, m.cacheTTL)
+		if err != nil {
+			return err
+		}
 	}
 
-	//m.DefaultLogger().Trace("Init", m.modelName(false)) //TODO can be removed
-
-	// set scope
-	m.scope = &Scope{m}
-
-	// set builder
-	b := c.DefaultBuilder()
-	if b.Driver() == nil {
-		return errBuilder
-	}
-	m.builder = b
-
-	// check if database name and table name is defined.
-	if c.DefaultDatabaseName() == "" || c.DefaultTableName() == "" {
-		return errDb
-	}
-
-	// build all exported struct fields
-	err := m.createFields()
-	if err != nil {
-		return err
-	}
-
-	// build all exported relations.
-	err = m.createRelations()
-	if err != nil {
-		return err
-	}
-
-	// must be called here because the relations are required
-	err = m.addDBValidation()
-	if err != nil {
-		return err
-	}
-
-	// todo set strategy
-	// todo callbacks
-
-	// set model as value
-	m.isInitialized = true
-	err = m.cache.Set(m.name, *m, m.cacheTTL)
-	if err != nil {
-		return err
-	}
-
+	// fields and relations are copied so that no change will happen in the cached orm model.
 	m.copyFieldRelationSlices()
 
 	return nil
 }
 
+// RelationCondition returns the defined relation condition if set by the user.
 func (m *Model) RelationCondition(relation string) *sqlquery.Condition {
 	if v, ok := m.relationCondition[relation]; ok {
 		tmp := v
@@ -302,22 +307,13 @@ func (m *Model) RelationCondition(relation string) *sqlquery.Condition {
 	return nil
 }
 
+// SetRelationCondition can set a custom sqlquery.Condition for the relation.
+// Dot notation can be used to access child relations.
 func (m *Model) SetRelationCondition(relation string, condition sqlquery.Condition) {
 	if m.relationCondition == nil {
 		m.relationCondition = make(map[string]sqlquery.Condition, 1)
 	}
 	m.relationCondition[relation] = condition
-}
-
-// copyFieldRelationSlices is needed that the cached fields and relations of the orm model are not getting changed.
-func (m *Model) copyFieldRelationSlices() {
-	cFields := make([]Field, len(m.fields))
-	copy(cFields, m.fields)
-	m.fields = cFields
-
-	cRelations := make([]Relation, len(m.relations))
-	copy(cRelations, m.relations)
-	m.relations = cRelations
 }
 
 // Scope of the model.
@@ -327,6 +323,7 @@ func (m *Model) Scope() *Scope {
 
 // SetWBList a white/blacklist to the orm.
 func (m *Model) SetWBList(p int, fields ...string) {
+	fields = slices.Unique(fields)
 	m.wbList = newWBList(p, fields)
 }
 
@@ -338,15 +335,15 @@ func (m *Model) WBList() (p int, fields []string) {
 	return m.wbList.policy, m.wbList.fields
 }
 
-// Cache returns the given cache. If none was defined yet the model function
-// DefaultCache is called. If no cache provider was defined, an error will return.
+// Cache returns the given cache. If none was defined yet the model default ist set.
+// If no cache provider was defined, an error will return.
 func (m *Model) Cache() (cache.Interface, time.Duration, error) {
 	var err error
 
 	// If no cache was defined, call the DefaultCache.
 	if m.cache == nil {
 		if m.caller == nil {
-			return nil, 0, errInit
+			return nil, 0, fmt.Errorf(errInit, "cache", reflect.TypeOf(m.caller))
 		}
 		m.cache, m.cacheTTL, err = m.caller.DefaultCache()
 		if err != nil {
@@ -356,7 +353,7 @@ func (m *Model) Cache() (cache.Interface, time.Duration, error) {
 
 	// If no cache is set, an error will return.
 	// A cache is mandatory for the orm, because of performance.
-	if m.cache == nil || m.cacheTTL == 0 {
+	if m.cache == nil {
 		return nil, 0, errNoCache
 	}
 
@@ -368,7 +365,7 @@ func (m *Model) Cache() (cache.Interface, time.Duration, error) {
 // Error will return if the cache provider is nil, no time duration is set or the model was already initialized.
 func (m *Model) SetCache(c cache.Interface, ttl time.Duration) error {
 	if m.isInitialized {
-		return fmt.Errorf(errBeforeInit.Error(), "SetCache")
+		return fmt.Errorf(errBeforeInit, "SetCache")
 	}
 	//if c == nil || ttl == 0 { // ttl Zero is infinity.
 	if c == nil {
@@ -384,7 +381,7 @@ func (m *Model) SetCache(c cache.Interface, ttl time.Duration) error {
 // It will return an error if the model is not initialized or the strategy returns an error.
 func (m *Model) First(c *sqlquery.Condition) error {
 	if !m.isInitialized {
-		return fmt.Errorf(errInit.Error(), reflect.TypeOf(m.caller))
+		return fmt.Errorf(errInit, FIRST, reflect.TypeOf(m.caller))
 	}
 
 	// reset loop detection TODO in every mode (ALL,CREATE,UPDATE,DELETE)
@@ -404,7 +401,7 @@ func (m *Model) First(c *sqlquery.Condition) error {
 		return err
 	}
 
-	err = m.scope.setFieldPermission(FIRST)
+	err = m.scope.setFieldPermission()
 	if err != nil {
 		return err
 	}
@@ -418,9 +415,6 @@ func (m *Model) First(c *sqlquery.Condition) error {
 	if err != nil {
 		return err
 	}
-	if m.parentModel == nil {
-		m.loopDetection = nil
-	}
 
 	// TODO Callbacks after
 
@@ -432,14 +426,17 @@ func (m *Model) First(c *sqlquery.Condition) error {
 // It will return an error if the model is not initialized or the strategy returns an error.
 func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 	if !m.isInitialized {
-		return fmt.Errorf(errInit.Error(), "all", reflect.TypeOf(m.caller))
+		return fmt.Errorf(errInit, ALL, reflect.TypeOf(m.caller))
 	}
 
 	// checking if the res is a ptr
 	if result == nil || reflect.TypeOf(result).Kind() != reflect.Ptr {
-		return fmt.Errorf(errResultPtr.Error(), m.name)
+		return fmt.Errorf(errResultPtr, m.name)
 	}
 
+	if m.parentModel == nil {
+		m.loopDetection = nil
+	}
 	// TODO Callbacks before
 	//m.resSet = result <- needed for callbacks
 
@@ -452,7 +449,7 @@ func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 		return err
 	}
 
-	err = m.scope.setFieldPermission(ALL)
+	err = m.scope.setFieldPermission()
 	if err != nil {
 		return err
 	}
@@ -469,9 +466,7 @@ func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 	}
 	fmt.Println(time.Since(now))
 	// TODO Callbacks after
-	if m.parentModel == nil {
-		m.loopDetection = nil
-	}
+
 	return nil
 }
 
@@ -483,7 +478,7 @@ func (m *Model) Create() (err error) {
 	defer func() { modelDefer(m, err) }()
 
 	if !m.isInitialized {
-		err = fmt.Errorf(errInit.Error(), "Create", reflect.TypeOf(m.caller))
+		err = fmt.Errorf(errInit, CREATE, reflect.TypeOf(m.caller))
 		return
 	}
 
@@ -498,7 +493,8 @@ func (m *Model) Create() (err error) {
 		return nil
 	}
 
-	err = m.scope.setFieldPermission(CREATE)
+	// setFieldPermission must be called before isValid.
+	err = m.scope.setFieldPermission()
 	if err != nil {
 		return
 	}
@@ -513,18 +509,19 @@ func (m *Model) Create() (err error) {
 		return
 	}
 
-	// call delete on strategy
 	err = m.addAutoTX()
 	if err != nil {
 		return
 	}
 
 	now := time.Now()
+	fmt.Println("Called CREATE")
 	err = s.Create(m.scope)
 	if err != nil {
 		return
 	}
 	fmt.Println(time.Since(now))
+	fmt.Println("Called CREATE DONE")
 
 	// call delete on strategy
 	err = m.commitAutoTX()
@@ -536,17 +533,6 @@ func (m *Model) Create() (err error) {
 	return
 }
 
-// modelDefer function for create, update and delete.
-// it checks if a a tx was added and rolls it back.
-func modelDefer(m *Model, err error) {
-	if err != nil && m.isInitialized && m.autoTx && m.Scope().Builder().HasTx() {
-		rErr := m.Scope().Builder().Rollback()
-		if rErr != nil {
-			panic(rErr)
-		}
-	}
-}
-
 // Update an entry with the actual struct value.
 // Everything handled in the loading strategy.
 // If there is no custom transaction added, it will add one by default and also commits it automatically if everything is ok. Otherwise a Rollback will be called.
@@ -555,7 +541,7 @@ func (m *Model) Update() (err error) {
 	defer func() { modelDefer(m, err) }()
 
 	if !m.isInitialized {
-		err = fmt.Errorf(errInit.Error(), "Update", reflect.TypeOf(m.caller))
+		err = fmt.Errorf(errInit, UPDATE, reflect.TypeOf(m.caller))
 		return
 	}
 
@@ -565,7 +551,7 @@ func (m *Model) Update() (err error) {
 	}
 
 	// must be called before isValid
-	err = m.scope.setFieldPermission(UPDATE)
+	err = m.scope.setFieldPermission()
 	if err != nil {
 		return
 	}
@@ -594,9 +580,12 @@ func (m *Model) Update() (err error) {
 		return
 	}
 
-	// snapshot
-	// TODO option to disable snapshot
 	if m.parentModel == nil {
+		m.scope.TakeSnapshot()
+	}
+
+	// snapshot
+	if m.takeSnapshot {
 
 		// reset condition loop
 		m.loopDetection = nil
@@ -621,8 +610,8 @@ func (m *Model) Update() (err error) {
 
 	// if no data was changed
 	if m.changedValues == nil {
-		err = fmt.Errorf(ErrUpdateNoChanges.Error(), m.name)
-		return
+		// needed to avoid a not closed tx.
+		return m.commitAutoTX()
 	}
 
 	fmt.Println("changed ------>", m.changedValues)
@@ -653,11 +642,11 @@ func (m *Model) Delete() (err error) {
 	defer func() { modelDefer(m, err) }()
 
 	if !m.isInitialized {
-		err = fmt.Errorf(errInit.Error(), "Delete", reflect.TypeOf(m.caller))
+		err = fmt.Errorf(errInit, DELETE, reflect.TypeOf(m.caller))
 		return
 	}
 
-	err = m.scope.setFieldPermission(DELETE)
+	err = m.scope.setFieldPermission()
 	if err != nil {
 		return
 	}
@@ -704,7 +693,7 @@ func (m *Model) Delete() (err error) {
 // Count the existing rows by the given condition.
 func (m *Model) Count(c *sqlquery.Condition) (int, error) {
 	if !m.isInitialized {
-		return 0, fmt.Errorf(errInit.Error(), "Delete", reflect.TypeOf(m.caller))
+		return 0, fmt.Errorf(errInit, COUNT, reflect.TypeOf(m.caller))
 	}
 
 	if c == nil {
@@ -724,6 +713,29 @@ func (m *Model) Count(c *sqlquery.Condition) (int, error) {
 
 	// logic here not in strategy
 	return count, nil
+}
+
+// copyFieldRelationSlices is needed that the cached fields and relations of the orm model are not getting changed.
+func (m *Model) copyFieldRelationSlices() {
+	cFields := make([]Field, len(m.fields))
+	copy(cFields, m.fields)
+	m.fields = cFields
+
+	cRelations := make([]Relation, len(m.relations))
+	copy(cRelations, m.relations)
+	m.relations = cRelations
+}
+
+// modelDefer function for create, update and delete.
+// It checks if a tx was added and rolls back.
+func modelDefer(m *Model, err error) {
+	if err != nil && m.isInitialized && m.autoTx && m.Scope().Builder().HasTx() {
+		fmt.Println("defer error", err)
+		rErr := m.Scope().Builder().Rollback()
+		if rErr != nil {
+			panic(rErr)
+		}
+	}
 }
 
 // model of the orm.
@@ -756,11 +768,11 @@ func (m Model) strategy() (Strategy, error) {
 	return s, nil
 }
 
-// addAutoTX adds a transaction on Create, Update, Delete if there was non added by the user.
+// addAutoTX adds a transaction on Create, Update, Delete if there was non added by the user and there are relations.
 func (m *Model) addAutoTX() error {
-	fmt.Println(m.scope.Builder().HasTx(), m.caller.Scope().Builder().HasTx())
 	if !m.scope.Builder().HasTx() && m.parentModel == nil && len(m.relations) > 0 {
 		m.autoTx = true
+		fmt.Println("ADDED AUTOTX")
 		return m.Scope().Builder().Tx()
 	}
 	return nil
@@ -768,7 +780,7 @@ func (m *Model) addAutoTX() error {
 
 // commitAutoTX if exists and added by the system.
 func (m *Model) commitAutoTX() error {
-	if m.autoTx {
+	if m.autoTx && m.parentModel == nil {
 		m.autoTx = false
 		fmt.Println("***** called commit !!!!!!!")
 		return m.Scope().Builder().Commit()

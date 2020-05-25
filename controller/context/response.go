@@ -6,7 +6,10 @@ package context
 
 import (
 	"encoding/json"
+	"github.com/360EntSecGroup-Skylar/excelize"
 	"net/http"
+	"reflect"
+	"time"
 )
 
 // Response struct.
@@ -45,6 +48,8 @@ func (o *Response) Render(renderType string) error {
 	var err error
 
 	switch renderType {
+	case "excel":
+		err = o.renderExcel()
 	default:
 		//TODO: only JSON is defined at the moment
 		err = o.renderJson()
@@ -64,4 +69,64 @@ func (o *Response) renderJson() error {
 	}
 	_, err = o.Raw().Write(js)
 	return err
+}
+
+func (o *Response) renderExcel() error {
+
+	o.Raw().Header().Set("Content-Type", "application/octet-stream")
+	o.Raw().Header().Set("Content-Disposition", "attachment; filename=\"export.xlsx\"")
+
+	f := excelize.NewFile()
+	worksheet := "Sheet1"
+	// Create a new sheet.
+	index := f.NewSheet(worksheet)
+
+	header := o.data["head"].([]string)
+	data := o.data["data"].([]interface{})
+
+	// adding header data
+	i := 1
+	for _, head := range header {
+		cell, err := excelize.CoordinatesToCellName(i, 1)
+		if err != nil {
+			return err
+		}
+		err = f.SetCellValue(worksheet, cell, head)
+		if err != nil {
+			return err
+		}
+		i++
+	}
+
+	// adding body
+	i = 2
+	for _, body := range data {
+		n := 1
+
+		bodyx := body.(map[string]interface{})
+		for _, head := range header {
+			cell, err := excelize.CoordinatesToCellName(n, i)
+			if err != nil {
+				return err
+			}
+
+			// excel only allows UTC times.
+			typ := reflect.TypeOf(bodyx[head])
+			if typ != nil && typ.String() == "time.Time" {
+				bodyx[head] = bodyx[head].(time.Time).String()
+			}
+
+			err = f.SetCellValue(worksheet, cell, bodyx[head])
+			if err != nil {
+				return err
+			}
+			n++
+		}
+		i++
+	}
+
+	// Set active sheet of the workbook.
+	f.SetActiveSheet(index)
+
+	return f.Write(o.Raw())
 }

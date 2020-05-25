@@ -5,10 +5,9 @@ import (
 	driverI "database/sql/driver"
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/sqlquery"
 	"reflect"
 	"strings"
-
-	"github.com/patrickascher/gofw/sqlquery"
 )
 
 var (
@@ -25,7 +24,7 @@ type Scope struct {
 	model *Model
 }
 
-// Builder returns a ptr to the model builder.
+// Builder returns a ptr to the orm model builder.
 func (scope Scope) Builder() *sqlquery.Builder {
 	return &scope.model.builder
 }
@@ -40,7 +39,11 @@ func (scope Scope) Model() *Model {
 // Error will return if no parent exists or the given name does not exist.
 func (scope Scope) Parent(name string) (*Model, error) {
 	p := scope.model.parentModel
+	i := 0
 	for p != nil {
+		if i > 10 {
+			return nil, errors.New("loop detection")
+		}
 		// return root parent
 		if name == "" && p.parentModel == nil {
 			return p, nil
@@ -50,9 +53,20 @@ func (scope Scope) Parent(name string) (*Model, error) {
 			return p, nil
 		}
 		p = p.parentModel
+		i++
 	}
-
 	return nil, fmt.Errorf(errParentModel, name)
+}
+
+// UnsetParent removes the parent link on the orm model.
+// Useful on self referencing relations.
+func (scope Scope) UnsetParent() {
+	scope.model.parentModel = nil
+}
+
+// TakeSnapshot will request the database before an update is made, to only update changed data.
+func (scope Scope) TakeSnapshot() {
+	scope.model.takeSnapshot = true
 }
 
 // SetBackReference sets a back reference if the model was already loaded.
@@ -70,11 +84,12 @@ func (scope Scope) SetBackReference(rel Relation) error {
 	return SetReflectValue(f, reflect.ValueOf(c.caller))
 }
 
-// SetReflectValue is a helper to set a fields value without worrying about the field type.
+// SetReflectValue is a helper to set the fields value without worrying about the field type.
 // The field type and the value type must be the same with the exception of int.
 // Int32,int64 and nullInt will be mapped.
-// TODO create a better solution for this, what with int8,int16,...
+// TODO create a better solution for this, what with int8,int16,uint,...
 func SetReflectValue(field reflect.Value, value reflect.Value) error {
+
 	switch field.Kind() {
 	case reflect.Ptr:
 		if value.CanAddr() {
@@ -86,7 +101,11 @@ func SetReflectValue(field reflect.Value, value reflect.Value) error {
 		scannerI := reflect.TypeOf((*sql.Scanner)(nil)).Elem()
 		if field.Addr().Type().Implements(scannerI) && field.Type() != value.Type() {
 			f := field.Addr().Interface().(sql.Scanner)
-			_ = f.Scan(value)
+			err := f.Scan(value.Interface())
+			if err != nil {
+				return err
+			}
+
 		} else {
 			field.Set(value)
 		}
@@ -200,26 +219,30 @@ func (scope Scope) IsEmpty(perm Permission) bool {
 	}
 
 	for _, r := range scope.Relations(perm) {
-		// TODO simplify this whole code.
 
-		// for slice and ptr
-		if scope.CallerField(r.Field).IsZero() ||
-			(scope.CallerField(r.Field).Type().Kind() == reflect.Slice && scope.CallerField(r.Field).Len() == 0) {
+		relField := scope.CallerField(r.Field)
+		// for slice and ptr.
+		if relField.IsZero() ||
+			(relField.Type().Kind() == reflect.Slice && relField.Len() == 0) {
 			continue
 		}
-		// must be initialized
-		if scope.CallerField(r.Field).Type().Kind() == reflect.Struct {
-			_ = scope.InitRelation(scope.CallerField(r.Field).Addr().Interface().(Interface), r.Field)
-			if !scope.CallerField(r.Field).Addr().Interface().(Interface).Scope().IsEmpty(perm) {
+
+		// check if the orm.model struct isEmpty (recursive).
+		if relField.Type().Kind() == reflect.Struct || relField.Type().Kind() == reflect.Ptr {
+			var m Interface
+			if relField.Type().Kind() == reflect.Struct {
+				m = relField.Addr().Interface().(Interface)
+			} else {
+				// ptr
+				m = relField.Interface().(Interface)
+			}
+			_ = scope.InitRelation(m, r.Field)
+			if !m.Scope().IsEmpty(perm) {
 				return false
 			}
+			m = nil
 		}
-		if scope.CallerField(r.Field).Type().Kind() == reflect.Ptr {
-			_ = scope.InitRelation(scope.CallerField(r.Field).Interface().(Interface), r.Field)
-			if !scope.CallerField(r.Field).Interface().(Interface).Scope().IsEmpty(perm) {
-				return false
-			}
-		}
+
 	}
 	return true
 }
@@ -232,14 +255,13 @@ func (scope Scope) CallerField(field string) reflect.Value {
 // Field by the given name.
 // No specific permission is checked. No need for it yet.
 // Error will return if it does not exist.
-func (scope Scope) Field(name string) (Field, error) {
-
-	for _, f := range scope.model.fields {
+func (scope Scope) Field(name string) (*Field, error) {
+	for k, f := range scope.model.fields {
 		if f.Name == name {
-			return f, nil
+			return &scope.model.fields[k], nil
 		}
 	}
-	return Field{}, fmt.Errorf(errStructField, name, scope.model.name)
+	return nil, fmt.Errorf(errStructField, name, scope.model.name)
 }
 
 // Fields return all Fields by the given permission.
@@ -317,7 +339,7 @@ func (scope Scope) CachedModel(model string) (Interface, error) {
 	return &m, err
 }
 
-// ScanValues, scans a row set into the orm fields.
+// ScanValues, scans a db row into the orm fields.
 func (scope Scope) ScanValues(p Permission) []interface{} {
 	var values []interface{}
 	for _, col := range scope.Fields(p) {
@@ -337,11 +359,6 @@ func (scope Scope) NewScopeFromType(p reflect.Type) (*Scope, error) {
 	v := newValueInstanceFromType(p)
 	model := v.Addr().Interface().(Interface)
 
-	// check if the scope and given type are the same.
-	if scope.Name(true) != strings.Replace(p.String(), "*", "", -1) {
-		//return nil, fmt.Errorf(errInstanceType, scope.Name(true), p.String())
-	}
-
 	// copy the scope cache to the new orm instance.
 	model.model().cache, model.model().cacheTTL = scope.model.cache, scope.model.cacheTTL
 	// init the orm instance.
@@ -350,7 +367,7 @@ func (scope Scope) NewScopeFromType(p reflect.Type) (*Scope, error) {
 		return nil, err
 	}
 
-	// copy fields/relation permission from parent.
+	// copy fields/relation permission from parent, if its of the same type.
 	if scope.Name(true) == strings.Replace(p.String(), "*", "", -1) {
 		copy(model.model().fields, scope.model.fields)
 		copy(model.model().relations, scope.model.relations)
@@ -358,6 +375,25 @@ func (scope Scope) NewScopeFromType(p reflect.Type) (*Scope, error) {
 	model.model().loopDetection = scope.model.loopDetection
 
 	return model.Scope(), nil
+}
+
+// SetReferencesOnly creates/updates only the foreign keys on belongsTo and m2m relations.
+func (scope Scope) SetReferencesOnly(refOnly bool) {
+	scope.model.updateReferencesOnly = refOnly
+}
+
+// ReferencesOnly returns the model configuration.
+func (scope Scope) ReferencesOnly() bool {
+	return scope.model.updateReferencesOnly
+}
+
+// SetWhitelistExplict sets the whitelist on self referencing models that you have to explicit set the child fields.
+// Example: Role.Subrole.Subrole.Name would only set Role.Subrole.Subrole.Name field to the whitelist.
+// Default if Name is in the whitelist, name will be loaded on every Subrole.
+func (scope Scope) SetWhitelistExplict(b bool) {
+	if scope.model.wbList != nil {
+		scope.model.wbList.explicit = b
+	}
 }
 
 // EqualWith checks if the given orm model is equal with the scope orm model.
@@ -417,13 +453,23 @@ func (scope Scope) EqualWith(snapshot Interface) ([]ChangedValue, error) {
 				op := UPDATE
 				if relationI.Scope() != relationSnapshotI.Scope() {
 
+					// TODO get primary field
+					v1, err := SanitizeToString(relationI.Scope().CallerField("ID").Interface())
+					if err != nil {
+						return nil, err
+					}
+					v2, err := SanitizeToString(relationSnapshotI.Scope().CallerField("ID").Interface())
+					if err != nil {
+						return nil, err
+					}
+
 					// if the relation model is empty, delete all existing entries.
 					if relationI.Scope().IsEmpty(Permission{}) {
 						op = DELETE
 					} else if relationSnapshotI.Scope().IsEmpty(Permission{}) {
 						// if the relation snapshot was empty, create all entries.
 						op = CREATE
-					} else if !relationI.Scope().PrimariesSet() || Int(relationI.Scope().CallerField("ID").Interface()) != Int(relationSnapshotI.Scope().CallerField("ID").Interface()) {
+					} else if !relationI.Scope().PrimariesSet() || v1 != v2 {
 						// if there were entries before but the new added relation has no primary key set or has an new ID.
 						// this can happens if the user adds manually a new slice.
 						// the old relation snapshot IDs will be deleted at the end.
@@ -480,9 +526,16 @@ func (scope Scope) EqualWith(snapshot Interface) ([]ChangedValue, error) {
 							return nil, err
 						}
 
-						// TODO BUG(patrick): if the primary is a string (uuid)
-						// TODO befere there was a orm.Int() function, now its comparing directly. will throw an error on int & int64.
-						if sliceSnapshotI.Scope().CallerField("ID").Interface() == sliceI.Scope().CallerField("ID").Interface() {
+						// TODO check primary field
+						v1, err := SanitizeToString(sliceSnapshotI.Scope().CallerField("ID").Interface())
+						if err != nil {
+							return nil, err
+						}
+						v2, err := SanitizeToString(sliceI.Scope().CallerField("ID").Interface())
+						if err != nil {
+							return nil, err
+						}
+						if v1 == v2 {
 
 							changesSlice, err := sliceI.Scope().EqualWith(sliceSnapshotI)
 							if err != nil {
@@ -506,7 +559,11 @@ func (scope Scope) EqualWith(snapshot Interface) ([]ChangedValue, error) {
 			// all still existing snapshot slices, will get deleted. because they are represented in the new relation slice.
 			if snapshot.Scope().CallerField(rel.Field).Len() > 0 {
 				for n := 0; n < snapshot.Scope().CallerField(rel.Field).Len(); n++ {
-					changes = append(changes, ChangedValue{Operation: DELETE, Index: Int(reflect.Indirect(snapshot.Scope().CallerField(rel.Field).Index(n)).FieldByName("ID").Interface()), Field: rel.Field})
+					index, err := SanitizeValue(reflect.Indirect(snapshot.Scope().CallerField(rel.Field).Index(n)).FieldByName("ID").Interface())
+					if err != nil {
+						return nil, err
+					}
+					changes = append(changes, ChangedValue{Operation: DELETE, Index: index, Field: rel.Field})
 				}
 			}
 
@@ -563,7 +620,8 @@ func (scope Scope) InitCallerRelation(relField string, noParent bool) (Interface
 		return nil, err
 	}
 
-	if noParent {
+	// parent link is getting removed.
+	if noParent && relationI != nil {
 		relationI.model().parentModel = nil
 	}
 
@@ -595,7 +653,7 @@ func (scope Scope) InitRelation(relationI Interface, relationField string) error
 
 	// if no string is given, its no relations - its the root element which should have no parent.
 	if relationField != "" {
-		relationI.model().parentModel = scope.model.caller.model() // set the correct parent
+		relationI.model().parentModel = scope.Model() // set the correct parent
 	}
 
 	// passing parent fields
@@ -645,7 +703,7 @@ func (scope Scope) addParentWbList(relation Interface, field string) {
 
 	// on self reference, add the same wb list of parent
 	// also used for snapshot
-	if scope.model.name == relation.model().modelName(true) {
+	if scope.model.name == relation.model().modelName(true) && !scope.model.wbList.explicit {
 		relation.SetWBList(scope.model.wbList.policy, scope.model.wbList.fields...)
 		return
 	}
@@ -669,7 +727,7 @@ type ChangedValue struct {
 	OldV         interface{}
 	NewV         interface{}
 	Operation    string
-	Index        int
+	Index        interface{} // On delete index is used as ID field.
 	ChangedValue []ChangedValue
 }
 

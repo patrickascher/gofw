@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"github.com/rs/cors"
 	"net/http"
 )
 
@@ -96,16 +97,15 @@ func startServer() error {
 	cfgServer.Addr = fmt.Sprint(":", c.Server.HTTPPort)
 
 	//TODO write own cors middleware
-	//corsManager := cors.New(cors.Options{
-	//	AllowCredentials: true,
-	//	AllowedOrigins:   []string{"http://localhost:8080"},
-	//	AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
-	//	AllowedHeaders:   []string{"Authorization", "Origin", "Cache-Control", "Accept", "Content-Type", "X-Requested-With"},
-	//	Debug:            true,
-	//})
-	//corsManager.Handler(..)
+	corsManager := cors.New(cors.Options{
+		AllowCredentials: true,
+		AllowedOrigins:   []string{"http://localhost:8080"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
+		AllowedHeaders:   []string{"Authorization", "Origin", "Cache-Control", "Accept", "Content-Type", "X-Requested-With"},
+		Debug:            true,
+	})
 
-	cfgServer.Handler = cfgRouter.Handler()
+	cfgServer.Handler = corsManager.Handler(cfgRouter.Handler())
 	err = cfgServer.ListenAndServe()
 	if err != nil {
 		return err

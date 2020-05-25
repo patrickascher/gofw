@@ -287,12 +287,25 @@ func (c *Condition) addArgument(conditionType int, args interface{}) {
 	// Array/Slice arguments
 	if reflect.ValueOf(args).Kind() == reflect.Array || reflect.ValueOf(args).Kind() == reflect.Slice {
 		for n := 0; n < reflect.ValueOf(args).Len(); n++ {
-			switch reflect.ValueOf(args).Index(n).Kind() {
+			switch t := reflect.TypeOf(reflect.ValueOf(args).Index(n).Interface()).Kind(); t {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				val := reflect.ValueOf(args).Index(n).Int()
+				var val int64
+				if t == reflect.Int || t == reflect.Int32 {
+					val = int64(reflect.ValueOf(args).Index(n).Interface().(int))
+				}
+				if t == reflect.Int8 {
+					val = int64(reflect.ValueOf(args).Index(n).Interface().(int8))
+				}
+				if t == reflect.Int16 {
+					val = int64(reflect.ValueOf(args).Index(n).Interface().(int16))
+				}
+				if t == reflect.Int64 {
+					val = reflect.ValueOf(args).Index(n).Interface().(int64)
+				}
+
 				c.args[conditionType] = append(c.args[conditionType], val)
 			case reflect.String:
-				val := reflect.ValueOf(args).Index(n).String()
+				val := reflect.ValueOf(args).Index(n).Interface().(string)
 				c.args[conditionType] = append(c.args[conditionType], val)
 			default:
 				c.error = fmt.Errorf(ErrArgumentType.Error(), reflect.ValueOf(args).Index(n).Kind())
@@ -333,6 +346,9 @@ func (c *Condition) conditionHelper(conditionType int, stmt string, args []inter
 	}
 
 	stmt = stmtMapManipulation(c, stmt, args, conditionType)
+	if c.error != nil {
+		return
+	}
 
 	// building statement
 	switch conditionType {

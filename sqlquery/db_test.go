@@ -7,10 +7,11 @@ package sqlquery_test
 import (
 	"database/sql"
 	"fmt"
+	"github.com/patrickascher/gofw/sqlquery/driver/mysql"
 	"testing"
 
 	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/patrickascher/gofw/sqlquery/driver"
+	_ "github.com/patrickascher/gofw/sqlquery/driver/mysql"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -244,18 +245,17 @@ func TestDb_InsertTx(t *testing.T) {
 
 	// -----------------------------------------
 
-	// err: tx was already committed or rolled back
-	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
-	test.Error(err)
-
 	// ok: recreated tx
 	err = b.Tx()
 	test.NoError(err)
 
+	// ok: new tx
 	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
 	test.NoError(err)
 	test.Equal(0, countRows(nil))
 
+	_, err = b.Insert("users").Values([]map[string]interface{}{{"id": 1, "name": "John", "surname": "Doe"}, {"id": 2, "name": "Bar", "surname": "Foo"}}).Exec()
+	test.Error(err)
 	test.Equal(0, countRows(nil))
 
 	err = b.Commit()
@@ -390,7 +390,7 @@ func TestDb_Describe(t *testing.T) {
 	// err: table does not exist
 	cols, err = b.Information("usersx").Describe()
 	test.Error(err)
-	test.Equal(fmt.Sprintf(driver.ErrTableDoesNotExist.Error(), "gofw.usersx"), err.Error()) //TODO database should be dynamic
+	test.Equal(fmt.Sprintf(mysql.ErrTableDoesNotExist.Error(), "gofw.usersx", []string{}), err.Error()) //TODO database should be dynamic
 
 	// ok: specific columns
 	cols, err = b.Information("users").Describe("id", "name")

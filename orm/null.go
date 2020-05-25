@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,43 @@ import (
 	"strconv"
 	"time"
 )
+
+type NullBool struct {
+	sql.NullBool
+}
+
+func NewNullBool(b bool) NullBool {
+	return NullBool{NullBool: sql.NullBool{b, true}}
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+// It supports number and null input.
+// 0 will not be considered a null Bool.
+func (b *NullBool) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, []byte("null")) {
+		b.Valid = false
+		return nil
+	}
+
+	if err := json.Unmarshal(data, &b.Bool); err != nil {
+		return fmt.Errorf("null: couldn't unmarshal JSON: %w", err)
+	}
+
+	b.Valid = true
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+// It will encode null if this Bool is null.
+func (b NullBool) MarshalJSON() ([]byte, error) {
+	if !b.Valid {
+		return []byte("null"), nil
+	}
+	if !b.Bool {
+		return []byte("false"), nil
+	}
+	return []byte("true"), nil
+}
 
 type NullInt struct {
 	sql.NullInt64
@@ -151,17 +189,38 @@ func (t *NullTime) UnmarshalJSON(data []byte) error {
 	return err
 }
 
-// Int is used to get the int value of int64 or nullInt.
-// TODO better solution and alwasy cast it to int64 to avoid problems.
-func Int(i interface{}) int {
+func SanitizeToString(i interface{}) (string, error) {
+	v, err := SanitizeValue(i)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%v", v), nil
+}
+
+//SanitizeValue is converting any int and nullint to int64 and nullString to string.
+func SanitizeValue(i interface{}) (interface{}, error) {
+
+	// ints or null int will be converted to int64
 	switch i.(type) {
-	case int:
-		return i.(int)
-	case int64:
-		return int(i.(int64))
+	case int, int8, int16, int32, int64:
+		if int, ok := i.(int); ok {
+			return int64(int), nil
+		}
+		return nil, fmt.Errorf("can not sanitize to int64 %v", i)
+	case string:
+		return i, nil
+	case NullInt:
+		if i.(NullInt).Valid {
+			return i.(NullInt).Int64, nil
+		}
+		return 0, nil
+	case NullString:
+		if i.(NullString).Valid {
+			return i.(NullString).String, nil
+		}
+		return nil, fmt.Errorf("can not sanitize nullString to string %v", i)
 	}
-	if i.(NullInt).Valid {
-		return int(i.(NullInt).Int64)
-	}
-	return 0
+
+	return nil, fmt.Errorf("can not sanitize because of unimplemented type %v", reflect.TypeOf(i))
 }

@@ -9,9 +9,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/mattn/go-oci8"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/patrickascher/gofw/sqlquery/types"
+	_ "github.com/patrickascher/ora"
+
 	"strings"
 )
 
@@ -34,7 +35,8 @@ func newOracle(cfg sqlquery.Config, db *sql.DB) (sqlquery.DriverI, error) {
 	if db != nil {
 		o.connection = db
 	} else {
-		db, err := sql.Open("oci8", fmt.Sprintf("%s/%s@%s:%d/%s", cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Schema))
+		//oci8
+		db, err := sql.Open("ora", fmt.Sprintf("%s/%s@%s:%d/%s", cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Schema))
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +120,7 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 // ForeignKeys returns the relation of the given table.
 // TODO: already set the relation Type (hasOne, hasMany, m2m,...) ? Does this make sense already here instead of the ORM.
 func (o *oracle) ForeignKeys(b *sqlquery.Builder, db string, table string) ([]*sqlquery.ForeignKey, error) {
-	return nil, errors.New("oracle: foreignkeys are not implemented yet!")
+	return nil, errors.New("oracle: foreign keys are not implemented yet!")
 }
 
 // Placeholder return a configured placeholder for the db driver.

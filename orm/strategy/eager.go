@@ -18,15 +18,10 @@ func init() {
 type EagerLoading struct {
 }
 
-// addWhere helper for the First method.
-func addWhere(scope *orm.Scope, relation orm.Relation, c *sqlquery.Condition) {
-	if scope.IsPolymorphic(relation) {
-		c.Where(scope.Builder().QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-		c.Where(scope.Builder().QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
-	} else {
-		c.Where(scope.Builder().QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-	}
-}
+// First requests one row by the given condition.
+// Relation hasOne and belongsTo will call orm First().
+// Relation hasMany and manyToMany will call orm All().
+// TODO: Custom relation conditions have to be improved, atm only depth 1.
 func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Permission) error {
 
 	b := scope.Builder()
@@ -51,7 +46,7 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 			return nil
 		}
 
-		// init Rel
+		// init relation
 		c := &sqlquery.Condition{}
 		rel, err := scope.InitCallerRelation(relation.Field, false)
 		if err != nil {
@@ -61,10 +56,9 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 		// handling relation
 		switch relation.Kind {
 		case orm.HasOne, orm.BelongsTo:
-			addWhere(scope, relation, c)
+			addWhere(scope, relation, c, scope.CallerField(relation.ForeignKey.Name).Interface())
 
 			// CUSTOM Condition on relations, TODO improvements
-			fmt.Println("......->", scope.Model().RelationCondition(relation.Field))
 			if v := scope.Model().RelationCondition(relation.Field); v != nil {
 				c = v
 			}
@@ -80,7 +74,7 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 			}
 		case orm.HasMany, orm.ManyToMany:
 			if relation.Kind == orm.HasMany {
-				addWhere(scope, relation, c)
+				addWhere(scope, relation, c, scope.CallerField(relation.ForeignKey.Name).Interface())
 			} else {
 				// TODO INNER JOIN faster?
 				c.Where(b.QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" IN (SELECT "+b.QuoteIdentifier(relation.JoinTable.AssociationForeignKey)+" FROM "+b.QuoteIdentifier(relation.JoinTable.Name)+" WHERE "+b.QuoteIdentifier(relation.JoinTable.ForeignKey)+" = ?)", scope.CallerField(relation.ForeignKey.Name).Interface())
@@ -93,9 +87,8 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 			}
 
 			// reset the slice.
-			// needed if there is something like append slice -> update -> first (would doulbe the slices)
+			// needed if there is something like append slice -> update -> first (would double the slices)
 			if scope.CallerField(relation.Field).Type().Elem().Kind() == reflect.Ptr {
-
 				scope.CallerField(relation.Field).Set(reflect.New(reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(reflect.New(relation.Type).Interface())), 0, 0).Type()).Elem())
 			} else {
 				scope.CallerField(relation.Field).Set(reflect.New(reflect.MakeSlice(reflect.SliceOf(relation.Type), 0, 0).Type()).Elem())
@@ -111,9 +104,12 @@ func (e EagerLoading) First(scope *orm.Scope, c *sqlquery.Condition, perm orm.Pe
 	return nil
 }
 
+// All request all rows by the given condition.
+// All foreign keys are collected after the main select, all relations are handled by one request (m2m has 2 selects one for the join table and one for the main data).
+// The data is mapped after that.
 // TODO back-references end in an infinity loop error at the moment
-// TODO at the moment only INTs are working (whats with UUIDs,strings)...
 // TODO better solution of defer in a for loop, func?
+// TODO defer in loop?
 func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Condition) error {
 
 	readPerm := orm.Permission{Read: true}
@@ -138,7 +134,6 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 		}
 		//add the values
 		err = rows.Scan(cScope.ScanValues(readPerm)...)
-
 		if err != nil {
 			return err
 		}
@@ -155,33 +150,36 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 	}
 
 	// in - collects all foreign keys of the main model. This is needed to create a select for all needed data.
-	// Later on the data will be mapped to the correct result again.
-	// TODO at the moment only INTs are working (whats with UUIDs,strings)...
-	in := map[string][]int{}
+	// Later on, the data will be mapped to the correct result again.
+	in := map[string][]interface{}{}
 	for _, relation := range scope.Relations(readPerm) {
 		f := relation.ForeignKey.Name
 		if _, ok := in[f]; !ok {
 			for n := 0; n < resultSlice.Len(); n++ {
-				// TODO type switch if string (uuid)
-				i := orm.Int(reflect.Indirect(resultSlice.Index(n)).FieldByName(f).Interface())
-				if _, exist := slices.ExistInt(in[f], i); !exist {
+				i, err := orm.SanitizeValue(reflect.Indirect(resultSlice.Index(n)).FieldByName(f).Interface())
+				if err != nil {
+					return err
+				}
+				if _, exist := slices.ExistInterface(in[f], i); !exist {
 					in[f] = append(in[f], i)
 				}
 			}
 		}
-
 		// Special case, if its a many to many relation.
 		// To avoid multiple sql selects, all many2many results of this relation and the main model ids will be loaded with two queries.
 		// The first query checks the join table for all needed IDs. The second query requests the model by the ids.
-		m2mMap := map[int][]int{}
-		var m2mAll []int
+		m2mMap := map[string][]interface{}{}
+		var m2mAll []interface{}
 		if relation.Kind == orm.ManyToMany {
 
-			var fkInt []int
+			var fkInt []interface{}
 			for row := 0; row < resultSlice.Len(); row++ {
-				fkInt = append(fkInt, orm.Int(reflect.Indirect(resultSlice.Index(row)).FieldByName(relation.ForeignKey.Name).Interface()))
+				v, err := orm.SanitizeValue(reflect.Indirect(resultSlice.Index(row)).FieldByName(relation.ForeignKey.Name).Interface())
+				if err != nil {
+					return err
+				}
+				fkInt = append(fkInt, v)
 			}
-
 			rows, err := b.Select(relation.JoinTable.Name).Columns(relation.JoinTable.ForeignKey, relation.JoinTable.AssociationForeignKey).Where(b.QuoteIdentifier(relation.JoinTable.ForeignKey)+" IN (?)", fkInt).All()
 			if err != nil {
 				return err
@@ -190,14 +188,15 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 
 			// map fk,afk
 			for rows.Next() {
-				var fk int
-				var afk int
+				var fk string
+				var afk string
+
 				err = rows.Scan(&fk, &afk)
 				if err != nil {
 					return err
 				}
 				m2mMap[fk] = append(m2mMap[fk], afk)
-				if _, exists := slices.ExistInt(m2mAll, afk); !exists {
+				if _, exists := slices.ExistInterface(m2mAll, afk); !exists {
 					m2mAll = append(m2mAll, afk)
 				}
 			}
@@ -210,12 +209,7 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 			// create condition
 			c := &sqlquery.Condition{}
 			if relation.Kind != orm.ManyToMany {
-				if scope.IsPolymorphic(relation) {
-					c.Where(b.QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+" IN (?)", in[f])
-					c.Where(b.QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
-				} else {
-					c.Where(b.QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" IN (?)", in[f])
-				}
+				addWhere(scope, relation, c, in[f])
 			} else {
 				c.Where(b.QuoteIdentifier(relation.ForeignKey.Information.Name)+" IN (?)", m2mAll)
 			}
@@ -245,13 +239,21 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 				for y := 0; y < rResElem.Len(); y++ { // relation result set
 					// PARENT ID
 					modelField := reflect.Indirect(resultSlice.Index(row)).FieldByName(relation.ForeignKey.Name)
-					parentID := orm.Int(modelField.Interface())
+					parentID, err := orm.SanitizeToString(modelField.Interface())
+					if err != nil {
+						return err
+					}
 
 					// set data to the main model.
 					if relation.Kind == orm.ManyToMany {
 
-						v, ok := m2mMap[parentID]
-						_, exists := slices.ExistInt(v, orm.Int(reflect.Indirect(rResElem.Index(y)).FieldByName(relation.AssociationForeignKey.Name).Interface()))
+						v, ok := m2mMap[reflect.ValueOf(parentID).String()]
+						v2, err := orm.SanitizeToString(reflect.Indirect(rResElem.Index(y)).FieldByName(relation.AssociationForeignKey.Name).Interface())
+						if err != nil {
+							return err
+						}
+
+						_, exists := slices.ExistInterface(v, v2)
 						if ok && exists {
 							err = orm.SetReflectValue(reflect.Indirect(resultSlice.Index(row)).FieldByName(relation.Field), rResElem.Index(y))
 							if err != nil {
@@ -259,8 +261,8 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 							}
 						}
 					} else {
-						if (!scope.IsPolymorphic(relation) && parentID == orm.Int(reflect.Indirect(rResElem.Index(y)).FieldByName(relation.AssociationForeignKey.Name).Interface())) ||
-							scope.IsPolymorphic(relation) && parentID == orm.Int(reflect.Indirect(rResElem.Index(y)).FieldByName(relation.Polymorphic.Field.Name).Interface()) {
+						if (!scope.IsPolymorphic(relation) && compareValues(parentID, reflect.Indirect(rResElem.Index(y)).FieldByName(relation.AssociationForeignKey.Name).Interface())) ||
+							scope.IsPolymorphic(relation) && compareValues(parentID, reflect.Indirect(rResElem.Index(y)).FieldByName(relation.Polymorphic.Field.Name).Interface()) {
 							err = orm.SetReflectValue(reflect.Indirect(resultSlice.Index(row)).FieldByName(relation.Field), rResElem.Index(y))
 							if err != nil {
 								return err
@@ -275,7 +277,14 @@ func (e EagerLoading) All(res interface{}, scope *orm.Scope, c *sqlquery.Conditi
 	return nil
 }
 
-// TODO: on hasMany orm which have an additional relation a insert is done for every single item because we need the last inserted ID for further relations. Solution tx options?
+// Create an entry.
+// BelongsTo relation is handled before the main entry. If the belongsTo primary already exists in the database it will be updated instead of created.
+// Autoincrement field will be skipped if the value is zero. Last inserted ID will be set to the struct later on.
+// Error will return if no columns of the root struct have any value.
+// Relations are skipped if the value is zero.
+// HasOne - entries are created only. There is no check if the ID already exists in the db.
+// HasMany - if no other relations exists on that orm, a batch insert can be made because the inserted ID is not required. Otherwise a create will be called for every entry. No update or db check is been made. (TODO Callbacks must be handeldt both ways)
+// ManyToMany - if the ID exists in the db, its been updated otherwise its been created. the join table is batched.
 func (e EagerLoading) Create(scope *orm.Scope) error {
 	writePerm := orm.Permission{Write: true}
 	b := scope.Builder()
@@ -290,18 +299,14 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 			}
 
 			// init the relation model
-			// parent is not loaded because the belongsTo orm could be updated.
+			// parent is not loaded to avoid to update the relations of the belongsTo orm model.
 			rel, err := scope.InitCallerRelation(relation.Field, true)
 			if err != nil {
 				return err
 			}
 
-			// create new entry if primary fields are empty, otherwise update entry
-			if !rel.Scope().PrimariesSet() {
-				err = rel.Create()
-			} else {
-				err = rel.Update()
-			}
+			// create or update the entry
+			err = createOrUpdate(rel, false)
 			if err != nil {
 				return err
 			}
@@ -361,21 +366,13 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 			if err != nil {
 				return err
 			}
-			if !scope.IsPolymorphic(relation) {
-				err = orm.SetReflectValue(rel.Scope().CallerField(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-				if err != nil {
-					return err
-				}
-			} else {
-				err = orm.SetReflectValue(rel.Scope().CallerField(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-				if err != nil {
-					return err
-				}
-				err = orm.SetReflectValue(rel.Scope().CallerField(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-				if err != nil {
-					return err
-				}
+
+			// set parent ID to relation model
+			err = setValue(scope, relation, reflect.Indirect(reflect.ValueOf(rel.Scope().Caller())))
+			if err != nil {
+				return err
 			}
+
 			err = rel.Create()
 			if err != nil {
 				return err
@@ -401,20 +398,9 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 					}
 
 					// set parent ID to relation model
-					if !scope.IsPolymorphic(relation) {
-						err = orm.SetReflectValue(reflect.Indirect(slice.Index(i)).FieldByName(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-						if err != nil {
-							return err
-						}
-					} else {
-						err = orm.SetReflectValue(reflect.Indirect(slice.Index(i)).FieldByName(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-						if err != nil {
-							return err
-						}
-						err = orm.SetReflectValue(reflect.Indirect(slice.Index(i)).FieldByName(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-						if err != nil {
-							return err
-						}
+					err = setValue(scope, relation, reflect.Indirect(slice.Index(i)))
+					if err != nil {
+						return err
 					}
 
 					// get the struct variable for the scan
@@ -455,20 +441,9 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 					}
 
 					// set parent ID to relation model
-					if !scope.IsPolymorphic(relation) {
-						err = orm.SetReflectValue(r.Scope().CallerField(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-						if err != nil {
-							return err
-						}
-					} else {
-						err = orm.SetReflectValue(r.Scope().CallerField(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-						if err != nil {
-							return err
-						}
-						err = orm.SetReflectValue(r.Scope().CallerField(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-						if err != nil {
-							return err
-						}
+					err = setValue(scope, relation, reflect.Indirect(reflect.ValueOf(r.Scope().Caller())))
+					if err != nil {
+						return err
 					}
 
 					// create the entries
@@ -479,10 +454,12 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 				}
 			}
 		case orm.ManyToMany:
-			// TODO m2m performance batch insert?
+
+			// TODO m2m performance batch insert? joinTable is already batched.
 			// insert in relation table only if PRIMARY is empty
-			var ids []int // TODO fix whats with UUIDs or none sequence?
+			var ids []interface{}
 			slice := scope.CallerField(relation.Field)
+
 			for i := 0; i < slice.Len(); i++ {
 
 				var r orm.Interface
@@ -491,24 +468,30 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 				} else {
 					r = slice.Index(i).Addr().Interface().(orm.Interface)
 				}
+
+				// check if its a self reference and a ptr to itself (already initialized)
+				var selfReferencedObject bool
+				if relation.SelfReference == true && r.Scope() != nil {
+					selfReferencedObject = true
+				}
+
 				err = scope.InitRelation(r, relation.Field)
 				if err != nil {
 					return err
 				}
 
-				rScope := r.Scope()
-
-				// if primary fields are empty, create entry otherwise ignore
-				// TODO check also Association FK?
-				if !rScope.PrimariesSet() {
-					err = r.Create()
-					if err != nil {
-						return err
-					}
+				// create or update the entry
+				err = createOrUpdate(r, selfReferencedObject)
+				if err != nil {
+					return err
 				}
 
 				// add last inserted id for junction table
-				ids = append(ids, orm.Int(rScope.CallerField(relation.AssociationForeignKey.Name).Interface()))
+				v, err := orm.SanitizeValue(r.Scope().CallerField(relation.AssociationForeignKey.Name).Interface())
+				if err != nil {
+					return err
+				}
+				ids = append(ids, v)
 			}
 
 			if len(ids) > 0 {
@@ -528,6 +511,7 @@ func (e EagerLoading) Create(scope *orm.Scope) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -545,42 +529,36 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 					if err != nil {
 						return err
 					}
-					relScope := rel.Scope()
 
 					switch cV.Operation {
 					case orm.CREATE:
-
-						// TODO same code as in hasMany update/create
-						// if primary fields are set, dont create it on the association table.
-						// the changed values map of the orm.model is just checking against the snapshot, so it does not know if the value is in the database or not.
-						// to avoid duplicated entries, there is a check. // maybe make a real db check?
-						if !relScope.PrimariesSet() {
-							err = rel.Create()
-							if err != nil {
-								return err
-							}
+						// create or update the entry
+						err = createOrUpdate(rel, false)
+						if err != nil {
+							return err
 						}
-
-						err = orm.SetReflectValue(scope.CallerField(relation.ForeignKey.Name), relScope.CallerField(relation.AssociationForeignKey.Name))
+						err = orm.SetReflectValue(scope.CallerField(relation.ForeignKey.Name), rel.Scope().CallerField(relation.AssociationForeignKey.Name))
 						if err != nil {
 							return err
 						}
 						scope.AppendChangedValue(orm.ChangedValue{Field: relation.ForeignKey.Name})
 					case orm.UPDATE:
-						err = orm.SetReflectValue(scope.CallerField(relation.ForeignKey.Name), relScope.CallerField(relation.AssociationForeignKey.Name))
+						err = orm.SetReflectValue(scope.CallerField(relation.ForeignKey.Name), rel.Scope().CallerField(relation.AssociationForeignKey.Name))
 						if err != nil {
 							return err
 						}
-						relScope.SetChangedValues(cV.ChangedValue)
+						rel.Scope().SetChangedValues(cV.ChangedValue)
+						err = rel.Update()
+						if err != nil {
+							return err
+						}
 					case orm.DELETE:
 						err = orm.SetReflectValue(scope.CallerField(relation.ForeignKey.Name), reflect.Zero(scope.CallerField(relation.ForeignKey.Name).Type()))
 						if err != nil {
 							return err
 						}
 						scope.AppendChangedValue(orm.ChangedValue{Field: relation.ForeignKey.Name})
-					}
-					if err != nil {
-						return err
+						// No real delete of belongsTo because there could be references? needed to really delete?
 					}
 				}
 			}
@@ -621,59 +599,38 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 					switch cV.Operation {
 					case orm.CREATE:
 
-						deleteModel := b.Delete(relScope.TableName())
-						if scope.IsPolymorphic(relation) {
-							err = orm.SetReflectValue(relScope.CallerField(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-							if err != nil {
-								return err
-							}
-							err = orm.SetReflectValue(relScope.CallerField(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-							if err != nil {
-								return err
-							}
-
-							deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-							deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
-						} else {
-							err = orm.SetReflectValue(relScope.CallerField(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-							if err != nil {
-								return err
-							}
-
-							deleteModel.Where(b.QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
+						// set parent ID to relation model
+						err = setValue(scope, relation, reflect.Indirect(reflect.ValueOf(relScope.Caller())))
+						if err != nil {
+							return err
 						}
 
+						deleteModel := b.Delete(relScope.TableName())
+						c := sqlquery.NewCondition()
+						addWhere(scope, relation, c, scope.CallerField(relation.ForeignKey.Name).Interface())
 						// Delete all old references, this can happen if a user adds a new model and an old exists already.
 						// TODO this should be a model.Delete instead of builder - callback wise.
-						_, err = deleteModel.Exec()
+						_, err = deleteModel.Condition(c).Exec()
 						if err != nil {
 							return err
 						}
 
 						err = rel.Create()
 					case orm.UPDATE:
-						// if poly, set the relation fields. It could be that the user only adds the primary key for an update.
-						if scope.IsPolymorphic(relation) {
-							err = orm.SetReflectValue(rel.Scope().CallerField(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-							if err != nil {
-								return err
-							}
-							err = orm.SetReflectValue(rel.Scope().CallerField(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-							if err != nil {
-								return err
-							}
+
+						// set parent ID to relation model
+						err = setValue(scope, relation, reflect.Indirect(reflect.ValueOf(rel.Scope().Caller())))
+						if err != nil {
+							return err
 						}
+
 						relScope.SetChangedValues(cV.ChangedValue)
 						err = rel.Update()
 					case orm.DELETE:
 						deleteModel := b.Delete(relScope.TableName())
-						if scope.IsPolymorphic(relation) {
-							deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-							deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
-						} else {
-							deleteModel.Where(b.QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-						}
-						_, err = deleteModel.Exec()
+						c := sqlquery.NewCondition()
+						addWhere(scope, relation, c, scope.CallerField(relation.ForeignKey.Name).Interface())
+						_, err = deleteModel.Condition(c).Exec()
 						if err != nil {
 							return err
 						}
@@ -695,21 +652,13 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 				switch cV.Operation {
 				case orm.CREATE:
 					for i := 0; i < scope.CallerField(relation.Field).Len(); i++ {
-						if !scope.IsPolymorphic(relation) {
-							err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(i)).FieldByName(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-							if err != nil {
-								return err
-							}
-						} else {
-							err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(i)).FieldByName(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-							if err != nil {
-								return err
-							}
-							err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(i)).FieldByName(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-							if err != nil {
-								return err
-							}
+
+						// set parent ID to relation model
+						err = setValue(scope, relation, reflect.Indirect(scope.CallerField(relation.Field).Index(i)))
+						if err != nil {
+							return err
 						}
+
 						err = scope.InitRelation(reflect.Indirect(scope.CallerField(relation.Field).Index(i)).Addr().Interface().(orm.Interface), relation.Field)
 
 						if err != nil {
@@ -722,62 +671,40 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 					}
 				case orm.UPDATE:
 
-					var deleteID []int
+					var deleteID []interface{}
 					for _, changes := range cV.ChangedValue {
 						switch changes.Operation {
 						case orm.CREATE:
-							//TODO same as create above - helper
-							if !scope.IsPolymorphic(relation) {
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-								if err != nil {
-									return err
-								}
-							} else {
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-								if err != nil {
-									return err
-								}
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-								if err != nil {
-									return err
-								}
+							// set parent ID to relation model
+							err = setValue(scope, relation, reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))))
+							if err != nil {
+								return err
 							}
-							err = scope.InitRelation(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).Addr().Interface().(orm.Interface), relation.Field)
+
+							err = scope.InitRelation(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).Addr().Interface().(orm.Interface), relation.Field)
 							if err != nil {
 								return err
 							}
 
 							// TODO what if the id already exists.
-							err = reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).Addr().Interface().(orm.Interface).Create()
+							err = reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).Addr().Interface().(orm.Interface).Create()
 							if err != nil {
 								return err
 							}
 						case orm.UPDATE:
-							tmpUpdate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).Addr().Interface().(orm.Interface)
+							tmpUpdate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).Addr().Interface().(orm.Interface)
 							err = scope.InitRelation(tmpUpdate, relation.Field)
 							if err != nil {
 								return err
 							}
 
-							tmpScope := tmpUpdate.Scope()
-							// TODO create helper, same as before on create
-							if !scope.IsPolymorphic(relation) {
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
-								if err != nil {
-									return err
-								}
-							} else {
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
-								if err != nil {
-									return err
-								}
-								err = orm.SetReflectValue(reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
-								if err != nil {
-									return err
-								}
+							// set parent ID to relation model
+							err = setValue(scope, relation, reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))))
+							if err != nil {
+								return err
 							}
 
-							tmpScope.SetChangedValues(changes.ChangedValue)
+							tmpUpdate.Scope().SetChangedValues(changes.ChangedValue)
 							err = tmpUpdate.Update()
 							if err != nil {
 								return err
@@ -797,13 +724,9 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 					}
 				case orm.DELETE:
 					deleteModel := b.Delete(relScope.TableName())
-					if scope.IsPolymorphic(relation) {
-						deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-						deleteModel.Where(b.QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
-					} else {
-						deleteModel.Where(b.QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+" = ?", scope.CallerField(relation.ForeignKey.Name).Interface())
-					}
-					_, err = deleteModel.Exec()
+					c := sqlquery.NewCondition()
+					addWhere(scope, relation, c, scope.CallerField(relation.ForeignKey.Name).Interface())
+					_, err = deleteModel.Condition(c).Exec()
 					if err != nil {
 						return err
 					}
@@ -812,7 +735,6 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 		case orm.ManyToMany:
 
 			if cV := scope.ChangedValueByFieldName(relation.Field); cV != nil {
-
 				switch cV.Operation {
 				case orm.CREATE:
 					var joinTable []map[string]interface{}
@@ -824,15 +746,10 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 							return err
 						}
 
-						// TODO same code as in update
-						// if primary fields are set, dont create it on the association table.
-						// the changed values map of the orm.model is just checking against the snapshot, so it does not know if the value is in the database or not.
-						// to avoid duplicated entries, there is a check. // maybe make a real db check?
-						if !tmpCreate.Scope().PrimariesSet() {
-							err = tmpCreate.Create()
-							if err != nil {
-								return err
-							}
+						// create or update the entry
+						err = createOrUpdate(tmpCreate, relation.SelfReference)
+						if err != nil {
+							return err
 						}
 
 						joinTable = append(joinTable, map[string]interface{}{relation.JoinTable.ForeignKey: scope.CallerField(relation.ForeignKey.Name).Interface(), relation.JoinTable.AssociationForeignKey: reflect.Indirect(scope.CallerField(relation.Field).Index(i)).FieldByName(relation.AssociationForeignKey.Name).Interface()})
@@ -846,33 +763,28 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 					}
 				case orm.UPDATE:
 
-					var deleteID []int
+					var deleteID []interface{}
 					var createID []map[string]interface{}
 					for _, changes := range cV.ChangedValue {
 
 						switch changes.Operation {
 						case orm.CREATE:
 
-							tmpCreate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).Addr().Interface().(orm.Interface)
+							tmpCreate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).Addr().Interface().(orm.Interface)
 							err := scope.InitRelation(tmpCreate, relation.Field)
 							if err != nil {
 								return err
 							}
 
-							// TODO same code as in create
-							// if primary fields are set, dont create it on the association table.
-							// the changed values map of the orm.model is just checking against the snapshot, so it does not know if the value is in the database or not.
-							// to avoid duplicated entries, there is a check. // maybe make a real db check?
-							if !tmpCreate.Scope().PrimariesSet() {
-								err = tmpCreate.Create()
-								if err != nil {
-									return err
-								}
+							// create or update the entry
+							err = createOrUpdate(tmpCreate, false)
+							if err != nil {
+								return err
 							}
 
-							createID = append(createID, map[string]interface{}{relation.JoinTable.ForeignKey: scope.CallerField(relation.ForeignKey.Name).Interface(), relation.JoinTable.AssociationForeignKey: reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).FieldByName(relation.AssociationForeignKey.Name).Interface()})
+							createID = append(createID, map[string]interface{}{relation.JoinTable.ForeignKey: scope.CallerField(relation.ForeignKey.Name).Interface(), relation.JoinTable.AssociationForeignKey: reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).FieldByName(relation.AssociationForeignKey.Name).Interface()})
 						case orm.UPDATE:
-							tmpUpdate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index)).Addr().Interface().(orm.Interface)
+							tmpUpdate := reflect.Indirect(scope.CallerField(relation.Field).Index(changes.Index.(int))).Addr().Interface().(orm.Interface)
 
 							err := scope.InitRelation(tmpUpdate, relation.Field)
 							if err != nil {
@@ -913,7 +825,6 @@ func (e EagerLoading) Update(scope *orm.Scope, c *sqlquery.Condition) error {
 						return err
 					}
 				}
-
 			}
 		}
 	}
@@ -959,5 +870,86 @@ func (e EagerLoading) Delete(scope *orm.Scope, c *sqlquery.Condition) error {
 		return err
 	}
 
+	return nil
+}
+
+// addWhere helper. it handles polymorphic and slices.
+func addWhere(scope *orm.Scope, relation orm.Relation, c *sqlquery.Condition, value interface{}) {
+
+	op := " = ?"
+	if reflect.TypeOf(value).Kind() == reflect.Slice {
+		op = " IN (?)"
+	}
+
+	if scope.IsPolymorphic(relation) {
+		c.Where(scope.Builder().QuoteIdentifier(relation.Polymorphic.Field.Information.Name)+op, value)
+		c.Where(scope.Builder().QuoteIdentifier(relation.Polymorphic.Type.Information.Name)+" = ?", relation.Polymorphic.Value)
+	} else {
+		c.Where(scope.Builder().QuoteIdentifier(relation.AssociationForeignKey.Information.Name)+op, value)
+	}
+}
+
+// compareValues is a helper function to sanitize the value to a string and compare it.
+func compareValues(v1 interface{}, v2 interface{}) bool {
+	s1, err := orm.SanitizeToString(v1)
+	if err != nil {
+		return false
+	}
+	s2, err := orm.SanitizeToString(v2)
+	if err != nil {
+		return false
+	}
+
+	return s1 == s2
+}
+
+// createOrUpdate is a helper to create an entry if the primary keys are missing.
+// It updates an entry if primary keys exist and its existing in the database, otherwise it will create the entry.
+func createOrUpdate(rel orm.Interface, selfReference bool) error {
+
+	if !rel.Scope().PrimariesSet() {
+		return rel.Create()
+	} else {
+
+		// if only the belongsTo foreign key and the manyToMany join table should be updated.
+		if parent, err := rel.Scope().Parent(""); err == nil && parent.Scope().ReferencesOnly() {
+			return nil
+		}
+
+		// on self reference there is a problem with a loop, so the changed value is not checked again.
+		if !selfReference {
+			rel.Scope().TakeSnapshot()
+		}
+		err := rel.Update()
+		// if the ID does not exist yet, error will be thrown. then create it.
+		if err == sql.ErrNoRows {
+			err = rel.Create()
+		}
+
+		if selfReference {
+			rel.Scope().UnsetParent()
+		}
+		return err
+	}
+}
+
+// setValue is a helper to set the parent foreign key to the relation field.
+// Its taking care of polymorphic.
+func setValue(scope *orm.Scope, relation orm.Relation, field reflect.Value) error {
+	if !scope.IsPolymorphic(relation) {
+		err := orm.SetReflectValue(field.FieldByName(relation.AssociationForeignKey.Name), scope.CallerField(relation.ForeignKey.Name))
+		if err != nil {
+			return err
+		}
+	} else {
+		err := orm.SetReflectValue(field.FieldByName(relation.Polymorphic.Field.Name), scope.CallerField(relation.ForeignKey.Name))
+		if err != nil {
+			return err
+		}
+		err = orm.SetReflectValue(field.FieldByName(relation.Polymorphic.Type.Name), reflect.ValueOf(relation.Polymorphic.Value))
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }

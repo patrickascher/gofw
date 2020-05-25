@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package driver contains some out of the box db drivers which implement the sqlquery.Driver interface.
-package driver
+package mysql
 
 import (
 	"database/sql"
@@ -41,6 +41,8 @@ func newMysql(cfg sqlquery.Config, db *sql.DB) (sqlquery.DriverI, error) {
 		}
 		m.connection = db
 	}
+
+	m.connection.SetMaxOpenConns(5)
 
 	return m, nil
 }
@@ -153,6 +155,14 @@ func (m *mysql) Placeholder() *sqlquery.Placeholder {
 
 // TypeMapping converts the database type to an unique sqlquery type over different database drives.
 func (m *mysql) TypeMapping(raw string, col sqlquery.Column) types.Interface {
+
+	// Bool
+	if strings.HasPrefix(raw, "enum(0,1)") ||
+		strings.HasPrefix(raw, "tinyint(1)") {
+		f := types.NewBool(raw)
+		return f
+	}
+
 	//Integer
 	if strings.HasPrefix(raw, "bigint") ||
 		strings.HasPrefix(raw, "int") ||
@@ -281,6 +291,15 @@ func (m *mysql) TypeMapping(raw string, col sqlquery.Column) types.Interface {
 	if raw == "datetime" || raw == "timestamp" {
 		dateTime := types.NewDateTime(raw)
 		return dateTime
+	}
+
+	// ENUM, SET
+	if strings.HasPrefix(raw, "enum") {
+		enum := types.NewEnum(raw)
+		for _, v := range strings.Split(raw[5:len(raw)-1], ",") {
+			enum.Values = append(enum.Values, v[1:len(v)-1])
+		}
+		return enum
 	}
 
 	return nil

@@ -76,6 +76,8 @@ type Controller struct {
 	renderType    string
 	methodMapping map[string]map[string]string //map[url][HTTPMethod]ControllerMethod
 	cache         cache.Interface
+
+	actionName string
 }
 
 // Interface of the controller.
@@ -102,6 +104,7 @@ type Interface interface {
 	Error(int, string)
 	Redirect(status int, url string)
 	Name() string
+	Action() string
 
 	// internal helper
 	checkBrowserCancellation() bool
@@ -242,6 +245,11 @@ func (c *Controller) Name() string {
 	return reflect.Indirect(reflect.ValueOf(c.caller)).Type().String()
 }
 
+// name returns the controller name.
+func (c *Controller) Action() string {
+	return c.actionName
+}
+
 // newController creates a new instance of the controller itself.
 // the render type and cache will be passed from given controller.
 // Initialize is called with the methodMapping. // TODO methodMapping could be passed as variable? Benchmarks?
@@ -270,6 +278,7 @@ func (c *Controller) checkBrowserCancellation() bool {
 // Error will return if the controller method does not exist.
 func (c *Controller) methodBy(pattern string, HTTPMethod string) (func(), error) {
 	methodName := c.methodMapping[pattern][HTTPMethod]
+	c.actionName = methodName
 	methodVal := reflect.ValueOf(c.caller).MethodByName(methodName)
 	if methodVal.IsValid() == false {
 		return nil, fmt.Errorf(ErrMethodUnknown.Error(), methodName, reflect.Indirect(reflect.ValueOf(c.caller)).Type().String())

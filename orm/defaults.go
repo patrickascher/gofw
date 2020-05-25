@@ -35,7 +35,7 @@ func (m Model) DefaultLogger() *logger.Logger {
 // DefaultCache returns the global cache.
 // The cache is set to 6 hours by default.
 func (m Model) DefaultCache() (cache.Interface, time.Duration, error) {
-	return GlobalCache, 6 * time.Hour, nil
+	return GlobalCache, cache.INFINITY, nil
 }
 
 // DefaultBuilder returns the GlobalBuilder.

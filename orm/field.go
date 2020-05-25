@@ -35,12 +35,11 @@ var (
 )
 
 // Field is holding some struct field information.
-// TODO check if exported is needed?
 type Field struct {
 	Name string
 
 	SqlSelect   string
-	Permission  Permission // ptr because this value can be changed of the user
+	Permission  Permission
 	Information sqlquery.Column
 
 	Validator *validator

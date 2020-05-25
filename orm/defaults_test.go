@@ -63,7 +63,7 @@ func TestModel_DefaultCache(t *testing.T) {
 	r := car{}
 	c, ttl, err := r.DefaultCache()
 	assert.NoError(t, err)
-	assert.Equal(t, 6*time.Hour, ttl)
+	assert.Equal(t, time.Duration(cache.INFINITY), ttl)
 	assert.NotNil(t, c)
 
 	rc := mockModel{}

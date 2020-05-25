@@ -16,6 +16,12 @@ func NewInt(raw string) *Int {
 	return &Int{common: common{name: "Integer", raw: raw}}
 }
 
+// NewBool returns a ptr to a Bool.
+// It also defines the name and raw.
+func NewBool(raw string) *Bool {
+	return &Bool{common: common{name: "Bool", raw: raw}}
+}
+
 // NewText returns a ptr to a Text.
 // It also defines the name and raw.
 func NewText(raw string) *Text {
@@ -52,7 +58,7 @@ func NewDateTime(raw string) *DateTime {
 	return &DateTime{common: common{name: "DateTime", raw: raw}}
 }
 
-// NewEnum returns a ptr to a NewEnum.
+// NewInt returns a ptr to a Int.
 // It also defines the name and raw.
 func NewEnum(raw string) *Enum {
 	return &Enum{common: common{name: "Select", raw: raw}}
@@ -60,8 +66,12 @@ func NewEnum(raw string) *Enum {
 
 // NewSet returns a ptr to a NewSet.
 // It also defines the name and raw.
-func NewSet(raw string) *Set {
-	return &Set{common: common{name: "MultiSelect", raw: raw}}
+//func NewSet(raw string) *Set {
+//	return &Set{common: common{name: "MultiSelect", raw: raw}}
+//}
+
+type Select interface {
+	Items() []string
 }
 
 type common struct {
@@ -81,6 +91,11 @@ func (c *common) Kind() string {
 type Int struct {
 	Min int64
 	Max uint64
+	common
+}
+
+// Int represents all kind of sql integers
+type Bool struct {
 	common
 }
 
@@ -122,6 +137,10 @@ type Float struct {
 type Enum struct {
 	Values []string
 	common
+}
+
+func (e *Enum) Items() []string {
+	return e.Values
 }
 
 // Set represents all kind of sql sets

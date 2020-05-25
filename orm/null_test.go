@@ -27,13 +27,8 @@ func TestNewNullTime(t *testing.T) {
 	assert.Equal(t, now, orm.NewNullTime(now).Time)
 }
 
-func TestInt(t *testing.T) {
-	assert.Equal(t, 1, orm.Int(1))
-	assert.Equal(t, 1, orm.Int(int64(1)))
-	assert.Equal(t, 1, orm.Int(orm.NewNullInt(1)))
-
-	nullInt := orm.NewNullInt(1)
-	nullInt.Valid = false
-	assert.Equal(t, 0, orm.Int(nullInt))
-
+func TestNewBool(t *testing.T) {
+	assert.IsType(t, orm.NullBool{}, orm.NewNullBool(true))
+	assert.True(t, orm.NewNullBool(true).Valid)
+	assert.Equal(t, true, orm.NewNullBool(true).Bool)
 }

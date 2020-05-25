@@ -8,6 +8,7 @@ import (
 	"github.com/patrickascher/gofw/grid"
 	"github.com/patrickascher/gofw/slices"
 	"github.com/patrickascher/gofw/sqlquery"
+	"github.com/patrickascher/gofw/sqlquery/types"
 	"io/ioutil"
 	"reflect"
 	"strings"
@@ -20,236 +21,51 @@ type gridSource struct {
 	orm Interface
 }
 
+// Grid converts an orm model to an grid source.
 func Grid(orm Interface) *gridSource {
 	g := &gridSource{}
 	g.orm = orm
 	return g
 }
 
+// Init is called when the source is added to the grid.
 func (g *gridSource) Init(grid *grid.Grid) error {
-	return g.orm.Init(g.orm)
+	err := g.orm.Init(g.orm)
+	if err != nil {
+		return err
+	}
+	g.orm.Scope().SetReferencesOnly(true)
+	return nil
 }
 
-func gridFields(scope *Scope, g *grid.Grid, parent string) ([]grid.Field, error) {
-	// normal fields
-	var rv []grid.Field
-	i := 0
-
-	for _, f := range scope.Fields(Permission{Read: true}) {
-		field := grid.Field{}
-		field.SetId(f.Name)
-		if jsonTagName(scope, &field) {
-			continue
-		}
-		field.SetPrimary(f.Information.PrimaryKey)
-		field.SetReferenceId(f.Information.Table + "." + f.Information.Name)
-		field.SetFieldType(f.Information.Type.Kind())
-		field.SetTitle(g.NewValue(f.Name))
-		field.SetDescription(g.NewValue(""))
-		field.SetPosition(g.NewValue(i))
-		field.SetRemove(g.NewValue(false))
-		field.SetHidden(g.NewValue(false))
-		field.SetView(g.NewValue(""))
-		if f.Validator.Config != "" {
-			field.SetOption(tagValidate, f.Validator.Config)
-		}
-		// remove,hide, view is empty
-		field.SetSortable(true)
-		field.SetFilterable(true)
-
-		// field manipulations
-		// Primary keys are not shown on frontend header.
-		// In the backend they are loaded anyway because they are mandatory for relations.
-		if f.Information.PrimaryKey {
-			field.SetRemove(true)
-		}
-
-		for _, relation := range scope.Relations(Permission{Read: true}) {
-			if relation.Kind == BelongsTo {
-				if field.Id() == relation.ForeignKey.Name {
-					field.SetRemove(true)
-				}
-			}
-		}
-
-		// options, callback, fields empty
-		rv = append(rv, field)
-		i++
-	}
-
-	for _, r := range scope.Relations(Permission{Read: true}) {
-
-		if _, err := scope.Parent(r.Type.String()); err == nil {
-			continue
-		}
-
-		if r.Kind == BelongsTo && g.Mode() != grid.VTable {
-			for k := range rv {
-				if rv[k].Id() == r.ForeignKey.Name {
-					if parent != "" {
-						parent += "."
-					}
-					rv[k].SetFieldType(r.Kind)
-					rv[k].SetRemove(false)
-					rv[k].SetOption(grid.FeSelect, grid.Select{OrmField: parent + r.Field, TextField: "Name", ValueField: r.AssociationForeignKey.Name})
-					rv[k].SetOption("vueReturnObject", false)
-				}
-			}
-
-			// relation has to get blacklisted. otherwise the single refid will not be updated.
-			field := grid.Field{}
-			field.SetId(r.Field)
-			field.SetRemove(g.NewValue(true))
-			field.SetRelation(true)
-			rv = append(rv, field)
-
-			continue
-		}
-
-		field := grid.Field{}
-		field.SetId(r.Field)
-		field.SetRelation(true)
-		if jsonTagName(scope, &field) {
-			continue
-		}
-		field.SetFieldType(r.Kind)
-		field.SetTitle(g.NewValue(r.Field))
-		field.SetDescription(g.NewValue(""))
-		field.SetPosition(g.NewValue(i))
-		field.SetRemove(g.NewValue(false))
-		field.SetHidden(g.NewValue(false))
-		field.SetView(g.NewValue(""))
-		if r.Validator.Config != "" {
-			field.SetOption(tagValidate, r.Validator.Config)
-		}
-		field.SetSortable(false)
-		field.SetFilterable(false)
-		// options, callback (depending on kind)
-
-		// add options for BelongsTo and ManyToMany relations.
-		if r.Kind == BelongsTo || r.Kind == ManyToMany {
-
-			// experimental (model,id, title...) by default always the third field is taken.
-			field.SetOption(grid.FeSelect, grid.Select{TextField: r.Type.Field(2).Name, ValueField: r.AssociationForeignKey.Name})
-		}
-
-		// recursively add fields
-		rScope, err := scope.NewScopeFromType(r.Type)
-		if err != nil {
-			return nil, err
-		}
-		rScope.model.parentModel = scope.model // adding parent to avoid loops
-
-		rField, err := gridFields(rScope, g, r.Field)
-		if err != nil {
-			return nil, err
-		}
-
-		// field manipulations
-		// FK,AFK,Poly are removed.
-		// TODO better logic?
-		for k, relField := range rField {
-			if relField.Id() == r.ForeignKey.Name {
-				rField[k].SetRemove(true)
-			}
-			if scope.IsPolymorphic(r) {
-				if relField.Id() == r.Polymorphic.Field.Name || relField.Id() == r.Polymorphic.Type.Name {
-					rField[k].SetRemove(true)
-				}
-			} else {
-				if relField.Id() == r.AssociationForeignKey.Name {
-					rField[k].SetRemove(true)
-				}
-			}
-		}
-
-		if len(rField) > 0 {
-			field.SetFields(rField)
-		}
-
-		rv = append(rv, field)
-		i++
-
-	}
-
-	return rv, nil
-}
-
+// Fields return all defined fields for the frontend.
 func (g *gridSource) Fields(grid *grid.Grid) ([]grid.Field, error) {
 	return gridFields(g.orm.Scope(), grid, "")
 }
 
-func blacklistedFields(g *gridSource, fields []grid.Field, parent string) ([]string, error) {
-	var blacklist []string
+// UpdatedFields is called before grid.Render.
+func (g *gridSource) UpdatedFields(gr *grid.Grid) error {
+	if gr.Mode() != grid.CALLBACK && gr.Mode() != grid.DELETE {
+		// get user defined field config
+		whitelist, err := whitelistFields(g, gr.Fields(), "")
+		if err != nil {
+			return err
+		}
 
-	if parent != "" {
-		parent += "."
-	}
-
-	for _, f := range fields {
-
-		if !f.IsRelation() {
-
-			if f.IsRemoved() {
-				if _, exists := slices.Exists(blacklist, parent+f.Id()); !exists {
-					blacklist = append(blacklist, parent+f.Id())
-				}
-			} else {
-				if parent == "" { // because relation fields can not be fetched here
-					ormField, err := g.orm.Scope().Field(f.Id())
-					if err != nil {
-						return nil, err
-					}
-					ormField.Permission.Read = true
-				}
-			}
-
-			if f.IsReadOnly() {
-				if parent == "" { // because relation fields can not be fetched here
-					ormField, err := g.orm.Scope().Field(f.Id())
-					if err != nil {
-						return nil, err
-					}
-					ormField.Permission.Write = false
-				}
-			}
+		fmt.Println("White-->", whitelist)
+		if len(whitelist) > 0 {
+			g.orm.SetWBList(WHITELIST, whitelist...)
+			g.orm.Scope().SetWhitelistExplict(true) // must be called after the WB list is set.
 		} else {
-			if f.IsRemoved() {
-				if _, exists := slices.Exists(blacklist, parent+f.Id()); !exists {
-					blacklist = append(blacklist, parent+f.Id())
-				}
-			} else {
-				bList, err := blacklistedFields(g, f.Fields(), f.Id())
-				if err != nil {
-					return nil, err
-				}
-				if len(bList) > 0 {
-					for _, tmp := range bList {
-						if _, exists := slices.Exists(blacklist, tmp); !exists {
-							blacklist = append(blacklist, tmp)
-						}
-					}
-				}
-			}
+			return errors.New("no fields are configured")
 		}
 	}
-	return blacklist, nil
-}
-
-func (g *gridSource) UpdatedFields(grid *grid.Grid) error {
-
-	blacklist, err := blacklistedFields(g, grid.Fields(), "")
-	if err != nil {
-		return err
-	}
-
-	if len(blacklist) > 0 {
-		g.orm.SetWBList(BLACKLIST, blacklist...)
-	}
-
 	return nil
 }
 
+// Callbacks of the frontend.
+// At the moment FeSelect is implemented for all select fields.
+// select OrmField is used because it can differ from the called select field. TODO simplify, use one version link or Field.
 func (g *gridSource) Callback(callback string, gr *grid.Grid) (interface{}, error) {
 
 	if callback == grid.FeSelect {
@@ -297,7 +113,7 @@ func (g *gridSource) Callback(callback string, gr *grid.Grid) (interface{}, erro
 		}
 
 		// create the result slice
-		rRes := reflect.New(reflect.MakeSlice(reflect.SliceOf(relation.Type), 0, 0).Type()).Interface()
+		rRes := reflect.New(reflect.MakeSlice(reflect.SliceOf(relation.Type), 0, 0).Type())
 		// set whitelist fields
 		reqFields := []string{sel.ValueField}
 		textFields := strings.Split(sel.TextField, ",")
@@ -307,19 +123,20 @@ func (g *gridSource) Callback(callback string, gr *grid.Grid) (interface{}, erro
 		}
 		relScope.model.SetWBList(WHITELIST, reqFields...)
 		// request the data
-		err = relScope.model.All(rRes, sqlquery.NewCondition().Where(sel.Condition))
+		err = relScope.model.All(rRes.Interface(), sqlquery.NewCondition().Where(sel.Condition))
 		if err != nil {
 			return nil, err
 		}
 
-		return rRes, nil
+		return reflect.Indirect(rRes).Interface(), nil
 	}
 
 	return nil, nil
 }
 
-func (g *gridSource) One(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
-
+// First returns one row. Used for the grid details and edit view.
+func (g *gridSource) First(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
+	// fetch data
 	err := g.orm.First(c)
 	if err != nil {
 		return nil, err
@@ -328,18 +145,21 @@ func (g *gridSource) One(c *sqlquery.Condition, grid *grid.Grid) (interface{}, e
 	return g.orm, nil
 }
 
+// All returns all rows by the given condition.
 func (g *gridSource) All(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
 	// creating result slice
 	model := reflect.New(reflect.ValueOf(g.orm).Elem().Type()).Elem() //new type
-	resultSlice := reflect.New(reflect.MakeSlice(reflect.SliceOf(model.Type()), 0, 0).Type()).Interface()
-	err := g.orm.All(resultSlice, c)
+	resultSlice := reflect.New(reflect.MakeSlice(reflect.SliceOf(model.Type()), 0, 0).Type())
+	// fetch data
+	err := g.orm.All(resultSlice.Interface(), c)
 	if err != nil {
 		return nil, err
 	}
 
-	return resultSlice, nil
+	return reflect.Indirect(resultSlice).Interface(), nil
 }
 
+// Create a new entry.
 func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
 
 	err := g.unmarshalModel(grid)
@@ -348,9 +168,7 @@ func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
 	}
 
 	// TODO CREATE CALLBACKS on CREATE
-	fmt.Println(reflect.TypeOf(g.orm).String(), reflect.TypeOf(g.orm).String() == "*auth.User")
 	if reflect.TypeOf(g.orm).String() == "*auth.User" {
-		fmt.Println("CALLED CHANGE PW")
 		reflect.ValueOf(g.orm.Scope().Caller()).MethodByName("SetPassword").Call([]reflect.Value{reflect.ValueOf(g.orm.Scope().CallerField("Password").Interface().(NullString).String)})
 	}
 
@@ -359,7 +177,7 @@ func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
 		return 0, err
 	}
 
-	//response with the pkey values
+	//response with the pkey values, because the frontend is reloading the view by id.
 	pkeys := make(map[string]interface{}, 0)
 	for _, f := range g.orm.Scope().Fields(Permission{Read: true}) {
 		if f.Information.PrimaryKey {
@@ -371,6 +189,7 @@ func (g *gridSource) Create(grid *grid.Grid) (interface{}, error) {
 	return pkeys, nil
 }
 
+// Update the entry
 func (g *gridSource) Update(grid *grid.Grid) error {
 	err := g.unmarshalModel(grid)
 	if err != nil {
@@ -384,6 +203,9 @@ func (g *gridSource) Update(grid *grid.Grid) error {
 	}
 	return nil
 }
+
+// Delete an entry.
+// First the whole row will be fetched and deleted afterwards. To guarantee that relations are deleted as well.
 func (g *gridSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
 	err := g.orm.First(c)
 	if err != nil {
@@ -396,11 +218,12 @@ func (g *gridSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
 	return nil
 }
 
+// Count returns a number of existing rows.
 func (g *gridSource) Count(c *sqlquery.Condition, grid *grid.Grid) (int, error) {
 	return g.orm.Count(c)
 }
 
-// marshalModel is needed for create and update.
+// unmarshalModel is needed for create and update.
 // It checks if the request json is correct.
 // Only struct fields are allowed.
 // Empty struct is not allowed.
@@ -439,7 +262,9 @@ func (g *gridSource) unmarshalModel(gr *grid.Grid) error {
 	return nil
 }
 
-func jsonTagName(scope *Scope, f *grid.Field) bool {
+// skipJsonByTag will return true if the json skip tag exists.
+// otherwise it checks if a json name is set, and sets the field ID.
+func skipJsonByTagOrSetJsonName(scope *Scope, f *grid.Field) bool {
 
 	rField, ok := reflect.TypeOf(scope.Caller()).Elem().FieldByName(f.Id())
 	if ok {
@@ -460,4 +285,242 @@ func jsonTagName(scope *Scope, f *grid.Field) bool {
 	}
 
 	return false
+}
+
+func whitelistFields(g *gridSource, fields []grid.Field, parent string) ([]string, error) {
+	var whitelist []string
+
+	if parent != "" {
+		parent += "."
+	}
+
+	for k, f := range fields {
+		// check if its a normal field
+		if !f.IsRelation() {
+			// add if its not removed
+			if !f.IsRemoved() {
+				if _, exists := slices.Exists(whitelist, parent+f.Id()); !exists {
+					whitelist = append(whitelist, parent+f.Id())
+				}
+
+				// set write permission to false if its read only.
+				// only working on root level.
+				if f.IsReadOnly() && parent == "" { // because relation fields can not be fetched
+					ormField, err := g.orm.Scope().Field(f.Id())
+					if err != nil {
+						return nil, err
+					}
+					ormField.Permission.Write = false
+				}
+			}
+		} else {
+
+			// If sub notations are allowed of the relation, allow the relation but dont whitelist the whole.
+			bList, err := whitelistFields(g, f.Fields(), parent+f.Id())
+			if err != nil {
+				return nil, err
+			}
+			// if there is a dot notation, add it.
+			if len(bList) > 0 {
+				for _, tmp := range bList {
+					if _, exists := slices.Exists(whitelist, tmp); !exists {
+						whitelist = append(whitelist, tmp)
+					}
+				}
+				fields[k].SetRemove(false)
+			} else {
+				// If the whole relation is allowed.
+				if !f.IsRemoved() {
+					// add the complete relation if there were no fields set.
+					if _, exists := slices.Exists(whitelist, parent+f.Id()); !exists {
+						whitelist = append(whitelist, parent+f.Id())
+					}
+				}
+			}
+
+		}
+	}
+
+	return whitelist, nil
+}
+
+// gridFields is recursively adding the orm fields to the grid.
+// If the grid policy is Whitelist, all fields are removed by default for performance reasons and the user has to add it manually on the Grid.
+// If the grid policy is Blacklist, all fields are added by default.
+// On Type bool or select, the items are added to the frontend.
+// Primary, fk, afk keys are removed by default - whitelist & blacklist.
+// All the validator tags are added for the frontend.
+// self referenced relations are skipped.
+// BelongsTo has a special case, on views != table view, only the root fk is loaded instead of the relation, because its a dropdown in the frontend and only the ID is needed.
+// TODO logic for m2m, same?
+// Select Items are added automatically by callback. The Value field is the afk and the text field is the third Field? TODO why third and not 2nd?
+func gridFields(scope *Scope, g *grid.Grid, parent string) ([]grid.Field, error) {
+
+	var rv []grid.Field
+	i := 0
+
+	// normal fields
+	for _, f := range scope.Fields(Permission{Read: true}) {
+		field := grid.Field{}
+		field.SetId(f.Name)
+		if skipJsonByTagOrSetJsonName(scope, &field) {
+			continue
+		}
+		field.SetPrimary(f.Information.PrimaryKey)
+		field.SetDatabaseId(f.Information.Table + "." + f.Information.Name)
+		field.SetFieldType(f.Information.Type.Kind())
+		field.SetTitle(f.Name)
+		//field.SetDescription(grid.NewValue(""))
+		field.SetPosition(i)
+		policyHelper(g, &field) // set remove to true or false by policy
+		field.SetHidden(grid.NewValue(false))
+		//field.SetView(g.NewValue(""))
+		field.SetSortable(true)
+		field.SetFilterable(true)
+		// set validation tag
+		if f.Validator.Config != "" {
+			field.SetOption(tagValidate, f.Validator.Config)
+		}
+
+		if f.Information.Type.Kind() == "Select" {
+			var items []grid.SelectItem
+			sel := f.Information.Type.(types.Select)
+			for _, i := range sel.Items() {
+				items = append(items, grid.SelectItem{Text: i, Value: i})
+			}
+			field.SetOption(grid.FeSelect, grid.Select{Items: items})
+		}
+
+		// field manipulations
+		// Primary keys are not shown on frontend header.
+		// In the backend they are loaded anyway because they are mandatory for relations.
+		if f.Information.PrimaryKey {
+			field.SetRemove(true)
+		}
+
+		// the association key is getting removed.
+		for _, relation := range scope.Relations(Permission{Read: true}) {
+			if relation.Kind == BelongsTo {
+				if field.Id() == relation.ForeignKey.Name {
+					field.SetRemove(true)
+				}
+			}
+		}
+
+		rv = append(rv, field)
+		i++
+	}
+
+	// relation fields
+	for _, r := range scope.Relations(Permission{Read: true}) {
+
+		// skip on self referencing orm models
+		if _, err := scope.Parent(r.Type.String()); err == nil {
+			continue
+		}
+
+		// if its a belongsTo relation and the view is no grid table, only the association field is loaded because this is
+		// a dropdown on the frontend and only the ID is needed.
+		// TODO if this changes to a combobox in the future, this code has to get changed.
+		if r.Kind == BelongsTo && g.Mode() != grid.VTable {
+			for k := range rv {
+				if rv[k].Id() == r.ForeignKey.Name {
+					if parent != "" {
+						parent += "."
+					}
+					rv[k].SetFieldType(r.Kind)
+					policyHelper(g, &rv[k]) // set remove to true or false by policy
+					rv[k].SetOption(grid.FeSelect, grid.Select{OrmField: parent + r.Field, TextField: r.Type.Field(2).Name, ValueField: r.AssociationForeignKey.Name})
+					rv[k].SetOption("vueReturnObject", false)
+				}
+			}
+
+			// the whole relation has to get removed. otherwise the single foreign key will not with the existing logic.
+			// why: the relation object is not changing in the frontend, only the afk on the root model. But the afk is manipulated automatically of the orm on create.
+			// another reason why this is handled like this, the whole belongsTo object has to get loaded for every select item - performance risk.
+			field := grid.Field{}
+			field.SetId(r.Field)
+			field.SetRemove(true)
+			field.SetRelation(true)
+			rv = append(rv, field)
+
+			continue
+		}
+
+		// relation field
+		field := grid.Field{}
+		field.SetId(r.Field)
+		field.SetRelation(true)
+		if skipJsonByTagOrSetJsonName(scope, &field) {
+			continue
+		}
+		field.SetFieldType(r.Kind)
+		field.SetTitle(r.Field)
+		//field.SetDescription(g.NewValue(""))
+		field.SetPosition(i)
+		policyHelper(g, &field) // set remove to true or false by policy
+		//field.SetHidden(false)
+		//field.SetView(g.NewValue(""))
+		if r.Validator.Config != "" {
+			field.SetOption(tagValidate, r.Validator.Config)
+		}
+		field.SetSortable(false)
+		field.SetFilterable(false)
+
+		// add options for BelongsTo and ManyToMany relations.
+		if r.Kind == BelongsTo || r.Kind == ManyToMany {
+			// experimental (model,id, title...) by default always the third field is taken.
+			field.SetOption(grid.FeSelect, grid.Select{TextField: r.Type.Field(2).Name, ValueField: r.AssociationForeignKey.Name})
+		}
+
+		// recursively add fields
+		rScope, err := scope.NewScopeFromType(r.Type)
+		if err != nil {
+			return nil, err
+		}
+		rScope.model.parentModel = scope.model // adding parent to avoid loops
+
+		rField, err := gridFields(rScope, g, r.Field)
+		if err != nil {
+			return nil, err
+		}
+
+		// field manipulations - FK,AFK,Poly are removed.
+		for k, relField := range rField {
+			if relField.Id() == r.ForeignKey.Name {
+				rField[k].SetRemove(true)
+			}
+			if scope.IsPolymorphic(r) {
+				if relField.Id() == r.Polymorphic.Field.Name || relField.Id() == r.Polymorphic.Type.Name {
+					rField[k].SetRemove(true)
+				}
+			} else {
+				if relField.Id() == r.AssociationForeignKey.Name {
+					rField[k].SetRemove(true)
+				}
+			}
+		}
+
+		// adding relation fields
+		if len(rField) > 0 {
+			field.SetFields(rField)
+		}
+
+		rv = append(rv, field)
+		i++
+
+	}
+
+	return rv, nil
+}
+
+// policyHelper is setting the remove value by the grid policy.
+// Whitelist = remove all, user has to decide which data he needs.
+// Blacklist = everything is added. Be careful because of the performance.
+func policyHelper(g *grid.Grid, field *grid.Field) {
+	if g.Config().Policy == WHITELIST {
+		field.SetRemove(true)
+	} else {
+		field.SetRemove(false)
+	}
 }

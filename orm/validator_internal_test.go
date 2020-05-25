@@ -63,7 +63,7 @@ func Test_addDBValidation(t *testing.T) {
 
 		Brand, err := car.scope.Field("Brand")
 		test.NoError(err)
-		test.Equal("oneof=BMW BMW2,required,max=100", Brand.Validator.Config)
+		test.Equal("oneof=BMW BMW2,max=100,required", Brand.Validator.Config)
 
 		YearCheck, err := car.scope.Field("YearCheck")
 		test.NoError(err)

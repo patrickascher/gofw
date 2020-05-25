@@ -4,27 +4,21 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/stretchr/testify/assert"
-	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
-func valueHelper(i interface{}) value {
-	return value{grid: nil, table: i, details: i, update: i, create: i}
-}
 func Test_Field(t *testing.T) {
 	test := assert.New(t)
 
-	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
-
 	// set fields by normal values
 	field := Field{}
+	field.SetMode(VTable)
 
 	field.SetId("id")
 	test.Equal("id", field.id)
 	test.Equal("id", field.Id())
 
-	field.SetReferenceId("rid")
+	field.SetDatabaseId("rid")
 	test.Equal("rid", field.referenceId)
 
 	field.SetPrimary(true)
@@ -38,34 +32,28 @@ func Test_Field(t *testing.T) {
 	test.Equal("fieldType", field.fieldType)
 	test.Equal("fieldType", field.FieldType())
 
-	field.title = *grid.NewValue("title")
-	field.SetTitle(grid.NewValue("title"))
-	test.Equal(grid.NewValue("title"), &field.title)
+	field.SetTitle(NewValue("title"))
+	test.Equal(5, len(field._title))
 	test.Equal("title", field.Title())
 
-	field.description = *grid.NewValue("description")
-	field.SetDescription(grid.NewValue("description"))
-	test.Equal(grid.NewValue("description"), &field.description)
+	field.SetDescription(NewValue("description"))
+	test.Equal(5, len(field._description))
 	test.Equal("description", field.Description())
 
-	field.position = *grid.NewValue(1)
-	field.SetPosition(grid.NewValue(1))
-	test.Equal(grid.NewValue(1), &field.position)
+	field.SetPosition(NewValue(1))
+	test.Equal(5, len(field._position))
 	test.Equal(1, field.Position())
 
-	field.remove = *grid.NewValue(true)
-	field.SetRemove(grid.NewValue(true))
-	test.Equal(grid.NewValue(true), &field.remove)
+	field.SetRemove(NewValue(true))
+	test.Equal(5, len(field._remove))
 	test.Equal(true, field.IsRemoved())
 
-	field.hidden = *grid.NewValue(true)
-	field.SetHidden(grid.NewValue(true))
-	test.Equal(grid.NewValue(true), &field.hidden)
+	field.SetHidden(NewValue(true))
+	test.Equal(5, len(field._hidden))
 	test.Equal(true, field.IsHidden())
 
-	field.view = *grid.NewValue("view")
-	field.SetView(grid.NewValue("view"))
-	test.Equal(grid.NewValue("view"), &field.view)
+	field.SetView(NewValue("view"))
+	test.Equal(5, len(field._view))
 	test.Equal("view", field.View())
 
 	field.SetFilterable(true)
@@ -97,27 +85,34 @@ func Test_Field(t *testing.T) {
 
 	// set fields by struct values
 	field = Field{}
+	field.SetMode(VTable)
 
 	field.SetId("id")
 	field.SetFieldType("fieldType")
 
-	field.title = *grid.NewValue("")
-	field.SetTitle(grid.NewValue("title").SetDetails("title_details"))
+	field.SetTitle("title")
+	test.Equal(5, len(field._title))
+	test.Equal("title", field.Title())
 
-	field.description = *grid.NewValue("")
-	field.SetDescription(grid.NewValue("description").SetDetails("description_details"))
+	field.SetDescription("description")
+	test.Equal(5, len(field._description))
+	test.Equal("description", field.Description())
 
-	field.position = *grid.NewValue(0)
-	field.SetPosition(grid.NewValue(1).SetDetails(2))
+	field.SetPosition(1)
+	test.Equal(5, len(field._position))
+	test.Equal(1, field.Position())
 
-	field.remove = *grid.NewValue(false)
-	field.SetRemove(grid.NewValue(true).SetDetails(false))
+	field.SetRemove(true)
+	test.Equal(5, len(field._remove))
+	test.Equal(true, field.IsRemoved())
 
-	field.hidden = *grid.NewValue(false)
-	field.SetHidden(grid.NewValue(true).SetDetails(false))
+	field.SetHidden(true)
+	test.Equal(5, len(field._hidden))
+	test.Equal(true, field.IsHidden())
 
-	field.view = *grid.NewValue("")
-	field.SetView(grid.NewValue("view").SetDetails("view_details"))
+	field.SetView("view")
+	test.Equal(5, len(field._view))
+	test.Equal("view", field.View())
 
 	field.SetFilterable(true)
 	field.SetSortable(true)
@@ -127,12 +122,6 @@ func Test_Field(t *testing.T) {
 
 	test.Equal("id", field.id)
 	test.Equal("fieldType", field.fieldType)
-	test.Equal(&value{grid: grid, table: "title", details: "title_details", create: "title", update: "title"}, &field.title)
-	test.Equal(&value{grid: grid, table: "description", details: "description_details", create: "description", update: "description"}, &field.description)
-	test.Equal(&value{grid: grid, table: 1, details: 2, create: 1, update: 1}, &field.position)
-	test.Equal(&value{grid: grid, table: true, details: false, create: true, update: true}, &field.remove)
-	test.Equal(&value{grid: grid, table: true, details: false, create: true, update: true}, &field.hidden)
-	test.Equal(&value{grid: grid, table: "view", details: "view_details", create: "view", update: "view"}, &field.view)
 	test.Equal(true, field.filterable)
 	test.Equal(true, field.sortable)
 	test.Equal(Select{}, field.options["select"])
@@ -144,18 +133,17 @@ func Test_Field(t *testing.T) {
 
 func TestField_MarshalJSON(t *testing.T) {
 	test := assert.New(t)
-	grid := New(newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader(""))))
 
 	field := Field{}
 	field.id = "id"
 	field.fieldType = "type"
 	field.primary = true
-	field.title = *grid.NewValue("title")
-	field.description = *grid.NewValue("desc")
-	field.position = *grid.NewValue(1)
-	field.remove = *grid.NewValue(true)
-	field.hidden = *grid.NewValue(true)
-	field.view = *grid.NewValue("view")
+	field.SetTitle("title")
+	field.SetDescription("desc")
+	field.SetPosition(1)
+	field.SetRemove(true)
+	field.SetHidden(true)
+	field.SetView("view")
 	field.readOnly = true
 	field.sortable = true
 	field.filterable = true
@@ -168,19 +156,21 @@ func TestField_MarshalJSON(t *testing.T) {
 	fNew := map[string]interface{}{}
 	err = json.Unmarshal(bytes, &fNew)
 	test.NoError(err)
-	test.Equal(14, len(fNew))
+	test.Equal(11, len(fNew))
 
 	// test empty/zero values
 	field = Field{}
 	field.id = "id"
 	field.fieldType = "type"
 	field.primary = false
-	field.title = *grid.NewValue("title")
-	field.description = *grid.NewValue("")
-	field.position = *grid.NewValue(1)
-	field.remove = *grid.NewValue(false)
-	field.hidden = *grid.NewValue(false)
-	field.view = *grid.NewValue("")
+
+	field.SetTitle(NewValue("title"))
+	field.SetDescription(NewValue("desc"))
+	field.SetPosition(NewValue(1))
+	field.SetRemove(NewValue(true))
+	field.SetHidden(NewValue(true))
+	field.SetView(NewValue("view"))
+
 	field.readOnly = false
 	field.sortable = false
 	field.filterable = false
@@ -191,5 +181,5 @@ func TestField_MarshalJSON(t *testing.T) {
 	fNew = map[string]interface{}{}
 	err = json.Unmarshal(bytes, &fNew)
 	test.NoError(err)
-	test.Equal(4, len(fNew))
+	test.Equal(5, len(fNew))
 }

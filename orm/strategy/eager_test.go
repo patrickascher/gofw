@@ -68,6 +68,47 @@ func truncate(ormI orm.Interface) error {
 		return err
 	}
 
+	// pkstrings
+	_, err = b.Delete("pkstrings").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_owners
+	_, err = b.Delete("pkstring_owners").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_ones
+	_, err = b.Delete("pkstring_ones").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_one_polies
+	_, err = b.Delete("pkstring_one_polies").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_manies
+	_, err = b.Delete("pkstring_manies").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_many_polies
+	_, err = b.Delete("pkstring_many_polies").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_m2_m_s
+	_, err = b.Delete("pkstring_m2_m_s").Exec()
+	if err != nil {
+		return err
+	}
+	// pkstring_pkstring_m2_m_s
+	_, err = b.Delete("pkstring_pkstring_m2_m_s").Exec()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -159,6 +200,77 @@ func createEntries(ormI orm.Interface) error {
 	_, err = b.Insert("role_roles").Columns("role_id", "child_id").Values(rolesMap).Exec()
 	if err != nil {
 		return fmt.Errorf("role_roles: %w", err)
+	}
+
+	// string tables
+	tmp := []map[string]interface{}{
+		{"id": "ID1", "name": "Stringer", "pkstring_owner_id": "OWNER1"},
+		{"id": "ID2", "name": "Stringer2", "pkstring_owner_id": "OWNER2"},
+	}
+	_, err = b.Insert("pkstrings").Columns("id", "name", "pkstring_owner_id").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstrings: %w", err)
+	}
+	tmp = []map[string]interface{}{
+		{"id": "OWNER1", "name": "Owner"},
+		{"id": "OWNER2", "name": "Owner2"},
+	}
+	_, err = b.Insert("pkstring_owners").Columns("id", "name").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_owners: %w", err)
+	}
+	tmp = []map[string]interface{}{
+		{"id": "ONE1", "pkstring_id": "ID1", "name": "One"},
+		{"id": "ONE2", "pkstring_id": "ID2", "name": "One2"},
+	}
+	_, err = b.Insert("pkstring_ones").Columns("id", "pkstring_id", "name").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_ones: %w", err)
+	}
+
+	tmp = []map[string]interface{}{
+		{"id": "ONEPOLY1", "name": "One Poly", "poly_id": "ID1", "poly_type": "Pkstring"},
+		{"id": "ONEPOLY2", "name": "One Poly2", "poly_id": "ID2", "poly_type": "Pkstring"},
+	}
+	_, err = b.Insert("pkstring_one_polies").Columns("id", "name", "poly_id", "poly_type").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_one_polies: %w", err)
+	}
+
+	tmp = []map[string]interface{}{
+		{"id": "MANY1", "pkstring_id": "ID1", "name": "Many"},
+		{"id": "MANY2", "pkstring_id": "ID2", "name": "Many2"},
+	}
+	_, err = b.Insert("pkstring_manies").Columns("id", "pkstring_id", "name").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_manies: %w", err)
+	}
+
+	tmp = []map[string]interface{}{
+		{"id": "MANYPOLY1", "name": "Many Poly", "poly_id": "ID1", "poly_type": "Pkstring"},
+		{"id": "MANYPOLY2", "name": "Many Poly2", "poly_id": "ID2", "poly_type": "Pkstring"},
+	}
+	_, err = b.Insert("pkstring_many_polies").Columns("id", "name", "poly_id", "poly_type").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_many_polies: %w", err)
+	}
+
+	tmp = []map[string]interface{}{
+		{"id": "M2M1", "name": "M2m"},
+		{"id": "M2M2", "name": "M2m2"},
+	}
+	_, err = b.Insert("pkstring_m2_m_s").Columns("id", "name").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_m2_m_s: %w", err)
+	}
+
+	tmp = []map[string]interface{}{
+		{"pkstring_id": "ID1", "pkstring_m2_m_id": "M2M1"},
+		{"pkstring_id": "ID2", "pkstring_m2_m_id": "M2M2"},
+	}
+	_, err = b.Insert("pkstring_pkstring_m2_m_s").Columns("pkstring_id", "pkstring_m2_m_id").Values(tmp).Exec()
+	if err != nil {
+		return fmt.Errorf("pkstring_pkstring_m2_m_s: %w", err)
 	}
 
 	return nil
@@ -641,6 +753,73 @@ func TestEagerLoading_All_SelfReference(t *testing.T) {
 	test.Equal(0, len(res[3].Roles))
 }
 
+// Test a new entry but the BelongsTo/M2M relation has an id which exists/not exist in the database.
+// in both cases the element should be created/updated.
+func TestEagerLoading_Create_BelongsTo_M2M_Update(t *testing.T) {
+	test := assert.New(t)
+
+	err := truncate(&car{})
+	test.NoError(err)
+
+	c := &car{}
+	err = c.Init(c)
+	test.NoError(err)
+
+	s := strategy.EagerLoading{}
+
+	// TEST ID does not exist in the db yet , belongsTo, M2M
+	// normal fields
+	c.ID = 1
+	c.Brand = "BMW"
+	// belongsTo
+	c.Owner = &owner{ID: 1, Name: orm.NewNullString("Pat")} // ID does not exist in the DB, so it should be created
+	// M2M
+	c.Driver = append(c.Driver, driver{ID: 1, Name: orm.NewNullString("Marc")}) // ID does not exist in the DB, so it should be created
+	err = s.Create(c.Scope())
+	test.NoError(err)
+
+	err = c.First(sqlquery.NewCondition().Where("id = ?", 1))
+	test.NoError(err)
+
+	test.Equal(1, c.ID)
+	test.Equal("BMW", c.Brand)
+	test.Equal(1, c.Owner.ID)
+	test.Equal("Pat", c.Owner.Name.String)
+	if test.Equal(1, len(c.Driver)) {
+		test.Equal(1, c.Driver[0].ID)
+		test.Equal("Marc", c.Driver[0].Name.String)
+	}
+
+	// TEST UPDATE of BelongsTo and M2M
+	// normal fields
+	c = &car{}
+	err = c.Init(c)
+	test.NoError(err)
+
+	c.ID = 2
+	c.Brand = "BMW"
+	// relations
+	// belongsTo
+	c.Owner = &owner{ID: 1, Name: orm.NewNullString("Pat2")} // ID does not exist in the DB, so it should be created
+	// M2M
+	c.Driver = append(c.Driver, driver{ID: 1, Name: orm.NewNullString("Marc2")}) // ID does not exist in the DB, so it should be created
+	err = s.Create(c.Scope())
+	test.NoError(err)
+
+	err = c.First(sqlquery.NewCondition().Where("id = ?", 2))
+	test.NoError(err)
+
+	test.Equal(2, c.ID)
+	test.Equal("BMW", c.Brand)
+	test.Equal(1, c.Owner.ID)
+	test.Equal("Pat2", c.Owner.Name.String)
+	if test.Equal(1, len(c.Driver)) {
+		test.Equal(1, c.Driver[0].ID)
+		test.Equal("Marc2", c.Driver[0].Name.String)
+	}
+
+}
+
 func TestEagerLoading_Create(t *testing.T) {
 	test := assert.New(t)
 
@@ -797,14 +976,14 @@ func TestEagerLoading_Update(t *testing.T) {
 	// update data
 	err = c.Update()
 	test.NoError(err)
-	// error update twice - no changes
+	// no error update twice - will return nil
 	err = c.Update()
-	test.Error(err)
+	test.NoError(err)
 	// check data
 	cCheck = getId(1)
 	test.Equal("BMW2", cCheck.Brand)
 	test.NotNil(cCheck.Owner)
-	test.Equal(orm.Int(c.Owner.ID), orm.Int(cCheck.OwnerID))
+	test.Equal(int64(c.Owner.ID), cCheck.OwnerID.Int64)
 	test.Equal(c.OwnerID, cCheck.OwnerID)
 	test.Equal("Pat2", cCheck.Owner.Name.String)
 	test.Equal(0, len(cCheck.Wheels)) // deleted because it was not set anymore
@@ -824,12 +1003,53 @@ func TestEagerLoading_Update(t *testing.T) {
 	cCheck = getId(1)
 	test.Equal("BMW2", cCheck.Brand)
 	test.NotNil(cCheck.Owner)
-	test.Equal(orm.Int(c.Owner.ID), orm.Int(cCheck.OwnerID))
+	test.Equal(int64(c.Owner.ID), cCheck.OwnerID.Int64)
 	test.Equal(c.OwnerID, cCheck.OwnerID)
 	test.Equal(0, len(cCheck.Wheels)) // deleted because it was not set anymore
 	test.Equal(0, len(cCheck.Driver)) // deleted because it was not set anymore
 	test.Equal(0, cCheck.Radio.ID)    // deleted because it was not set anymore
 	test.Equal(0, len(cCheck.Liquid)) // deleted because it was not set anymore
+
+	// Testing New ID which does not exist in the DB YET - BelongsTO and M2M
+	c = newCar()
+	c.ID = 1
+	c.Brand = "BMW2"
+	// belongsTo - new ID which does not exist in the DB yet
+	c.Owner = &owner{ID: 10, Name: orm.NewNullString("New")}
+	// m2m - ID DOES NOT EXIST in the db yet.
+	c.Driver = append(c.Driver, driver{ID: 10, Name: orm.NewNullString("Driver")})
+	err = c.Update()
+	test.NoError(err)
+	cCheck = getId(1)
+	test.Equal("BMW2", cCheck.Brand)
+	test.NotNil(cCheck.Owner)
+	test.Equal(int64(10), cCheck.OwnerID.Int64)
+	test.Equal(10, cCheck.Owner.ID)
+	test.Equal("New", cCheck.Owner.Name.String)
+	test.Equal(1, len(cCheck.Driver))
+	test.Equal(10, cCheck.Driver[0].ID)
+	test.Equal("Driver", cCheck.Driver[0].Name.String)
+
+	// test update ID which does already exist in the DB, BelongsTO and M2M
+	c = newCar()
+	c.ID = 1
+	c.Brand = "BMW"
+	// belongsTo - update ID which does exist in the DB yet
+	c.Owner = &owner{ID: 1, Name: orm.NewNullString("New22")}
+	// m2m - ID DOES EXIST in the db yet.
+	c.Driver = append(c.Driver, driver{ID: 1, Name: orm.NewNullString("Driver2")})
+	err = c.Update()
+	test.NoError(err)
+
+	cCheck = getId(1)
+	test.Equal("BMW", cCheck.Brand)
+	test.NotNil(cCheck.Owner)
+	test.Equal(int64(1), cCheck.OwnerID.Int64)
+	test.Equal(1, cCheck.Owner.ID)
+	test.Equal("New22", cCheck.Owner.Name.String)
+	test.Equal(1, len(cCheck.Driver))
+	test.Equal(1, cCheck.Driver[0].ID)
+	test.Equal("Driver2", cCheck.Driver[0].Name.String)
 
 	// hasOne - deleted because its empty in the new struct
 	c = newCar()
@@ -1050,6 +1270,7 @@ func TestEagerLoading_Update(t *testing.T) {
 
 	err = truncate(&car{})
 	test.NoError(err)
+
 }
 
 func TestEagerLoading_Delete(t *testing.T) {
@@ -1085,4 +1306,648 @@ func getId(id int) *car {
 	_ = c.Init(c)
 	_ = c.First(sqlquery.NewCondition().Where("id = ?", id))
 	return c
+}
+
+func newStringPrimary() *Pkstring {
+	_ = createEntries(&Pkstring{})
+	c := &Pkstring{}
+	_ = c.Init(c)
+	return c
+}
+func getStringPrimaryId(id string) *Pkstring {
+	c := &Pkstring{}
+	_ = c.Init(c)
+	_ = c.First(sqlquery.NewCondition().Where("id = ?", id))
+	return c
+}
+
+type Pkstring struct {
+	orm.Model
+	ID              string
+	Name            string
+	PkstringOwnerID orm.NullString
+
+	// belongsTO
+	Owner PkstringOwner `orm:"relation:belongsTo"`
+	// hasOne
+	One PkstringOne
+	// hasOne poly
+	OnePoly PkstringOnePoly `orm:"polymorphic:Poly;"`
+	// hasMany
+	Many []PkstringMany
+	// hasMany poly
+	ManyPoly []PkstringManyPoly `orm:"polymorphic:Poly;"`
+	// m2m
+	M2M []PkstringM2M `orm:"relation:m2m"`
+}
+type PkstringOwner struct {
+	orm.Model
+	ID   string
+	Name string
+}
+type PkstringOne struct {
+	orm.Model
+	ID         string
+	PkstringID string
+	Name       string
+}
+type PkstringOnePoly struct {
+	orm.Model
+	ID   string
+	Name string
+
+	PolyID   string
+	PolyType string
+}
+type PkstringMany struct {
+	orm.Model
+	ID         string
+	PkstringID string
+	Name       string
+}
+
+type PkstringManyPoly struct {
+	orm.Model
+	ID   string
+	Name string
+
+	PolyID   string
+	PolyType string
+}
+
+type PkstringM2M struct {
+	orm.Model
+	ID   string
+	Name string
+}
+
+// test with primary key string
+func TestEagerLoading_First_PrimaryString(t *testing.T) {
+	test := assert.New(t)
+
+	err := createEntries(&Pkstring{})
+	test.NoError(err)
+
+	m := Pkstring{}
+	err = m.Init(&m)
+	test.NoError(err)
+
+	err = m.First(nil)
+
+	test.Equal("ID1", m.ID)
+	test.Equal("Stringer", m.Name)
+	// belongsTo
+	test.Equal("OWNER1", m.PkstringOwnerID.String)
+	test.Equal("OWNER1", m.Owner.ID)
+	test.Equal("Owner", m.Owner.Name)
+	// has One
+	test.Equal("ONE1", m.One.ID)
+	test.Equal("ID1", m.One.PkstringID)
+	test.Equal("One", m.One.Name)
+	// has One poly
+	test.Equal("ONEPOLY1", m.OnePoly.ID)
+	test.Equal("One Poly", m.OnePoly.Name)
+	test.Equal("ID1", m.OnePoly.PolyID)
+	test.Equal("Pkstring", m.OnePoly.PolyType)
+	// has many
+	test.Equal(1, len(m.Many))
+	test.Equal("MANY1", m.Many[0].ID)
+	test.Equal("ID1", m.Many[0].PkstringID)
+	test.Equal("Many", m.Many[0].Name)
+	// has many poly
+	test.Equal(1, len(m.ManyPoly))
+	test.Equal("MANYPOLY1", m.ManyPoly[0].ID)
+	test.Equal("Many Poly", m.ManyPoly[0].Name)
+	test.Equal("ID1", m.ManyPoly[0].PolyID)
+	test.Equal("Pkstring", m.ManyPoly[0].PolyType)
+	// m2m
+	test.Equal(1, len(m.M2M))
+	test.Equal("M2M1", m.M2M[0].ID)
+	test.Equal("M2m", m.M2M[0].Name)
+
+	err = truncate(&Pkstring{})
+	test.NoError(err)
+}
+
+// test with primary key string
+func TestEagerLoading_All_PrimaryString(t *testing.T) {
+	test := assert.New(t)
+
+	err := createEntries(&Pkstring{})
+	test.NoError(err)
+
+	m := Pkstring{}
+	err = m.Init(&m)
+	test.NoError(err)
+
+	var res []Pkstring
+	err = m.All(&res, nil)
+	test.NoError(err)
+
+	test.Equal("ID1", res[0].ID)
+	test.Equal("Stringer", res[0].Name)
+	// belongsTo
+	test.Equal("OWNER1", res[0].PkstringOwnerID.String)
+	test.Equal("OWNER1", res[0].Owner.ID)
+	test.Equal("Owner", res[0].Owner.Name)
+	// has One
+	test.Equal("ONE1", res[0].One.ID)
+	test.Equal("ID1", res[0].One.PkstringID)
+	test.Equal("One", res[0].One.Name)
+	// has One poly
+	test.Equal("ONEPOLY1", res[0].OnePoly.ID)
+	test.Equal("One Poly", res[0].OnePoly.Name)
+	test.Equal("ID1", res[0].OnePoly.PolyID)
+	test.Equal("Pkstring", res[0].OnePoly.PolyType)
+	// has many
+	test.Equal(1, len(res[0].Many))
+	test.Equal("MANY1", res[0].Many[0].ID)
+	test.Equal("ID1", res[0].Many[0].PkstringID)
+	test.Equal("Many", res[0].Many[0].Name)
+	// has many poly
+	test.Equal(1, len(res[0].ManyPoly))
+	test.Equal("MANYPOLY1", res[0].ManyPoly[0].ID)
+	test.Equal("Many Poly", res[0].ManyPoly[0].Name)
+	test.Equal("ID1", res[0].ManyPoly[0].PolyID)
+	test.Equal("Pkstring", res[0].ManyPoly[0].PolyType)
+	// m2m
+	test.Equal(1, len(res[0].M2M))
+	test.Equal("M2M1", res[0].M2M[0].ID)
+	test.Equal("M2m", res[0].M2M[0].Name)
+
+	// RESULTSET 2
+	test.Equal("ID2", res[1].ID)
+	test.Equal("Stringer2", res[1].Name)
+	// belongsTo
+	test.Equal("OWNER2", res[1].PkstringOwnerID.String)
+	test.Equal("OWNER2", res[1].Owner.ID)
+	test.Equal("Owner2", res[1].Owner.Name)
+	// has One
+	test.Equal("ONE2", res[1].One.ID)
+	test.Equal("ID2", res[1].One.PkstringID)
+	test.Equal("One2", res[1].One.Name)
+	// has One poly
+	test.Equal("ONEPOLY2", res[1].OnePoly.ID)
+	test.Equal("One Poly2", res[1].OnePoly.Name)
+	test.Equal("ID2", res[1].OnePoly.PolyID)
+	test.Equal("Pkstring", res[1].OnePoly.PolyType)
+	// has many
+	test.Equal(1, len(res[1].Many))
+	test.Equal("MANY2", res[1].Many[0].ID)
+	test.Equal("ID2", res[1].Many[0].PkstringID)
+	test.Equal("Many2", res[1].Many[0].Name)
+	// has many poly
+	test.Equal(1, len(res[1].ManyPoly))
+	test.Equal("MANYPOLY2", res[1].ManyPoly[0].ID)
+	test.Equal("Many Poly2", res[1].ManyPoly[0].Name)
+	test.Equal("ID2", res[1].ManyPoly[0].PolyID)
+	test.Equal("Pkstring", res[1].ManyPoly[0].PolyType)
+	// m2m
+	test.Equal(1, len(res[1].M2M))
+	test.Equal("M2M2", res[1].M2M[0].ID)
+	test.Equal("M2m2", res[1].M2M[0].Name)
+
+	err = truncate(&Pkstring{})
+	test.NoError(err)
+}
+
+// test with primary key string
+func TestEagerLoading_Create_PrimaryString(t *testing.T) {
+	test := assert.New(t)
+
+	err := truncate(&Pkstring{})
+	test.NoError(err)
+
+	m := Pkstring{}
+	err = m.Init(&m)
+	test.NoError(err)
+
+	m.Name = "CreateString"
+	m.ID = "CUSTID"
+	//belongsTo
+	m.Owner = PkstringOwner{ID: "CUSTOWNERID", Name: "CustOwner"}
+	//hasOne
+	m.One.ID = "CUSTONE"
+	m.One.Name = "CustOne"
+	//hasOne poly
+	m.OnePoly.ID = "CUSTONEPOLY"
+	m.OnePoly.Name = "CustOnePoly"
+	//hasMany
+	m.Many = append(m.Many, PkstringMany{ID: "CUSTMANY", Name: "CustMany"})
+	//hasManyPoly
+	m.ManyPoly = append(m.ManyPoly, PkstringManyPoly{ID: "CUSTMANYPOLY", Name: "CustManyPoly"})
+	//m2m
+	m.M2M = append(m.M2M, PkstringM2M{ID: "CUSTM2M", Name: "CustM2m"})
+
+	err = m.Create()
+	test.NoError(err)
+
+	m = Pkstring{}
+	err = m.Init(&m)
+	test.NoError(err)
+	err = m.First(sqlquery.NewCondition().Where("id = ?", "CUSTID"))
+	test.NoError(err)
+
+	test.Equal("CUSTID", m.ID)
+	test.Equal("CreateString", m.Name)
+	// belongsTo
+	test.Equal("CUSTOWNERID", m.PkstringOwnerID.String)
+	test.Equal("CUSTOWNERID", m.Owner.ID)
+	test.Equal("CustOwner", m.Owner.Name)
+	// has One
+	test.Equal("CUSTONE", m.One.ID)
+	test.Equal("CUSTID", m.One.PkstringID)
+	test.Equal("CustOne", m.One.Name)
+	// has One poly
+	test.Equal("CUSTONEPOLY", m.OnePoly.ID)
+	test.Equal("CustOnePoly", m.OnePoly.Name)
+	test.Equal("CUSTID", m.OnePoly.PolyID)
+	test.Equal("Pkstring", m.OnePoly.PolyType)
+	// has many
+	test.Equal(1, len(m.Many))
+	test.Equal("CUSTMANY", m.Many[0].ID)
+	test.Equal("CUSTID", m.Many[0].PkstringID)
+	test.Equal("CustMany", m.Many[0].Name)
+	// has many poly
+	test.Equal(1, len(m.ManyPoly))
+	test.Equal("CUSTMANYPOLY", m.ManyPoly[0].ID)
+	test.Equal("CustManyPoly", m.ManyPoly[0].Name)
+	test.Equal("CUSTID", m.ManyPoly[0].PolyID)
+	test.Equal("Pkstring", m.ManyPoly[0].PolyType)
+	// m2m
+	test.Equal(1, len(m.M2M))
+	test.Equal("CUSTM2M", m.M2M[0].ID)
+	test.Equal("CustM2m", m.M2M[0].Name)
+
+	err = truncate(&Pkstring{})
+	test.NoError(err)
+}
+
+// test with primary key string
+func TestEagerLoading_Update_PrimaryString(t *testing.T) {
+	test := assert.New(t)
+
+	c := newStringPrimary()
+
+	// error - no primary is set
+	err := c.Update()
+	test.Error(err)
+
+	// belongsTo Delete - Change Brand and deleted all relations
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	err = c.Update()
+	test.NoError(err)
+	cCheck := getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID)
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// belongsTo Create - Change Brand and deleted all relations, aside owner was created
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.Owner = PkstringOwner{ID: "CUSTOWNERID", Name: "CustOwner"}
+	// update data
+	err = c.Update()
+	test.NoError(err)
+	// no error update twice - will return nil
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.NotNil(cCheck.Owner)
+	test.Equal(orm.NewNullString("CUSTOWNERID"), cCheck.PkstringOwnerID)
+	test.Equal(c.PkstringOwnerID, cCheck.PkstringOwnerID)
+	test.Equal("CustOwner", cCheck.Owner.Name)
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// belongsTo Update - Change Brand and deleted all relations, aside owner was updated
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.Owner = PkstringOwner{ID: "CUSTOWNERID", Name: "CustOwner2"}
+	// update data
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.NotNil(cCheck.Owner)
+	test.Equal(orm.NewNullString("CUSTOWNERID"), cCheck.PkstringOwnerID)
+	test.Equal(c.PkstringOwnerID, cCheck.PkstringOwnerID)
+	test.Equal("CustOwner2", cCheck.Owner.Name)
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// Testing New ID which does not exist in the DB YET - BelongsTO and M2M
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	// belongsTo - new ID which does not exist in the DB yet
+	c.Owner = PkstringOwner{ID: "CUSTOWNERIDNEW", Name: "CustOwner2"}
+	// m2m - ID DOES NOT EXIST in the db yet.
+	c.M2M = append(c.M2M, PkstringM2M{ID: "M2MNEW", Name: "M2m"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.NotNil(cCheck.Owner)
+	test.Equal(orm.NewNullString("CUSTOWNERIDNEW"), cCheck.PkstringOwnerID)
+	test.Equal(c.PkstringOwnerID, cCheck.PkstringOwnerID)
+	test.Equal("CustOwner2", cCheck.Owner.Name)
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.M2M))
+	test.Equal("M2MNEW", cCheck.M2M[0].ID)
+	test.Equal("M2m", cCheck.M2M[0].Name)
+
+	// test update ID which does already exist in the DB, BelongsTO and M2M
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	// belongsTo - new ID which does not exist in the DB yet
+	c.Owner = PkstringOwner{ID: "OWNER1", Name: "CustOwner2"}
+	// m2m - ID DOES NOT EXIST in the db yet.
+	c.M2M = append(c.M2M, PkstringM2M{ID: "M2M1", Name: "M2m2"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.NotNil(cCheck.Owner)
+	test.Equal(orm.NewNullString("OWNER1"), cCheck.PkstringOwnerID)
+	test.Equal(c.PkstringOwnerID, cCheck.PkstringOwnerID)
+	test.Equal("CustOwner2", cCheck.Owner.Name)
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.M2M))
+	test.Equal("M2M1", cCheck.M2M[0].ID)
+	test.Equal("M2m2", cCheck.M2M[0].Name)
+
+	// hasOne - added
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.One.ID = "ONE1"
+	c.One.Name = "one1"
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID)     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("ONE1", cCheck.One.ID)
+	test.Equal("one1", cCheck.One.Name)
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))    // deleted because it was not set anymore
+	// check that the old radio got deleted and only the added one is in the database.
+	r := &PkstringOne{}
+	err = r.Init(r)
+	test.NoError(err)
+	var rRes []PkstringOne
+	err = r.All(&rRes, sqlquery.NewCondition().Where("pkstring_id = ?", c.ID))
+	test.NoError(err)
+	test.Equal(1, len(rRes))
+
+	// hasOne - update
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.One.ID = "ONE1"
+	c.One.Name = "OneUpdate"
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID)     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many))     // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("ONE1", cCheck.One.ID)
+	test.Equal("OneUpdate", cCheck.One.Name)
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))    // deleted because it was not set anymore
+
+	// hasMany - update (create one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.Many = append(c.Many, PkstringMany{ID: "MANY3", Name: "many3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.Many))
+	test.Equal("MANY3", cCheck.Many[0].ID)
+	test.Equal("many3", cCheck.Many[0].Name)
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// hasMany - update (update one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.Many = append(c.Many, PkstringMany{ID: "MANY1", Name: "many3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.Many))
+	test.Equal("MANY1", cCheck.Many[0].ID)
+	test.Equal("many3", cCheck.Many[0].Name)
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// hasMany - create
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	err = c.Update()
+	test.NoError(err)
+	c.Many = append(c.Many, PkstringMany{ID: "MANY1", Name: "many3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.Many))
+	test.Equal("MANY1", cCheck.Many[0].ID)
+	test.Equal("many3", cCheck.Many[0].Name)
+	test.Equal(0, len(cCheck.ManyPoly)) // deleted because it was not set anymore
+	test.Equal("", cCheck.One.ID)       // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID)   // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))      // deleted because it was not set anymore
+
+	// hasMany poly - update (create one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.ManyPoly = append(c.ManyPoly, PkstringManyPoly{ID: "MANYPoly3", Name: "manypoly3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.ManyPoly))
+	test.Equal("MANYPoly3", cCheck.ManyPoly[0].ID)
+	test.Equal("manypoly3", cCheck.ManyPoly[0].Name)
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))    // deleted because it was not set anymore
+
+	// hasMany - update (update one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.ManyPoly = append(c.ManyPoly, PkstringManyPoly{ID: "MANYPOLY1", Name: "manypoly3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID)
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.ManyPoly))
+	test.Equal("MANYPOLY1", cCheck.ManyPoly[0].ID)
+	test.Equal("manypoly3", cCheck.ManyPoly[0].Name)
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))    // deleted because it was not set anymore
+
+	// hasMany - poly create
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	err = c.Update()
+	test.NoError(err)
+	c.ManyPoly = append(c.ManyPoly, PkstringManyPoly{ID: "MANYPOLY3", Name: "manypoly3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.ManyPoly))
+	test.Equal("MANYPOLY3", cCheck.ManyPoly[0].ID)
+	test.Equal("manypoly3", cCheck.ManyPoly[0].Name)
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.M2M))    // deleted because it was not set anymore
+
+	// m2m - update (create one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.M2M = append(c.M2M, PkstringM2M{ID: "M2M3", Name: "m2m3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly))
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.M2M))    // deleted because it was not set anymore
+	test.Equal("M2M3", cCheck.M2M[0].ID)
+	test.Equal("m2m3", cCheck.M2M[0].Name)
+
+	// m2m - update (update one, delete the others)
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	c.M2M = append(c.M2M, PkstringM2M{ID: "M2M1", Name: "m2m3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly))
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.M2M))    // deleted because it was not set anymore
+	test.Equal("M2M1", cCheck.M2M[0].ID)
+	test.Equal("m2m3", cCheck.M2M[0].Name)
+
+	// m2m - create
+	c = newStringPrimary()
+	c.ID = "ID1"
+	c.Name = "CustId2"
+	err = c.Update()
+	test.NoError(err)
+	c.M2M = append(c.M2M, PkstringM2M{ID: "M2M3", Name: "m2m3"})
+	err = c.Update()
+	test.NoError(err)
+	// check data
+	cCheck = getStringPrimaryId("ID1")
+	test.Equal("CustId2", cCheck.Name)
+	test.Equal("", cCheck.Owner.ID) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.Many)) // deleted because it was not set anymore
+	test.Equal(0, len(cCheck.ManyPoly))
+	test.Equal("", cCheck.One.ID)     // deleted because it was not set anymore
+	test.Equal("", cCheck.OnePoly.ID) // deleted because it was not set anymore
+	test.Equal(1, len(cCheck.M2M))
+	test.Equal("M2M3", cCheck.M2M[0].ID)
+	test.Equal("m2m3", cCheck.M2M[0].Name)
+
+	err = truncate(&car{})
+	test.NoError(err)
+}
+
+func TestEagerLoading_Delete_PrimaryString(t *testing.T) {
+	test := assert.New(t)
+
+	err := createEntries(&Pkstring{})
+	test.NoError(err)
+
+	c := &Pkstring{}
+	err = c.Init(c)
+	test.NoError(err)
+
+	s := strategy.EagerLoading{}
+
+	err = s.Delete(c.Scope(), sqlquery.NewCondition().Where("id =?", "ID1"))
+	test.NoError(err)
+
+	err = c.First(sqlquery.NewCondition().Where("id=?", "ID1"))
+	test.Error(err) // no rows found
+
+	err = truncate(&Pkstring{})
+	test.NoError(err)
 }

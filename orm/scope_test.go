@@ -128,29 +128,29 @@ func Test_SetReflectValue(t *testing.T) {
 	// assigning INT to INT64
 	err = orm.SetReflectValue(reflectM.FieldByName("ID"), reflect.ValueOf(1))
 	test.NoError(err)
-	test.Equal(1, orm.Int(m.ID))
+	test.Equal(int64(1), m.ID)
 	// assigning NullInt to INT64
 	err = orm.SetReflectValue(reflectM.FieldByName("ID"), reflect.ValueOf(orm.NewNullInt(1)))
 	test.NoError(err)
-	test.Equal(1, orm.Int(m.ID))
+	test.Equal(int64(1), m.ID)
 	// assigning NullInt to NullInt
 	err = orm.SetReflectValue(reflectM.FieldByName("IDNull"), reflect.ValueOf(orm.NewNullInt(1)))
 	test.NoError(err)
 	test.Equal(true, m.IDNull.Valid)
-	test.Equal(1, orm.Int(m.IDNull.Int64))
+	test.Equal(int64(1), m.IDNull.Int64)
 	// assigning INT to NullInt
 	err = orm.SetReflectValue(reflectM.FieldByName("IDNull"), reflect.ValueOf(1))
 	test.NoError(err)
 	test.Equal(true, m.IDNull.Valid)
-	test.Equal(1, orm.Int(m.IDNull.Int64))
+	test.Equal(int64(1), m.IDNull.Int64)
 	// assigning INT to INT32
 	err = orm.SetReflectValue(reflectM.FieldByName("IDint"), reflect.ValueOf(1))
 	test.NoError(err)
-	test.Equal(1, orm.Int(m.ID))
+	test.Equal(int64(1), m.ID)
 	// assigning NullInt to INT32
 	err = orm.SetReflectValue(reflectM.FieldByName("IDint"), reflect.ValueOf(orm.NewNullInt(1)))
 	test.NoError(err)
-	test.Equal(1, orm.Int(m.ID))
+	test.Equal(int64(1), m.ID)
 
 	// assigning String to Slice
 	err = orm.SetReflectValue(reflectM.FieldByName("Slice"), reflect.ValueOf("John"))
@@ -436,10 +436,18 @@ func TestScope_InitCallerRelation(t *testing.T) {
 	i, err = model.Scope().InitCallerRelation("Driver", false) // slice*
 	test.NoError(err)
 	test.IsType(&driver{}, i)
+	_, err = i.Scope().Parent("")
+	test.NoError(err)
 
 	i, err = model.Scope().InitCallerRelation("notExisting", false)
 	test.Error(err)
 	test.IsType(nil, i)
+
+	i, err = model.Scope().InitCallerRelation("Driver", true) // slice*
+	test.NoError(err)
+	//error no parent exists
+	_, err = i.Scope().Parent("")
+	test.Error(err)
 }
 
 func TestScope_InitRelation(t *testing.T) {
@@ -707,11 +715,11 @@ func TestScope_EqualWith(t *testing.T) {
 
 	test.Equal("Wheels", cv[0].ChangedValue[2].Field)
 	test.Equal(orm.DELETE, cv[0].ChangedValue[2].Operation)
-	test.Equal(199, cv[0].ChangedValue[2].Index) // index is representing the ID
+	test.Equal(int64(199), cv[0].ChangedValue[2].Index) // index is representing the ID
 
 	test.Equal("Wheels", cv[0].ChangedValue[3].Field)
 	test.Equal(orm.DELETE, cv[0].ChangedValue[3].Operation)
-	test.Equal(200, cv[0].ChangedValue[3].Index) // index is representing the ID
+	test.Equal(int64(200), cv[0].ChangedValue[3].Index) // index is representing the ID
 
 	// The same ID exists in the new list and old list, the rest is getting created or deleted.
 	m1, m2 = &car{}, &car{}
@@ -744,8 +752,29 @@ func TestScope_EqualWith(t *testing.T) {
 
 	test.Equal(orm.DELETE, cv[0].ChangedValue[3].Operation)
 	test.Equal("Wheels", cv[0].ChangedValue[3].Field)
-	test.Equal(0, cv[0].ChangedValue[3].Index) // TODO index - no ID was found an set? throw error?
+	test.Equal(int64(0), cv[0].ChangedValue[3].Index) // TODO index - no ID was found an set? throw error?
 	test.Equal(orm.DELETE, cv[0].ChangedValue[4].Operation)
 	test.Equal("Wheels", cv[0].ChangedValue[4].Field)
-	test.Equal(200, cv[0].ChangedValue[4].Index)
+	test.Equal(int64(200), cv[0].ChangedValue[4].Index)
+}
+
+func TestScope_ReferencesOnly(t *testing.T) {
+	test := assert.New(t)
+
+	model, err := getModel()
+	test.NoError(err)
+
+	test.False(model.Scope().ReferencesOnly())
+	model.Scope().SetReferencesOnly(true)
+	test.True(model.Scope().ReferencesOnly())
+}
+
+func TestScope_SetWhitelistExplict(t *testing.T) {
+	test := assert.New(t)
+	model, err := getModel()
+	test.NoError(err)
+	model.Scope().SetWhitelistExplict(true)
+	model.SetWBList(orm.WHITELIST, "ID")
+	model.Scope().SetWhitelistExplict(true)
+	// TODO test internal if the value is really set
 }

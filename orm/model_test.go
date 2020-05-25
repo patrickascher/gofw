@@ -188,6 +188,29 @@ type carWithoutCache struct {
 	OwnerID orm.NullInt
 }
 
+type carEnum struct {
+	orm.Model
+
+	ID   orm.NullInt
+	Enum orm.NullString
+
+	OwnerID orm.NullInt
+	Owner   *owner `orm:"relation:belongsTo"`
+}
+
+type carJsonNameAndSkip struct {
+	orm.Model
+
+	ID      orm.NullInt `json:"pid"`
+	OwnerID orm.NullInt `json:"-"`
+}
+
+func (c carEnum) DefaultTableName() string {
+	return "cars"
+}
+func (c carJsonNameAndSkip) DefaultTableName() string {
+	return "cars"
+}
 func (c carWithoutCache) DefaultTableName() string {
 	return "cars"
 }
@@ -337,7 +360,7 @@ func TestModel_Init(t *testing.T) {
 	test.True(len(cCache.Scope().Fields(orm.Permission{})) > 0)
 	test.True(len(cCache.Scope().Relations(orm.Permission{})) > 0)
 	test.False(len(cCache.Liquid) == 1)
-	id, err = c.Scope().Field("ID")
+	id, err = cCache.Scope().Field("ID")
 	test.NoError(err)
 	test.Equal(orm.Permission{Read: true, Write: true}, id.Permission)
 
@@ -390,20 +413,20 @@ func TestModel_Cache_SetCache(t *testing.T) {
 	c := car{}
 
 	// err orm is not init
-	cache, ttl, err := c.Cache()
+	cache_, ttl, err := c.Cache()
 	assert.Equal(t, time.Duration(0), ttl)
-	assert.Equal(t, nil, cache)
+	assert.Equal(t, nil, cache_)
 	assert.Error(t, err)
 
 	err = c.Init(&c)
 	assert.NoError(t, err)
 
 	// ok
-	cache, ttl, err = c.Cache()
+	cache_, ttl, err = c.Cache()
 	assert.NoError(t, err)
-	assert.Equal(t, 6*time.Hour, ttl)
+	assert.Equal(t, time.Duration(cache.INFINITY), ttl)
 	// set cache error model already init
-	err = c.SetCache(cache, ttl)
+	err = c.SetCache(cache_, ttl)
 	assert.Error(t, err)
 
 	// no cache
@@ -415,10 +438,10 @@ func TestModel_Cache_SetCache(t *testing.T) {
 	assert.Error(t, err)
 	// set cache - ttl is 0
 	// 0 is infinity, so its allowed
-	err = cNoCache.SetCache(cache, 0)
+	err = cNoCache.SetCache(cache_, 0)
 	assert.NoError(t, err)
 	// set cache - object was not init before
-	err = cNoCache.SetCache(cache, ttl)
+	err = cNoCache.SetCache(cache_, ttl)
 	assert.NoError(t, err)
 	// init now ok
 	err = cNoCache.Init(&cNoCache)
@@ -548,9 +571,11 @@ func TestModel_Update(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, c.Scope().Builder().HasTx())
 
-	// err - no changes
+	// no err - no changes - = nil return
+	assert.False(t, c.Scope().Builder().HasTx())
+
 	err = c.Update()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	assert.False(t, c.Scope().Builder().HasTx())
 }
 
@@ -578,4 +603,49 @@ func TestModel_Delete(t *testing.T) {
 	err = c.Delete()
 	assert.NoError(t, err)
 
+}
+
+func TestModel_Count(t *testing.T) {
+	// create db entries
+	err := createEntries(&Role{})
+	assert.NoError(t, err)
+
+	r := Role{}
+
+	//error because not init
+	count, err := r.Count(nil)
+	assert.Error(t, err)
+	assert.Equal(t, 0, count)
+
+	// init
+	err = r.Init(&r)
+	assert.NoError(t, err)
+
+	count, err = r.Count(nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 4, count)
+}
+
+func TestModel_SetRelationCondition(t *testing.T) {
+	// create db entries
+	err := createEntries(&Role{})
+	assert.NoError(t, err)
+
+	r := Role{}
+
+	// init
+	err = r.Init(&r)
+	assert.NoError(t, err)
+
+	// normal call
+	err = r.First(sqlquery.NewCondition().Where("id = 1"))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(r.Roles))
+
+	// setting a relation Condition
+	r.SetRelationCondition("Roles", *sqlquery.NewCondition().Where("id = roles.id  AND roles.Name = ? ", "User"))
+	err = r.First(sqlquery.NewCondition().Where("id = 1"))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(r.Roles))
+	assert.Equal(t, "WHERE id = roles.id  AND roles.Name = User ", r.RelationCondition("Roles").Config(true, sqlquery.WHERE))
 }

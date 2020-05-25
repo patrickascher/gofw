@@ -32,7 +32,7 @@ func (m *mockSource) Callback(callback string, grid *Grid) (interface{}, error) 
 }
 
 // One request a single row by the given condition.
-func (m *mockSource) One(c *sqlquery.Condition, grid *Grid) (interface{}, error) {
+func (m *mockSource) First(c *sqlquery.Condition, grid *Grid) (interface{}, error) {
 	return nil, nil
 }
 
@@ -57,7 +57,7 @@ func (m *mockSource) Delete(c *sqlquery.Condition, grid *Grid) error {
 }
 
 // Count all the existing object by the given condition.
-func (m *mockSource) Count(c *sqlquery.Condition) (int, error) {
+func (m *mockSource) Count(c *sqlquery.Condition, grid *Grid) (int, error) {
 	if c.Config(false, sqlquery.WHERE) == "" {
 		return 10, nil
 	}
@@ -154,7 +154,7 @@ func TestPagination_generate(t *testing.T) {
 
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users", body)
-	g := New(newController(r))
+	g := New(newController(r), nil)
 
 	err := g.SetSource(&mockSource{})
 	assert.NoError(t, err)
@@ -175,7 +175,7 @@ func TestPagination_generate(t *testing.T) {
 func TestPagination_paginationParam(t *testing.T) {
 	body := strings.NewReader("")
 	r := httptest.NewRequest("GET", "https://localhost/users?limit=5&page=2", body)
-	g := New(newController(r))
+	g := New(newController(r), nil)
 
 	p := pagination{}
 	assert.Equal(t, 5, p.paginationParam(g, "limit"))
@@ -183,7 +183,7 @@ func TestPagination_paginationParam(t *testing.T) {
 
 	body = strings.NewReader("")
 	r = httptest.NewRequest("GET", "https://localhost/users", body)
-	g = New(newController(r))
+	g = New(newController(r), nil)
 	p = pagination{}
 	assert.Equal(t, defaultLimit, p.paginationParam(g, "limit"))
 	assert.Equal(t, 1, p.paginationParam(g, "page"))

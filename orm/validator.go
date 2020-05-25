@@ -4,6 +4,7 @@ import (
 	driverI "database/sql/driver"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	valid "github.com/go-playground/validator"
@@ -24,17 +25,18 @@ type validator struct {
 	Config string
 }
 
-// appendConfig adds the new config if the validation key does not exist yet.
+// appendConfig adds a config if the validation key does not exist yet.
 // if one or more keys are duplicated, they will be skipped.
 func (v *validator) appendConfig(config string) {
 
 	actualKeys := v.validationKeys(v.Config)
 	newKeys := v.validationKeys(config)
 
-	// list already exists
+	// append config
 	var c []string
 loop:
 	for nk, nv := range newKeys {
+		// skip if the key already exists
 		for k := range actualKeys {
 			if k == nk {
 				continue loop
@@ -47,13 +49,13 @@ loop:
 		}
 	}
 
-	// add an trailing separator
-	if v.Config != "" && len(c) > 0 {
-		v.Config += validatorSeparator
-	}
-
 	// set the new config string
-	v.Config += strings.Join(c, validatorSeparator)
+	if len(c) > 0 {
+		if v.Config != "" {
+			v.Config += validatorSeparator
+		}
+		v.Config += strings.Join(c, validatorSeparator)
+	}
 }
 
 // validationKeys return all defined config keys.
@@ -85,17 +87,37 @@ func (v *validator) skipByTag() bool {
 	return strings.Contains(v.Config, validatorSkip)
 }
 
+// sort checks that omitempty is always on the first place.
+func (v *validator) sort() {
+	// sort the config list, that omitempty is always on the first place.
+	list := strings.Split(v.Config, validatorSeparator)
+	sort.Slice(list, func(i, j int) bool {
+		x := 0
+		y := 0
+		if list[i] == "omitempty" {
+			x = 1
+		}
+		if list[j] == "ommitempty" {
+			y = 1
+		}
+		return x > y
+	})
+	v.Config = strings.Join(list, validatorSeparator)
+}
+
 // addDBValidation will add the following validations:
-// - belongsTo relations will be set to omitempty (no required tag will be added) (because they are added dynamically after isValid is called on the main orm)
+// - belongsTo relations will be set to omitempty (no required tag will be added) because they are added dynamically after isValid is called on the main orm.
 // - columns which does not allow NULL will be required. Except if the column is an autoincrement field, then omitempty is added.
 // - Integer: numeric (min,max)
 // - Float: numeric
 // - Text: size (max)
 // - TextArea: size (max)
+// - Select: oneof (list items)
 // TODO Date,Timestamp,DateTime
 func (m *Model) addDBValidation() error {
 
 	writePerm := Permission{Write: true}
+
 	for _, f := range m.scope.Fields(writePerm) {
 
 		// check if skip tag exists
@@ -105,28 +127,20 @@ func (m *Model) addDBValidation() error {
 
 		// the belongsTo fk is set dynamically, but the validation function is called before.
 		// the belongsTo fk is allowed to be empty in that case.
+		// no Permission is set, because the user could have disabled the write permission of the belongsTo relation and so the fk field would not be set to omitempty.
+		// TODO the real value of the foreign key is never checked in that case. This must happen in the strategy for it?
 		isBelongsTo := false
-		for _, relation := range m.scope.Relations(writePerm) {
+		for _, relation := range m.scope.Relations(Permission{}) {
 			if relation.Kind == BelongsTo && relation.ForeignKey.Name == f.Name {
-				f.Validator.appendConfig("omitempty") // needed that an empty string "" will not throw an error.
 				isBelongsTo = true
+				f.Validator.appendConfig("omitempty") // needed that an empty string "" or 0 will not throw an error.
 			}
-		}
-
-		// required if null is not allowed and its not an autoincrement column
-		// skip belongTo fk fields
-		if !f.Information.NullAble && !f.Information.Autoincrement && !isBelongsTo {
-			if f.Information.Type.Kind() == "Integer" || f.Information.Type.Kind() == "Float" {
-				f.Validator.appendConfig("numeric")
-
-			} else {
-				f.Validator.appendConfig("required")
-			}
-		} else {
-			f.Validator.appendConfig("omitempty")
 		}
 
 		switch f.Information.Type.Kind() {
+		case "Bool":
+			isBelongsTo = true
+			f.Validator.appendConfig("eq=false|eq=true")
 		case "Integer":
 			f.Validator.appendConfig("numeric")
 			opt := f.Information.Type.(*types.Int)
@@ -146,18 +160,28 @@ func (m *Model) addDBValidation() error {
 			//TODO write own
 		case "DateTime":
 			//TODO write own
+		case "Select":
+			opt := f.Information.Type.(types.Select)
+			f.Validator.appendConfig(fmt.Sprintf("oneof=%s", strings.Join(opt.Items(), " ")))
 		}
 
-		// TODO create a better way. but omitempty just makes sense if there are other validations added.
-		if f.Validator.Config == "omitempty" {
-			f.Validator.Config = ""
+		// required if null is not allowed and its not an autoincrement column
+		if !f.Information.NullAble && !f.Information.Autoincrement && !isBelongsTo {
+			f.Validator.appendConfig("required")
+		} else {
+			// omitempty just makes sense if there is a config defined
+			if f.Validator.Config != "" {
+				f.Validator.appendConfig("omitempty")
+			}
 		}
+		f.Validator.sort()
 	}
+
 	return nil
 }
 
 // isValid checks if all system added database fields are valid.
-// after that the whole struct gets checked against the field tags.
+// after that the whole struct gets checked, so that dive and other validations are properly checked.
 func (m *Model) isValid() error {
 	writePerm := Permission{Write: true}
 

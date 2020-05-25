@@ -2,6 +2,8 @@ package grid_test
 
 import (
 	"errors"
+	"github.com/patrickascher/gofw/cache"
+	_ "github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
 	"github.com/patrickascher/gofw/grid"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+
 	"strings"
 	"testing"
 )
@@ -19,6 +22,10 @@ func newController(r *http.Request) (controller.Interface, *httptest.ResponseRec
 	c := controller.Controller{}
 	rw := httptest.NewRecorder()
 	ctx := context.New(r, rw)
+
+	ca, _ := cache.New("memory", nil)
+	c.SetCache(ca)
+
 	c.SetContext(ctx)
 	return &c, rw
 }
@@ -69,7 +76,7 @@ func (m *mockSource) Callback(callback string, grid *grid.Grid) (interface{}, er
 }
 
 // One request a single row by the given condition.
-func (m *mockSource) One(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
+func (m *mockSource) First(c *sqlquery.Condition, grid *grid.Grid) (interface{}, error) {
 	m.oneCalled = true
 	return "some data", m.throwError
 }
@@ -99,20 +106,20 @@ func (m *mockSource) Delete(c *sqlquery.Condition, grid *grid.Grid) error {
 }
 
 // Count all the existing object by the given condition.
-func (m *mockSource) Count(c *sqlquery.Condition) (int, error) {
+func (m *mockSource) Count(c *sqlquery.Condition, grid *grid.Grid) (int, error) {
 	return 10, m.throwError
 }
 
 func TestNew(t *testing.T) {
 	test := assert.New(t)
-	g := grid.New(nil)
+	g := grid.New(nil, nil)
 	test.IsType(&grid.Grid{}, g)
 }
 
 func TestGrid_Controller(t *testing.T) {
 	test := assert.New(t)
 	c := controller.Controller{}
-	grid := grid.New(&c)
+	grid := grid.New(&c, nil)
 	test.Equal(&c, grid.Controller())
 }
 
@@ -125,10 +132,13 @@ func TestGrid_SetSource_Fields_Field(t *testing.T) {
 	rw := httptest.NewRecorder()
 	ctx := context.New(r, rw)
 	c.SetContext(ctx)
+	ca, err := cache.New("memory", nil)
+	test.NoError(err)
+	c.SetCache(ca)
 
-	g := grid.New(&c)
+	g := grid.New(&c, nil)
 	mock := &mockSource{}
-	err := g.SetSource(mock)
+	err = g.SetSource(mock)
 	test.NoError(err)
 
 	// check if the init method was called
@@ -141,17 +151,23 @@ func TestGrid_SetSource_Fields_Field(t *testing.T) {
 	test.Equal("", g.Field("xy").Id())
 	test.NotNil(g.Field("xy").Error())
 
+	err = g.SetSource(mock) // cached fields
+	test.NoError(err)
+	test.Equal(1, len(g.Fields()))
+
 	// SetSource errors
 	controller, rw := newController(httptest.NewRequest("GET", "https://localhost/users?sort=id&noheader=1", strings.NewReader("")))
-	g = grid.New(controller)
+	controller.SetCache(ca)
+	g = grid.New(controller, nil)
 	mock = &mockSource{}
 	mock.throwError = errors.New("")
 	err = g.SetSource(mock) // error on source.Init()
 	test.Error(err)
-	mock.throwError = nil
-	mock.throwErrorFields = errors.New("")
-	err = g.SetSource(mock) // error on source.Fields()
-	test.Error(err)
+
+	//mock.throwError = nil
+	//mock.throwErrorFields = errors.New("")
+	//err = g.SetSource(mock) // error on source.Fields()
+	//test.Error(err)
 }
 
 func TestGrid_Mode(t *testing.T) {
@@ -159,41 +175,41 @@ func TestGrid_Mode(t *testing.T) {
 
 	// VTable - GET no mode param
 	c, _ := newController(httptest.NewRequest("GET", "https://localhost/users", strings.NewReader("")))
-	g := grid.New(c)
+	g := grid.New(c, nil)
 	test.Equal(grid.VTable, g.Mode())
 	// VCreate - GET with mode param "create"
 	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=create", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.VCreate, g.Mode())
 	// VUpdate - GET with mode param "update"
 	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.VUpdate, g.Mode())
 	// VDetails - GET with mode param "details"
 	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=details", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.VDetails, g.Mode())
 	// VCallback - GET with mode param "callback"
 	c, _ = newController(httptest.NewRequest("GET", "https://localhost/users?mode=callback", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.CALLBACK, g.Mode())
 
 	// CREATE - POST
 	c, _ = newController(httptest.NewRequest("POST", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.CREATE, g.Mode())
 	// UPDATE - PUT
 	c, _ = newController(httptest.NewRequest("PUT", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.UPDATE, g.Mode())
 	// DELETE - DELETE
 	c, _ = newController(httptest.NewRequest("DELETE", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(grid.DELETE, g.Mode())
 
 	// not defined - PATCH
 	c, _ = newController(httptest.NewRequest("PATCH", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	test.Equal(0, g.Mode())
 }
 
@@ -202,13 +218,13 @@ func TestGrid_Render(t *testing.T) {
 
 	// error - no source was added
 	c, rw := newController(httptest.NewRequest("GET", "https://localhost/users?mode=details", strings.NewReader("")))
-	g := grid.New(c)
+	g := grid.New(c, nil)
 	g.Render()
 	test.Equal(500, rw.Code)
 
 	// CREATE
 	c, rw = newController(httptest.NewRequest("POST", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock := &mockSource{}
 	err := g.SetSource(mock)
 	test.NoError(err)
@@ -221,7 +237,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// UPDATE
 	c, rw = newController(httptest.NewRequest("PUT", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -234,7 +250,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// DELETE - primary is missing
 	c, rw = newController(httptest.NewRequest("DELETE", "https://localhost/users", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -247,7 +263,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// DELETE - primary is missing
 	c, rw = newController(httptest.NewRequest("DELETE", "https://localhost/users?id=1", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -262,7 +278,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VCREATE - check if the header is added correctly
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=create", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -272,7 +288,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VUpdate, VDetails - no primary added
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -281,7 +297,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VUpdate, VDetails - with primary
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?mode=update&id=1", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -296,7 +312,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VTable - error sort field does not exist
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=ABC", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -305,7 +321,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VTable
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=id", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -325,7 +341,7 @@ func TestGrid_Render(t *testing.T) {
 
 	// VTable without header
 	c, rw = newController(httptest.NewRequest("GET", "https://localhost/users?sort=id&noheader=1", strings.NewReader("")))
-	g = grid.New(c)
+	g = grid.New(c, nil)
 	mock = &mockSource{}
 	err = g.SetSource(mock)
 	test.NoError(err)
@@ -333,5 +349,5 @@ func TestGrid_Render(t *testing.T) {
 	test.Equal(200, rw.Code)
 	test.Nil(c.Context().Response.Data("head"))
 	test.Equal("some data", c.Context().Response.Data("data"))
-	test.Equal("*grid.pagination", reflect.TypeOf(c.Context().Response.Data("pagination")).String())
+	test.Nil(reflect.TypeOf(c.Context().Response.Data("pagination")))
 }

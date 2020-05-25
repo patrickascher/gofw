@@ -21,7 +21,7 @@ var (
 // conditionOne returns a condition for one row. This is used for the grid views update, details and create.
 // if a grid src.condition exists, its getting passed through.
 // error will return if not all primary keys are filled or non is existing.
-func (g *Grid) conditionOne() (*sqlquery.Condition, error) {
+func (g *Grid) conditionFirst() (*sqlquery.Condition, error) {
 
 	// if no params exist, exit
 	params, err := g.controller.Context().Request.Params()

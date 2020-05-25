@@ -17,8 +17,9 @@ var errRelation = errors.New("orm: relation is type nil")
 
 // whiteBlackList struct
 type whiteBlackList struct {
-	policy int
-	fields []string
+	policy   int
+	fields   []string
+	explicit bool
 }
 
 // newWBList creates a new white/blacklist with the given policy and fields.
@@ -32,11 +33,11 @@ func newWBList(policy int, fields []string) *whiteBlackList {
 // setFieldPermission sets the permission read/write for all columns for the given black/whitelist.
 // It is called on first, all, create, update and delete.
 // The fields wb fields are not getting decreased, because they are added to the child object on a self referencing model.
-func (scope *Scope) setFieldPermission(action string) error {
+func (scope *Scope) setFieldPermission() error {
 
 	// adding/removing mandatory fields of the wb list.
 	// foreign keys, primary keys and the time fields are always allowed.
-	err := addMandatoryFields(scope, action)
+	err := addMandatoryFields(scope)
 	if err != nil {
 		return err
 	}
@@ -106,8 +107,8 @@ relations:
 // addMandatoryFields will add all foreign keys, primary keys and time fields.
 // If a full relation is added, it will be ignored on Blacklist, because all fields are added or removed anyway. On Whitelist the foreign key is added.
 // If something like Relation.Child1.Child2.Name exists, it will recursively add all mandatory keys.
-// If the  wb list is empty, this will skip.
-func addMandatoryFields(scope *Scope, action string) error {
+// If the wb list is empty, it will skip.
+func addMandatoryFields(scope *Scope) error {
 
 	// skip if no  wb list is defined
 	if scope.model.wbList == nil {
@@ -118,20 +119,13 @@ func addMandatoryFields(scope *Scope, action string) error {
 	var rv []string
 
 	// always allow primary keys
-	// needed for select + relations, create,update,delete
+	// needed for select + relations, create, update, delete
 	pKeys := scope.PrimaryKeysFieldName()
 	rv = append(rv, pKeys...)
 
 	// relation permission
-	// TODO: check if fits - specific permission is deleted, because otherwise the user can disable mandatory fields by tag.
+	// its set to false because otherwise the user could disable mandatory fields by tag.
 	perm := Permission{}
-	//var perm Permission
-	//switch action {
-	//case FIRST, ALL:
-	//	perm = Permission{Read: false}
-	//case CREATE, UPDATE, DELETE:
-	//	perm = Permission{Write: false}
-	//}
 
 	// time fields are always added if they exist in the database.
 	tf := scope.TimeFields(perm)
@@ -187,7 +181,7 @@ func addMandatoryFields(scope *Scope, action string) error {
 		}
 	}
 
-	// if the whole wb list is dissolve because the the blacklisted fields are required, set the wb list to nil.
+	// if the whole wb list is dissolve because the  blacklisted fields are required, set the wb list to nil.
 	if len(scope.model.wbList.fields) == 0 {
 		scope.model.wbList = nil
 	}

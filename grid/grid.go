@@ -1,7 +1,9 @@
 package grid
 
 import (
+	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"time"
 )
 
+// Grid modes
 const (
 	CREATE = iota + 1
 	UPDATE
@@ -18,6 +21,21 @@ const (
 	VDetails
 	VUpdate
 	VCreate
+	Export
+)
+
+// Callbacks
+const (
+	BeforeFirst = iota + 1
+	AfterFirst
+	BeforeAll
+	AfterAll
+	BeforeCreate
+	AfterCreate
+	BeforeUpdate
+	AfterUpdate
+	BeforeDelete
+	AfterDelete
 )
 
 // Frontend constants
@@ -28,9 +46,12 @@ const (
 	FeReturnObject = "vueReturnObject"
 )
 
+// Error messages
 var (
-	errSource  = "grid: no source is added in %s action %s"
-	errWrapper = "grid: %w"
+	errCache    = errors.New("grid: cache is required")
+	errSource   = "grid: no source is added in %s action %s"
+	errWrapper  = "grid: %w"
+	errSecurity = "grid: the mode %s is not allowed"
 )
 
 type SourceI interface {
@@ -43,8 +64,8 @@ type SourceI interface {
 	UpdatedFields(grid *Grid) error
 	// Callback is called on a callback request of the grid.
 	Callback(callback string, grid *Grid) (interface{}, error)
-	// One request a single row by the given condition.
-	One(c *sqlquery.Condition, grid *Grid) (interface{}, error)
+	// First request a single row by the given condition.
+	First(c *sqlquery.Condition, grid *Grid) (interface{}, error)
 	// All data by the given condition.
 	All(c *sqlquery.Condition, grid *Grid) (interface{}, error)
 	// Create the object
@@ -68,8 +89,8 @@ type Select struct {
 }
 
 type SelectItem struct {
-	Key   interface{} `json:"value"`
-	Value interface{} `json:"text"`
+	Text  interface{} `json:"text"`
+	Value interface{} `json:"value"`
 }
 
 type Grid struct {
@@ -85,18 +106,48 @@ type Grid struct {
 	fields []Field
 	// the given controller.
 	config Config
+	//callbacks
+	callbacks map[int]func(*Grid) error
 }
 
 // New creates a grid instance with the given controller.
 // the controller is used to fetch all the request data and add the response.
-func New(c controller.Interface) *Grid {
+func New(c controller.Interface, config *Config) *Grid {
 	grid := &Grid{controller: c}
 	// TODO config correctly, at the moment only for testing.
 	// TODO also check config in the render mode if allowed.
-	grid.config = Config{Action: Action{DisableCreate: false, DisableUpdate: false, DisableDetails: false}}
+	if config != nil {
+		grid.config = *config
+	} else {
+		grid.config.Policy = 1 // whitelist
+	}
+
 	return grid
 }
 
+func (g *Grid) IsCallback() bool {
+	if g.Mode() == CALLBACK {
+		g.Render()
+		return true
+	}
+	return false
+}
+
+// AddCallback to the grid.
+// (Before/After)First,All,Create,Update,Delete exists.
+func (g *Grid) AddCallback(name int, fn func(*Grid) error) {
+	g.callbacks[name] = fn
+}
+
+// callback internal calls the callback function if exists.
+func (g *Grid) callback(name int) error {
+	if fn, ok := g.callbacks[name]; ok {
+		return fn(g)
+	}
+	return nil
+}
+
+// Config of the grid.
 func (g *Grid) Config() *Config {
 	return &g.config
 }
@@ -113,9 +164,20 @@ func (g *Grid) SetCondition(c *sqlquery.Condition) *Grid {
 	return g
 }
 
+func (g *Grid) gridID() string {
+	if g.config.ID != "" {
+		return g.config.ID
+	}
+	return g.controller.Name() + ":" + g.controller.Action()
+}
+
 // SetSource to the grid.
 // Fields are getting fetched from the source.
 func (g *Grid) SetSource(src SourceI) error {
+
+	if g.controller.Cache() == nil {
+		return errCache
+	}
 
 	// call the source init function
 	err := src.Init(g)
@@ -128,13 +190,43 @@ func (g *Grid) SetSource(src SourceI) error {
 	g.sourceAdded = true
 
 	// get the source fields
-	t := time.Now()
-	g.fields, err = g.src.Fields(g)
-	fmt.Println("FIELDS::", time.Since(t))
-	if err != nil {
-		return err
+	var fields []Field
+	if v, err := g.controller.Cache().Get(g.gridID()); err == nil {
+		t := time.Now()
+		fields = v.Value().([]Field)
+
+		fmt.Println("CACHED FIELDS::", time.Since(t))
+	} else {
+		t := time.Now()
+		fields, err = g.src.Fields(g)
+		if err != nil {
+			return err
+		}
+		err = g.controller.Cache().Set(g.gridID(), fields, cache.INFINITY)
+		if err != nil {
+			return err
+		}
+		fmt.Println("SET FIELDS::", time.Since(t))
 	}
+
+	// make a deep copy to avoid that the cached slice will be changed
+	g.fields = copySlice(fields)
+
+	// set grid mode to the fields
+	setFieldModeRecursively(g, g.fields)
+
 	return nil
+}
+
+func copySlice(fields []Field) []Field {
+	rv := make([]Field, len(fields))
+	copy(rv, fields)
+	for k := range rv {
+		if len(rv[k].fields) > 0 {
+			rv[k].fields = copySlice(rv[k].fields)
+		}
+	}
+	return rv
 }
 
 // Fields return all defined grid fields.
@@ -193,6 +285,8 @@ func (g *Grid) Mode() int {
 			return VUpdate
 		case "details":
 			return VDetails
+		case "export":
+			return Export
 		}
 	case http.MethodPost:
 		return CREATE
@@ -204,11 +298,42 @@ func (g *Grid) Mode() int {
 	return 0
 }
 
+// security security checks if the request mode is allowed by the configuration.
+func (g *Grid) security() error {
+
+	switch g.Mode() {
+	case CREATE, VCreate:
+		if g.config.Action.DisableCreate {
+			return fmt.Errorf(errSecurity, "create")
+		}
+	case UPDATE, VUpdate:
+		if g.config.Action.DisableUpdate {
+			return fmt.Errorf(errSecurity, "update")
+		}
+	case DELETE:
+		if g.config.Action.DisableDelete {
+			return fmt.Errorf(errSecurity, "delete")
+		}
+	case VDetails:
+		if g.config.Action.DisableDetail {
+			return fmt.Errorf(errSecurity, "details")
+		}
+	}
+
+	return nil
+}
+
 // Render the grid by the defined grid mode.
 func (g *Grid) Render() {
 	// source is mandatory
 	if !g.sourceAdded {
 		g.controller.Error(500, fmt.Sprintf(errSource, g.controller.Name(), g.controller.Context().Request.FullURL()))
+		return
+	}
+
+	// security check
+	if err := g.security(); err != nil {
+		g.controller.Error(500, err.Error())
 		return
 	}
 
@@ -219,9 +344,19 @@ func (g *Grid) Render() {
 		return
 	}
 
+	if g.config.Title != "" {
+		g.controller.Set("title", g.config.Title)
+	}
+
 	mode := g.Mode()
 	switch mode {
 	case CREATE:
+		err = g.callback(BeforeCreate)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
 		pk, err := g.src.Create(g)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
@@ -229,16 +364,39 @@ func (g *Grid) Render() {
 		}
 		g.controller.Set("pkeys", pk)
 
+		err = g.callback(AfterCreate)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
 		return
 	case UPDATE:
+		err = g.callback(BeforeUpdate)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
 		err := g.src.Update(g)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		err = g.callback(AfterUpdate)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
 		return
 	case DELETE:
-		c, err := g.conditionOne()
+		err = g.callback(BeforeDelete)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		c, err := g.conditionFirst()
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
@@ -248,16 +406,42 @@ func (g *Grid) Render() {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
-		return
-	case VTable:
 
+		err = g.callback(AfterDelete)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+		return
+	case Export:
 		c, err := g.conditionAll()
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
 
-		fmt.Println("C BEFORE", c)
+		g.controller.Set("head", FieldsToString(g.sortFields()))
+
+		values, err := g.src.All(c, g)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		g.controller.SetRenderType("excel") // remove type here
+		g.controller.Set("data", values)
+	case VTable:
+		err = g.callback(BeforeAll)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		c, err := g.conditionAll()
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
 
 		// add header as long as the param noheader is not given.
 		pagination, err := g.newPagination(c)
@@ -274,27 +458,41 @@ func (g *Grid) Render() {
 		// adding config
 		g.controller.Set("config", g.config)
 
-		fmt.Println("C AFTER", c)
-
 		values, err := g.src.All(c, g)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
 
-		//TODO callbacks on data
-
-		g.controller.Set("data", values)
-		return
-	case VUpdate, VDetails:
-		g.controller.Set("head", g.sortFields())
-
-		c, err := g.conditionOne()
+		err = g.callback(AfterAll)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
 		}
-		values, err := g.src.One(c, g)
+
+		g.controller.Set("data", values)
+		return
+	case VUpdate, VDetails:
+		err = g.callback(BeforeFirst)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		g.controller.Set("head", g.sortFields())
+
+		c, err := g.conditionFirst()
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+		values, err := g.src.First(c, g)
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			return
+		}
+
+		err = g.callback(AfterFirst)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
 			return
@@ -317,5 +515,4 @@ func (g *Grid) Render() {
 		}
 		g.controller.Set("data", values)
 	}
-
 }

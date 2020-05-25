@@ -9,26 +9,27 @@ import (
 var errFieldNotFound = "grid: field %s was not found"
 
 type Field struct {
-	// Struct field name or other identifier
+	mode int
+	// Struct field name or json name if defined.
 	id string
-	// referenceID (used for orm - db column name)
+	// referenceID is the database column name (used for conditions: orm - db column name)
 	referenceId string
 	// is it a primary key
 	primary bool
 	// field type (Integer, Text, hasOne,...)
 	fieldType string
 	// title - value can be different in the grid modes.
-	title value
+	_title map[int]string
 	// description - value can be different in the grid modes.
-	description value
+	_description map[int]string
 	// position - value can be different in the grid modes.
-	position value
+	_position map[int]int
 	// remove - value can be different in the grid modes.
-	remove value
+	_remove map[int]bool
 	// hidden - value can be different in the grid modes.
-	hidden value
+	_hidden map[int]bool
 	// view - value can be different in the grid modes.
-	view value
+	_view map[int]string
 	// is read only
 	readOnly bool
 	// sorting allowed
@@ -102,25 +103,43 @@ func (f Field) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rv)
 }
 
-func (f *Field) SetReferenceId(id string) {
+func (f *Field) SetDatabaseId(id string) {
 	f.referenceId = id
+}
+
+func (f *Field) DatabaseId() string {
+	return f.referenceId
 }
 
 func (f *Field) SetPrimary(primary bool) {
 	f.primary = primary
 }
 
+func (f *Field) IsPrimary() bool {
+	return f.primary
+}
+
 func (f *Field) SetFields(fields []Field) {
 	f.fields = fields
 }
 
-func (f *Field) SetRelation(name bool) *Field {
-	f.relation = true
+func (f *Field) SetRelation(r bool) *Field {
+	f.relation = r
 	return f
 }
 
 func (f *Field) IsRelation() bool {
 	return f.relation
+}
+
+func FieldsToString(fields []Field) []string {
+	var rv []string
+	for _, f := range fields {
+		if !f.IsRemoved() {
+			rv = append(rv, f.Id())
+		}
+	}
+	return rv
 }
 
 // Field will return the field by the given name.
@@ -140,6 +159,10 @@ func (f *Field) Field(name string) *Field {
 
 func (f *Field) Fields() []Field {
 	return f.fields
+}
+
+func (f *Field) SetMode(mode int) {
+	f.mode = mode
 }
 
 func (f *Field) SetId(id string) *Field {
@@ -170,48 +193,52 @@ func (f Field) FieldType() string {
 }
 
 func (f *Field) SetTitle(title interface{}) *Field {
-	setValueHelper(&f.title, title)
+	f._title = setValueString(title)
 	return f
 }
 
 func (f Field) Title() string {
-	return f.title.getString()
+	return f._title[f.mode]
 }
 
 func (f *Field) SetDescription(description interface{}) *Field {
-	setValueHelper(&f.description, description)
+	f._description = setValueString(description)
 	return f
 }
 
 func (f Field) Description() string {
-	return f.description.getString()
+	return f._description[f.mode]
 }
 
 func (f *Field) SetPosition(position interface{}) *Field {
-	setValueHelper(&f.position, position)
+	f._position = setValueInt(position)
 	return f
 }
 
 func (f Field) Position() int {
-	return f.position.getInt()
+	return f._position[f.mode]
 }
 
 func (f *Field) SetRemove(remove interface{}) *Field {
-	setValueHelper(&f.remove, remove)
+	f._remove = setValueBool(remove)
 	return f
 }
 
 func (f Field) IsRemoved() bool {
-	return f.remove.getBool()
+	// if the mode is Callback
+	if f.mode != VTable && f.mode != VCreate && f.mode != VDetails && f.mode != VUpdate && f.mode != Export {
+		return true
+	}
+	return f._remove[f.mode]
 }
 
 func (f *Field) SetHidden(hidden interface{}) *Field {
-	setValueHelper(&f.hidden, hidden)
+	f._hidden = setValueBool(hidden)
 	return f
 }
 
 func (f Field) IsHidden() bool {
-	return f.hidden.getBool()
+	return f._hidden[f.mode]
 }
 
 func (f *Field) SetSortable(sortable bool) *Field {
@@ -248,6 +275,10 @@ func (f *Field) SetOption(key string, value interface{}) *Field {
 	return f
 }
 
+func (f *Field) Options() map[string]interface{} {
+	return f.options
+}
+
 func (f *Field) Option(key string) interface{} {
 	if v, ok := f.options[key]; ok {
 		return v
@@ -256,12 +287,12 @@ func (f *Field) Option(key string) interface{} {
 }
 
 func (f *Field) SetView(view interface{}) *Field {
-	setValueHelper(&f.view, view)
+	f._view = setValueString(view)
 	return f
 }
 
 func (f *Field) View() string {
-	return f.view.getString()
+	return f._view[f.mode]
 }
 
 func (f *Field) SetCallback(callback interface{}, args ...interface{}) *Field {
@@ -270,10 +301,34 @@ func (f *Field) SetCallback(callback interface{}, args ...interface{}) *Field {
 	return f
 }
 
+func (f *Field) Callback() (callback interface{}, args interface{}) {
+	return f.callback, f.callbackArguments
+}
+
 func (f *Field) setError(err error) {
 	f.error = err
 }
 
 func (f Field) Error() error {
 	return f.error
+}
+
+func setFieldModeRecursively(g *Grid, fields []Field) {
+
+	// backend create,update and view should have the same settings
+	mode := g.Mode()
+	switch g.Mode() {
+	case CREATE:
+		mode = VCreate
+	case UPDATE:
+		mode = VUpdate
+	}
+
+	// recursively add mode
+	for k, f := range fields {
+		fields[k].mode = mode
+		if len(f.fields) > 0 {
+			setFieldModeRecursively(g, fields[k].fields)
+		}
+	}
 }
