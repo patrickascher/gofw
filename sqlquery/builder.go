@@ -41,6 +41,17 @@ func New(cfg Config, db *sql.DB) (Builder, error) {
 	if err != nil {
 		return Builder{}, err
 	}
+	// Setting config
+	d.Connection().SetMaxIdleConns(cfg.MaxIdleConnections)                              // go default 2
+	d.Connection().SetMaxOpenConns(cfg.MaxOpenConnections)                              // go default 0
+	d.Connection().SetConnMaxLifetime(time.Duration(cfg.MaxConnLifetime) * time.Minute) // go default 0
+
+	// Ping the server, to guarantee a connection.
+	err = d.Connection().Ping()
+	if err != nil {
+		return Builder{}, err
+	}
+
 	return Builder{driver: d, conf: cfg}, nil
 }
 

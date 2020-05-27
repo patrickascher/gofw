@@ -88,6 +88,7 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 	if len(columns) > 0 {
 		sel.Where("c.COLUMN_NAME IN (?)", columns)
 	}
+
 	rows, err := sel.All()
 	if err != nil {
 		return nil, err

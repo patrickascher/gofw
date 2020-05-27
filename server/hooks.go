@@ -1,9 +1,9 @@
 package server
 
 import (
+	"errors"
 	"github.com/patrickascher/gofw/cache/memory"
 	"github.com/patrickascher/gofw/logger/console"
-	"github.com/patrickascher/gofw/orm"
 	"github.com/patrickascher/gofw/router/httprouter"
 	"time"
 
@@ -15,8 +15,8 @@ import (
 
 var (
 	cfgLogger  *logger.Logger
-	cfgCache   cache.Interface
-	cfgBuilder sqlquery.Builder
+	cfgCache   []cache.Interface
+	cfgBuilder []sqlquery.Builder
 	cfgRouter  *router.Manager
 )
 
@@ -50,8 +50,17 @@ func initLogger() error {
 
 // Builder returns the configured database.
 // If no database is defined, the builder will be nil.
-func Builder() *sqlquery.Builder {
-	return &cfgBuilder
+func Builder(name string) (sqlquery.Builder, error) {
+	if name == DEFAULT {
+		return cfgBuilder[0], nil
+	}
+	for _, b := range cfgBuilder {
+		if (b.Config().Name != "" && b.Config().Name == name) ||
+			(b.Config().Name == "" && b.Config().Driver == name) {
+			return b, nil
+		}
+	}
+	return sqlquery.Builder{}, errors.New("server: builder does not exist")
 }
 
 // initBuilder initialize a builder of the defined database config.
@@ -61,23 +70,31 @@ func initBuilder() error {
 		return err
 	}
 
-	if c.Database.Host != "" {
-		cfgBuilder, err = sqlquery.New(*c.Database, nil)
-		if err != nil {
-			return err
-		}
-
-		if c.Database.Debug {
-			cfgBuilder.SetLogger(Logger())
+	for _, db := range c.Databases {
+		if db.Host != "" {
+			b, err := sqlquery.New(*db, nil)
+			if err != nil {
+				return err
+			}
+			if db.Debug {
+				b.SetLogger(Logger())
+			}
+			cfgBuilder = append(cfgBuilder, b)
 		}
 	}
+
 	return nil
 }
 
 // Cache returns the configured cache.
 // If no cache is defined, this will be nil.
-func Cache() cache.Interface {
-	return cfgCache
+func Cache(name string) (cache.Interface, error) {
+	if name == DEFAULT {
+		return cfgCache[0], nil
+	}
+
+	// TODO set a name/config to the cache. otherwise i can not iterate over it.
+	return nil, nil
 }
 
 // initCache initialize the cache provider if set in the config.
@@ -87,15 +104,14 @@ func initCache() error {
 		return err
 	}
 
-	if c.CacheManager.Provider != "" {
-
-		c, err := cache.New(c.CacheManager.Provider, memory.Options{GCInterval: time.Duration(c.CacheManager.GCCycle) * time.Minute})
-		if err != nil {
-			return err
+	for _, ca := range c.CacheManager {
+		if ca.Provider != "" {
+			c, err := cache.New(ca.Provider, memory.Options{GCInterval: time.Duration(ca.GCCycle) * time.Minute})
+			if err != nil {
+				return err
+			}
+			cfgCache = append(cfgCache, c)
 		}
-
-		cfgCache = c
-		orm.GlobalCache = c
 	}
 
 	return nil

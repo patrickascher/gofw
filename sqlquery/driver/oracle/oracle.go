@@ -12,7 +12,6 @@ import (
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/patrickascher/gofw/sqlquery/types"
 	_ "github.com/patrickascher/ora"
-
 	"strings"
 )
 
@@ -70,14 +69,13 @@ func (o *oracle) QuoteCharacterColumn() string {
 // Describe the database table.
 // If the columns argument is set, only the required columns are requested.
 func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns []string) ([]sqlquery.Column, error) {
-
 	sel := b.Select("USER_TAB_COLUMNS")
 	sel.Columns("COLUMN_NAME",
 		"COLUMN_ID",
 		sqlquery.Raw("case when NULLABLE='Y' THEN 'TRUE' ELSE 'FALSE' END AS \"N\""),
 		sqlquery.Raw("'FALSE' AS \"K\""),
 		"DATA_TYPE",
-		"DATA_DEFAULT",
+		sqlquery.Raw("''"), // DATA_DEFAULT - default was deleted because there are some major memory leaks with that. dont need defaults at the moment. fix: switch driver?
 		"CHAR_LENGTH",
 		sqlquery.Raw("'FALSE' as \"autoincrement\""),
 	).Where("table_name = ?", table)
@@ -85,7 +83,9 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 	if len(columns) > 0 {
 		sel.Where("COLUMN_NAME IN (?)", columns)
 	}
+
 	rows, err := sel.All()
+
 	if err != nil {
 		return nil, err
 	}

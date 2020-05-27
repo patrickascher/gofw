@@ -9,6 +9,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/go-playground/validator"
+	"github.com/patrickascher/gofw/callback"
 	"os"
 	"reflect"
 )
@@ -18,6 +20,13 @@ const (
 	JSON = "json"
 	// ENV is the default name to check the system environment variable os.GetEnv().
 	ENV = "ENV"
+)
+
+const (
+	CallbackBeforeParse = "BeforeParse"
+	CallbackAfterParse  = "AfterParse"
+	CallbackBeforeValid = "BeforeValid"
+	CallbackAfterValid  = "AfterValid"
 )
 
 // registry for all config providers.
@@ -62,6 +71,8 @@ func Register(provider string, fn provider) error {
 // Options and environment are passed through to the provider. For more information check the provider documentation.
 // If no specific environment was set by SetEnv() before, the os.Env("ENV") will be used.
 // If the provider is not registered, the parsing fails or the cfg kind is not ptr, an error will return.
+// By default validate can be used on the struct to ensure all mandatory data is set.
+// Callbacks BeforeParse, BeforeValid, AfterValid, AfterParse can be used.
 func New(provider string, config interface{}, options interface{}) error {
 	instanceFn, ok := registry[provider]
 	if !ok {
@@ -72,8 +83,39 @@ func New(provider string, config interface{}, options interface{}) error {
 		return ErrConfigPtr
 	}
 
+	err := callback.StructMethod(CallbackBeforeParse, config)
+	if err != nil {
+		return err
+	}
+
 	instance := instanceFn()
-	return instance.Parse(config, env, options)
+	err = instance.Parse(config, env, options)
+	if err != nil {
+		return err
+	}
+
+	err = callback.StructMethod(CallbackBeforeValid, config)
+	if err != nil {
+		return err
+	}
+
+	validate := validator.New()
+	err = validate.Struct(config)
+	if err != nil {
+		return err
+	}
+
+	err = callback.StructMethod(CallbackAfterValid, config)
+	if err != nil {
+		return err
+	}
+
+	err = callback.StructMethod(CallbackAfterParse, config)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // SetEnv allows a custom environment variable. This must be set before New() is called.
@@ -88,44 +130,3 @@ func Env() string {
 	}
 	return env
 }
-
-/*
-// IsSet checks if a specific field exists and has (no) zero value (recursively).
-// By default its checking if the field has an none zero value, if a zero value should be allowed, prefix the field with a 0 (example: "0User.Role.Name")
-// example: User.Role.Name searches if the User struct has a field Role and the struct Role has a field Name which has no zero value.
-// At the moment only struct is implemented.
-//
-// Deprecated: This should not be used anymore. It will get rewritten in a struct module.
-func IsSet(s string, cfg interface{}) bool {
-	allowZero := ""
-	if strings.HasPrefix(s, "0") {
-		s = s[1:]
-		allowZero = "0"
-	}
-	search := strings.Split(s, ".")
-
-	t := reflect.TypeOf(cfg).Kind()
-	switch t {
-	case reflect.Struct:
-		for i, v := range search {
-			rv := reflect.Indirect(reflect.ValueOf(cfg))
-			if !rv.FieldByName(v).IsValid() {
-				return false
-			}
-
-			if len(search)-1 > i {
-				return IsSet(allowZero+strings.Join(search[i+1:], "."), rv.FieldByName(v).Interface())
-			}
-
-			if allowZero == "0" {
-				return true
-			}
-			t := reflect.TypeOf(rv.FieldByName(v).Interface())
-			return rv.FieldByName(v).Interface() != reflect.Zero(t).Interface()
-		}
-
-	}
-
-	return false
-}
-*/

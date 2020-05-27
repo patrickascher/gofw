@@ -90,18 +90,13 @@ type Interface interface {
 	Context() *context.Context
 	SetContext(ctx *context.Context)
 
-	// Cache
-	Cache() cache.Interface
-	SetCache(cache.Interface)
-	HasCache() bool
-
 	// render type
 	RenderType() string
 	SetRenderType(string)
 
 	// controller helpers
 	Set(string, interface{})
-	Error(int, string)
+	Error(int, error)
 	Redirect(status int, url string)
 	Name() string
 	Action() string
@@ -109,24 +104,6 @@ type Interface interface {
 	// internal helper
 	checkBrowserCancellation() bool
 	methodBy(pattern string, httpMethod string) (func(), error)
-}
-
-// Cache returns the defined cache.
-func (c *Controller) Cache() cache.Interface {
-	return c.cache
-}
-
-// SetCache to the controller.
-func (c *Controller) SetCache(cache cache.Interface) {
-	c.cache = cache
-}
-
-// HasCache checks if a cache is defined.
-func (c *Controller) HasCache() bool {
-	if c.cache == nil {
-		return false
-	}
-	return true
 }
 
 // Context returns the controller context.
@@ -191,13 +168,13 @@ func (c *Controller) Redirect(status int, url string) {
 
 // Error writes a HTTP error with the given code and message.
 // If the render type is json, the error will be set as a controller variable.
-func (c *Controller) Error(code int, msg string) {
+func (c *Controller) Error(code int, err error) {
 	if c.renderType == RenderJSON {
 		c.Context().Response.Raw().WriteHeader(code)
-		c.Set("error", msg)
+		c.Set("error", err.Error())
 		return
 	}
-	http.Error(c.Context().Response.Raw(), msg, code)
+	http.Error(c.Context().Response.Raw(), err.Error(), code)
 }
 
 // RenderType of the controller.
@@ -222,7 +199,7 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		function()
 	} else {
-		reqController.Error(501, err.Error()) // can  be reached if pattern method mapping is wrong!
+		reqController.Error(501, err) // can  be reached if pattern method mapping is wrong!
 	}
 
 	// checks if client is still here
@@ -233,7 +210,7 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// render the controller data
 	err = reqController.Context().Response.Render(reqController.RenderType())
 	if err != nil {
-		reqController.Error(500, err.Error())
+		reqController.Error(500, err)
 	}
 }
 
@@ -250,6 +227,24 @@ func (c *Controller) Action() string {
 	return c.actionName
 }
 
+// ReadUserData reads the user into the given interface.
+// TODO in the future this will return always the user data, does not matter if its jwt or another auth service.
+func (c *Controller) ReadUserData(user interface{}) error {
+	token := c.Context().Request.Token()
+	if token == nil {
+		return errors.New("controller: jwt claim is empty")
+	}
+
+	if reflect.TypeOf(user).Kind() != reflect.Ptr {
+		return errors.New("controller: ReadUserData request a pointer as argument")
+
+	}
+
+	reflect.ValueOf(user).Elem().Set(reflect.ValueOf(token).Elem())
+
+	return nil
+}
+
 // newController creates a new instance of the controller itself.
 // the render type and cache will be passed from given controller.
 // Initialize is called with the methodMapping. // TODO methodMapping could be passed as variable? Benchmarks?
@@ -257,7 +252,6 @@ func newController(c *Controller) Interface {
 	vc := reflect.New(reflect.TypeOf(c.caller).Elem())
 	execController := vc.Interface().(Interface)
 	execController.SetRenderType(c.caller.RenderType())
-	execController.SetCache(c.caller.Cache())
 	execController.Initialize(execController, c.methodMapping, false)
 	return execController
 

@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/middleware"
 )
@@ -145,7 +144,6 @@ func New(provider string, options interface{}) (*Manager, error) {
 
 type Manager struct {
 	router            Interface
-	cache             cache.Interface
 	secureMiddleware  *middleware.Chain
 	allowedHTTPMethod map[string]bool
 }
@@ -160,12 +158,6 @@ type Route interface {
 // Routes return all defined routes.
 func (m *Manager) Routes() []Route {
 	return m.router.Routes()
-}
-
-// SetCache will pass the cache to the controllers.
-// TODO check if this should be done in the request.Context or global?
-func (m *Manager) SetCache(c cache.Interface) {
-	m.cache = c
 }
 
 // NotFound will be executed if a given route does not exist.
@@ -317,7 +309,6 @@ func (m *Manager) controllerMapping(pattern string, c controller.Interface, conf
 	}
 
 	err = c.Initialize(c, httpMapping, true)
-	c.SetCache(m.cache)
 	if err != nil {
 		return nil, err
 	}

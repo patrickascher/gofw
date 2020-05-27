@@ -33,10 +33,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/patrickascher/gofw/cache/memory"
-	"github.com/patrickascher/gofw/logger/console"
 	"github.com/patrickascher/gofw/slices"
-	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -68,12 +65,6 @@ var (
 )
 
 var (
-	GlobalBuilder sqlquery.Builder
-	GlobalCache   cache.Interface
-	GlobalLogger  *logger.Logger
-)
-
-var (
 	errNoCache    = errors.New("orm: no cache is defined")
 	errInitPtr    = errors.New("orm: model must be a ptr")
 	errBuilder    = errors.New("orm: no builder is defined")
@@ -91,40 +82,6 @@ func init() {
 	validate = valid.New()
 	validate.SetTagName(tagValidate)
 	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullBool{}, NullString{}, NullTime{})
-
-	c := sqlquery.Config{}
-	c.Driver = "mysql"
-	c.Database = "orm_test"
-	c.Schema = "public"
-	c.Username = "root"
-	c.Password = "root"
-	c.Host = "127.0.0.1"
-	c.Port = 3319
-	c.Debug = true
-
-	var err error
-	GlobalBuilder, err = sqlquery.New(c, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	GlobalCache, err = cache.New("memory", memory.Options{GCInterval: 1 * time.Minute})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	cLogger, err := console.New(console.Options{Color: true})
-	err = logger.Register("model", logger.Config{Writer: cLogger})
-	if err != nil {
-		log.Fatal(err)
-	}
-	GlobalLogger, err = logger.Get("model")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	GlobalBuilder.SetLogger(GlobalLogger)
-
 }
 
 type Interface interface {
@@ -140,7 +97,7 @@ type Interface interface {
 	// TODO move to scope?
 	DefaultLogger() *logger.Logger
 	DefaultCache() (manager cache.Interface, ttl time.Duration, error error)
-	DefaultBuilder() sqlquery.Builder
+	DefaultBuilder() (sqlquery.Builder, error)
 	DefaultTableName() string
 	DefaultDatabaseName() string
 	DefaultSchemaName() string
@@ -238,6 +195,7 @@ func (m *Model) Init(c Interface) error {
 
 	// check if cache exists
 	if m.cache.Exist(m.name) {
+
 		v, err := m.cache.Get(m.name)
 		if err != nil {
 			return err
@@ -248,12 +206,13 @@ func (m *Model) Init(c Interface) error {
 		m.parentModel = nil
 		m.scope = &Scope{m}
 	} else {
+
 		// set scope
 		m.scope = &Scope{m}
 
 		// set builder
-		b := c.DefaultBuilder()
-		if b.Driver() == nil {
+		b, err := c.DefaultBuilder()
+		if err != nil || b.Driver() == nil {
 			return errBuilder
 		}
 		m.builder = b
@@ -264,7 +223,7 @@ func (m *Model) Init(c Interface) error {
 		}
 
 		// build all exported struct fields
-		err := m.createFields()
+		err = m.createFields()
 		if err != nil {
 			return err
 		}
@@ -586,7 +545,6 @@ func (m *Model) Update() (err error) {
 
 	// snapshot
 	if m.takeSnapshot {
-
 		// reset condition loop
 		m.loopDetection = nil
 
@@ -610,11 +568,12 @@ func (m *Model) Update() (err error) {
 
 	// if no data was changed
 	if m.changedValues == nil {
+		fmt.Println("no changes")
+
 		// needed to avoid a not closed tx.
 		return m.commitAutoTX()
 	}
 
-	fmt.Println("changed ------>", m.changedValues)
 	// set the UpdatedAt info if exists
 	// it only gets saved if the field exists in the db (permission is set)
 	m.UpdatedAt = &NullTime{NullTime: sql.NullTime{time.Now(), true}}

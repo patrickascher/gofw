@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
+	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
 	"strings"
@@ -175,12 +176,13 @@ func (g *Grid) gridID() string {
 // Fields are getting fetched from the source.
 func (g *Grid) SetSource(src SourceI) error {
 
-	if g.controller.Cache() == nil {
-		return errCache
+	serverCache, err := server.Cache(server.DEFAULT)
+	if err != nil {
+		return err
 	}
 
 	// call the source init function
-	err := src.Init(g)
+	err = src.Init(g)
 	if err != nil {
 		return err
 	}
@@ -191,7 +193,7 @@ func (g *Grid) SetSource(src SourceI) error {
 
 	// get the source fields
 	var fields []Field
-	if v, err := g.controller.Cache().Get(g.gridID()); err == nil {
+	if v, err := serverCache.Get(g.gridID()); err == nil {
 		t := time.Now()
 		fields = v.Value().([]Field)
 
@@ -202,7 +204,7 @@ func (g *Grid) SetSource(src SourceI) error {
 		if err != nil {
 			return err
 		}
-		err = g.controller.Cache().Set(g.gridID(), fields, cache.INFINITY)
+		err = serverCache.Set(g.gridID(), fields, cache.INFINITY)
 		if err != nil {
 			return err
 		}
@@ -327,20 +329,20 @@ func (g *Grid) security() error {
 func (g *Grid) Render() {
 	// source is mandatory
 	if !g.sourceAdded {
-		g.controller.Error(500, fmt.Sprintf(errSource, g.controller.Name(), g.controller.Context().Request.FullURL()))
+		g.controller.Error(500, fmt.Errorf(errSource, g.controller.Name(), g.controller.Context().Request.FullURL()))
 		return
 	}
 
 	// security check
 	if err := g.security(); err != nil {
-		g.controller.Error(500, err.Error())
+		g.controller.Error(500, err)
 		return
 	}
 
 	// update the user config in the source
 	err := g.src.UpdatedFields(g)
 	if err != nil {
-		g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+		g.controller.Error(500, fmt.Errorf(errWrapper, err))
 		return
 	}
 
@@ -353,70 +355,70 @@ func (g *Grid) Render() {
 	case CREATE:
 		err = g.callback(BeforeCreate)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		pk, err := g.src.Create(g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		g.controller.Set("pkeys", pk)
 
 		err = g.callback(AfterCreate)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		return
 	case UPDATE:
 		err = g.callback(BeforeUpdate)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		err := g.src.Update(g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		err = g.callback(AfterUpdate)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		return
 	case DELETE:
 		err = g.callback(BeforeDelete)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		c, err := g.conditionFirst()
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		err = g.src.Delete(c, g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		err = g.callback(AfterDelete)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		return
 	case Export:
 		c, err := g.conditionAll()
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
@@ -424,7 +426,7 @@ func (g *Grid) Render() {
 
 		values, err := g.src.All(c, g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
@@ -433,20 +435,20 @@ func (g *Grid) Render() {
 	case VTable:
 		err = g.callback(BeforeAll)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		c, err := g.conditionAll()
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		// add header as long as the param noheader is not given.
 		pagination, err := g.newPagination(c)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
@@ -460,13 +462,13 @@ func (g *Grid) Render() {
 
 		values, err := g.src.All(c, g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		err = g.callback(AfterAll)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
@@ -475,7 +477,7 @@ func (g *Grid) Render() {
 	case VUpdate, VDetails:
 		err = g.callback(BeforeFirst)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
@@ -483,18 +485,18 @@ func (g *Grid) Render() {
 
 		c, err := g.conditionFirst()
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		values, err := g.src.First(c, g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 
 		err = g.callback(AfterFirst)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		g.controller.Set("data", values)
@@ -505,12 +507,12 @@ func (g *Grid) Render() {
 	case CALLBACK:
 		callback, err := g.controller.Context().Request.Param("callback")
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		values, err := g.src.Callback(callback[0], g)
 		if err != nil {
-			g.controller.Error(500, fmt.Errorf(errWrapper, err).Error())
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
 		g.controller.Set("data", values)

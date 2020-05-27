@@ -5,14 +5,17 @@
 package sqlquery
 
 // Config stores all information about the database.
-// TODO driver options
 type Config struct {
-	Driver   string `json:"driver"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Database string `json:"database"`
-	Schema   string `json:"schema"`
-	Debug    bool   `json:"debug"`
+	Name               string `json:"name"`
+	Driver             string `json:"driver"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	Database           string `json:"database"`
+	Schema             string `json:"schema"`
+	MaxOpenConnections int    `json:"maxOpenConnections"`
+	MaxIdleConnections int    `json:"maxIdleConnections"`
+	MaxConnLifetime    int    `json:"maxConnLifetime"` // in Minutes
+	Debug              bool   `json:"debug"`
 }

@@ -130,6 +130,7 @@ func (m *Model) describeFields() error {
 
 	b := scope.Builder()
 	describeCols, err := b.Information(m.caller.DefaultDatabaseName() + "." + m.caller.DefaultTableName()).Describe(cols...)
+
 	// error will throw if table name does not exist.
 	if err != nil {
 		return err

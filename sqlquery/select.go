@@ -216,10 +216,12 @@ func (s Select) First() (*sql.Row, error) {
 // All returns a *sql.Rows, dont forget to Close it!
 // An error will return if the arguments and placeholders mismatch.
 func (s Select) All() (*sql.Rows, error) {
+
 	stmt, args, err := s.render()
 	if err != nil {
 		return nil, err
 	}
+
 	return s.builder.all(stmt, args)
 }
 
