@@ -194,7 +194,6 @@ func (hr *httpRouter) AddPublicDir(url string, source string) {
 // AddPublicFile to the provider.
 func (hr *httpRouter) AddPublicFile(url string, source string) {
 	hr.file[url] = source
-	fmt.Println("+++++++", hr.file)
 }
 
 // Handler returns the mux handler for the server.
