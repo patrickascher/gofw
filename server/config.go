@@ -22,7 +22,8 @@ type Config struct {
 }
 
 type Server struct {
-	HTTPPort int `json:"httpPort" validate:"required"`
+	HTTPPort int    `json:"httpPort" validate:"required"`
+	AppPath  string `json:"appPath" validate:"required"`
 }
 
 type RouterProvider struct {
