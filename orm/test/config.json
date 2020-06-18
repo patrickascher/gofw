@@ -1,0 +1,29 @@
+{
+  "server": {
+    "httpPort": 8070,
+    "appPath": "./"
+  },
+  "router": {
+    "provider": "httprouter"
+  },
+  "databases": [
+    {
+      "driver": "mysql",
+      "host": "localhost",
+      "port": 3319,
+      "username": "root",
+      "password": "root",
+      "database": "webgui",
+      "maxOpenConnections": 5,
+      "maxIdleConnections": 2,
+      "maxConnLifetime": 0,
+      "debug": true
+    }
+  ],
+  "caches": [
+    {
+      "provider": "memory",
+      "cycle": 360
+    }
+  ]
+}

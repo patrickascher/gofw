@@ -80,7 +80,7 @@ func init() {
 
 	// global validator
 	validate = valid.New()
-	validate.SetTagName(tagValidate)
+	validate.SetTagName(TagValidate)
 	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullBool{}, NullString{}, NullTime{})
 }
 

@@ -49,7 +49,6 @@ func (m Model) DefaultBuilder() (sqlquery.Builder, error) {
 		return b, nil
 	}
 	return sqlquery.Builder{}, errors.New("orm: no server builder is defined")
-
 }
 
 // DefaultStrategy return the default database strategy.

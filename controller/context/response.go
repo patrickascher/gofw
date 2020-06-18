@@ -5,17 +5,34 @@
 package context
 
 import (
-	"encoding/json"
-	"github.com/360EntSecGroup-Skylar/excelize"
+	"errors"
+	"fmt"
 	"net/http"
-	"reflect"
-	"time"
 )
+
+// registry for all cache providers.
+var registry = make(map[string]provider)
+
+// Error messages
+var (
+	ErrUnknownProvider       = "cache: unknown response-provider %q"
+	ErrNoProvider            = errors.New("cache: empty cache-name or cache-provider is nil")
+	ErrProviderAlreadyExists = "cache: cache-provider %#v is already registered"
+)
+
+type provider func() Interface
+type Interface interface {
+	Write(response *Response) error
+}
 
 // Response struct.
 type Response struct {
 	raw  http.ResponseWriter
 	data map[string]interface{}
+}
+
+func init() {
+
 }
 
 // newResponse initialization the Response struct.
@@ -43,90 +60,25 @@ func (o *Response) Raw() http.ResponseWriter {
 }
 
 // Render the response with the given renderType.
-// TODO create a Interface render.Write. So that PDF,Excel and other Exporters can make use of it.
+// Error will return if the render provider is not registered.
 func (o *Response) Render(renderType string) error {
-	var err error
-
-	switch renderType {
-	case "excel":
-		err = o.renderExcel()
-	default:
-		//TODO: only JSON is defined at the moment
-		err = o.renderJson()
+	instanceFn, ok := registry[renderType]
+	if !ok {
+		return fmt.Errorf(ErrUnknownProvider, renderType)
 	}
-
-	return err
+	instance := instanceFn()
+	return instance.Write(o)
 }
 
-// renderJson render the given data to json.
-// It sets an content header and marshals the data.
-// TODO: this should also be done in the new render package.
-func (o *Response) renderJson() error {
-	o.Raw().Header().Set("Content-Type", "application/json")
-	js, err := json.Marshal(o.data)
-	if err != nil {
-		return err
+// Register the cache provider. This should be called in the init() of the providers.
+// If the cache provider/name is empty or is already registered, an error will return.
+func Register(provider string, fn provider) error {
+	if fn == nil || provider == "" {
+		return ErrNoProvider
 	}
-	_, err = o.Raw().Write(js)
-	return err
-}
-
-func (o *Response) renderExcel() error {
-
-	o.Raw().Header().Set("Content-Type", "application/octet-stream")
-	o.Raw().Header().Set("Content-Disposition", "attachment; filename=\"export.xlsx\"")
-
-	f := excelize.NewFile()
-	worksheet := "Sheet1"
-	// Create a new sheet.
-	index := f.NewSheet(worksheet)
-
-	header := o.data["head"].([]string)
-	data := o.data["data"].([]interface{})
-
-	// adding header data
-	i := 1
-	for _, head := range header {
-		cell, err := excelize.CoordinatesToCellName(i, 1)
-		if err != nil {
-			return err
-		}
-		err = f.SetCellValue(worksheet, cell, head)
-		if err != nil {
-			return err
-		}
-		i++
+	if _, exists := registry[provider]; exists {
+		return fmt.Errorf(ErrProviderAlreadyExists, provider)
 	}
-
-	// adding body
-	i = 2
-	for _, body := range data {
-		n := 1
-
-		bodyx := body.(map[string]interface{})
-		for _, head := range header {
-			cell, err := excelize.CoordinatesToCellName(n, i)
-			if err != nil {
-				return err
-			}
-
-			// excel only allows UTC times.
-			typ := reflect.TypeOf(bodyx[head])
-			if typ != nil && typ.String() == "time.Time" {
-				bodyx[head] = bodyx[head].(time.Time).String()
-			}
-
-			err = f.SetCellValue(worksheet, cell, bodyx[head])
-			if err != nil {
-				return err
-			}
-			n++
-		}
-		i++
-	}
-
-	// Set active sheet of the workbook.
-	f.SetActiveSheet(index)
-
-	return f.Write(o.Raw())
+	registry[provider] = fn
+	return nil
 }

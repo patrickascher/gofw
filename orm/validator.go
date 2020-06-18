@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	tagValidate        = "validate"
+	TagValidate        = "validate"
 	validatorSeparator = ","
 	validatorSkip      = "-"
 	validatorOr        = "|"

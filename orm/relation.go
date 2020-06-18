@@ -224,7 +224,7 @@ func (m *Model) createRelations() error {
 		// parse tags
 		tags := parseTags(relation.Tag.Get(tagName))
 
-		validator := &validator{Config: relation.Tag.Get(tagValidate)}
+		validator := &validator{Config: relation.Tag.Get(TagValidate)}
 
 		// get relation kind by tag or default definition.
 		rel, err := m.relationKind(tags, relation)

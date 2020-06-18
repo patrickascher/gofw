@@ -52,7 +52,9 @@ func (m mockModel) DefaultStrategy() string {
 // todo: create a test which tests more than just the type?
 func TestModel_DefaultBuilder(t *testing.T) {
 	r := car{}
-	assert.IsType(t, sqlquery.Builder{}, r.DefaultBuilder())
+	b, err := r.DefaultBuilder()
+	assert.NoError(t, err)
+	assert.IsType(t, sqlquery.Builder{}, b)
 
 	rc := mockModel{}
 	assert.IsType(t, sqlquery.Builder{}, rc.DefaultBuilder())

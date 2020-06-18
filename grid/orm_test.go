@@ -1,20 +1,37 @@
-package orm_test
+package grid_test
 
 import (
-	"fmt"
-	"github.com/patrickascher/gofw/cache"
+	cfg "github.com/patrickascher/gofw/config"
+	"github.com/patrickascher/gofw/config/json"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
-	grid2 "github.com/patrickascher/gofw/grid"
 	"github.com/patrickascher/gofw/orm"
+	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/stretchr/testify/assert"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+var Config server.Config
+
+func init() {
+	// Getting the config and transforming the ISO8601 to time.Duration
+	err := cfg.New(cfg.JSON, &Config, json.Options{Filepath: "./test/config.json"})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// initialize the server & hooks
+	err = server.Initialize(&Config, server.BUILDER, server.CACHE)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 func TestGrid(t *testing.T) {
 	test := assert.New(t)
@@ -41,9 +58,6 @@ func newController(r *http.Request) (controller.Interface, *httptest.ResponseRec
 	rw := httptest.NewRecorder()
 	ctx := context.New(r, rw)
 
-	ca, _ := cache.New("memory", nil)
-	c.SetCache(ca)
-
 	c.SetContext(ctx)
 	return &c, rw
 }
@@ -69,14 +83,24 @@ func TestGridSource_Fields_Policy(t *testing.T) {
 
 		err := src.Init(nil)
 		test.NoError(err)
+		err = grid.SetSource(src)
 
-		fields, err := src.Fields(grid)
 		test.NoError(err)
 
+		fields := grid.Fields()
 		test.Equal(6, len(fields))
 
 		test.Equal("ID", fields[0].Id())
 		test.True(fields[0].IsRemoved())
+
+		if tmpWblist == "whitelist" {
+			err = src.UpdatedFields(grid)
+			test.Error(err) // error because no field is allowed.
+			grid.Field("Owner").SetRemove(false)
+		}
+
+		err = src.UpdatedFields(grid)
+		test.NoError(err)
 
 		// table driven:
 		var tests = []struct {
@@ -114,6 +138,10 @@ func TestGridSource_Fields_Policy(t *testing.T) {
 			t.Run(tt.id+" "+tmpWblist, func(t *testing.T) {
 				fields[i].SetMode(grid2.VTable)
 
+				if fields[i].Title() == "Owner" && tmpWblist == "whitelist" {
+					tt.remove = false
+				}
+
 				test.Equal(tt.id, fields[i].Id())
 				test.Equal(tt.referenceId, fields[i].DatabaseId())
 				test.Equal(tt.primary, fields[i].IsPrimary())
@@ -139,7 +167,6 @@ func TestGridSource_Fields_Policy(t *testing.T) {
 						if fields[i].Fields()[y].IsPrimary() || fields[i].Fields()[y].Id() == "CarID" || fields[i].Fields()[y].Id() == "CarType" {
 							test.Equal(true, fields[i].Fields()[y].IsRemoved())
 						} else {
-							fmt.Println(fields[i].Id(), fields[i].Fields()[y].Id(), fields[i].Fields()[y].IsRemoved(), fields[i].Fields()[y].IsRelation())
 							test.Equal(tmpRemoved, fields[i].Fields()[y].IsRemoved())
 						}
 					}
@@ -174,7 +201,7 @@ func TestGridSource_Fields_Json(t *testing.T) {
 func TestGridSource_Fields_Enum_BelongsTo(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		controller, _ := newController(httptest.NewRequest("GET", "https://localhost/?mode=update", strings.NewReader("")))
-		grid := grid2.New(controller, &grid2.Config{Policy: i})
+		grid := grid2.New(controller, &grid2.Config{ID: "enum", Policy: i})
 
 		test := assert.New(t)
 		car := carEnum{}
@@ -183,7 +210,10 @@ func TestGridSource_Fields_Enum_BelongsTo(t *testing.T) {
 		err := src.Init(nil)
 		test.NoError(err)
 
-		fields, err := src.Fields(grid)
+		err = grid.SetSource(src)
+		test.NoError(err)
+
+		fields := grid.Fields()
 		test.NoError(err)
 		fields[0].SetMode(grid2.VUpdate)
 		fields[1].SetMode(grid2.VUpdate)
@@ -217,19 +247,27 @@ func TestGridSource_UpdateFields(t *testing.T) {
 		car := car{}
 		src := orm.Grid(&car)
 
-		err := grid.SetSource(src)
-		test.NoError(err)
-
-		err = src.UpdatedFields(grid)
-
-		policy, list := car.WBList()
-		test.Equal(orm.WHITELIST, policy)
 		if i == 0 {
-			// BLACKLIST
+			err := grid.SetSource(src)
 			test.NoError(err)
+
+			err = src.UpdatedFields(grid)
+			test.NoError(err)
+
+			policy, list := car.WBList()
+			test.Equal(orm.WHITELIST, policy)
+
+			// BLACKLIST - the only normal field is Brand but it has no read permission.
 			test.Equal([]string{"Owner.Name", "Driver.Name", "Radio.Brand", "Radio.Note", "Liquid.Brand", "Liquid.Note"}, list)
 		} else {
+			err := grid.SetSource(src)
+			test.NoError(err)
+
+			policy, list := car.WBList()
+			test.Equal(orm.WHITELIST, policy)
+
 			// WHITELIST - no fields are added
+			err = src.UpdatedFields(grid)
 			test.Error(err)
 			test.Equal([]string(nil), list)
 
@@ -240,7 +278,7 @@ func TestGridSource_UpdateFields(t *testing.T) {
 			grid.Field("Radio.Brand").SetRemove(false)
 
 			err = src.UpdatedFields(grid)
-			policy, list := car.WBList()
+			policy, list = car.WBList()
 			test.Equal(orm.WHITELIST, policy)
 
 			// check read only
@@ -256,13 +294,16 @@ func TestGridSource_UpdateFields(t *testing.T) {
 func TestGridSource_Callback(t *testing.T) {
 	test := assert.New(t)
 
+	err := createEntries(&car{})
+	test.NoError(err)
+
 	controller, _ := newController(httptest.NewRequest("GET", "https://localhost/?f=Owner", strings.NewReader("")))
-	grid := grid2.New(controller, nil)
+	grid := grid2.New(controller, &grid2.Config{ID: "callback"})
 
 	car := car{}
 	src := orm.Grid(&car)
 
-	err := grid.SetSource(src)
+	err = grid.SetSource(src)
 	test.NoError(err)
 
 	// with link field

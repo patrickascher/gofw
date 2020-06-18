@@ -69,7 +69,7 @@ func (m *Model) createFields() error {
 		configFieldByTag(&f, field.Tag.Get(tagName))
 
 		// validator
-		f.Validator = &validator{Config: field.Tag.Get(tagValidate)}
+		f.Validator = &validator{Config: field.Tag.Get(TagValidate)}
 
 		// add to model fields
 		m.fields = append(m.fields, f)

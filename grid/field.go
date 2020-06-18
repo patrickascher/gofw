@@ -36,6 +36,8 @@ type Field struct {
 	sortable bool
 	// filter allowed
 	filterable bool
+	// grouping allowed
+	groupable bool
 	// additional options
 	options map[string]interface{}
 	// callback of the field, used after the source results are fetched.
@@ -89,6 +91,9 @@ func (f Field) MarshalJSON() ([]byte, error) {
 	}
 	if f.filterable {
 		rv["filterable"] = f.filterable
+	}
+	if f.groupable {
+		rv["groupable"] = f.groupable
 	}
 	if f.readOnly {
 		rv["readOnly"] = f.readOnly
@@ -250,6 +255,15 @@ func (f Field) IsSortable() bool {
 	return f.sortable
 }
 
+func (f *Field) SetGroupable(groupable bool) *Field {
+	f.groupable = groupable
+	return f
+}
+
+func (f Field) IsGroupable() bool {
+	return f.groupable
+}
+
 func (f *Field) SetFilterable(filterable bool) *Field {
 	f.filterable = filterable
 	return f
@@ -327,6 +341,9 @@ func setFieldModeRecursively(g *Grid, fields []Field) {
 	// recursively add mode
 	for k, f := range fields {
 		fields[k].mode = mode
+		if g.config.Policy == 1 {
+			fields[k].SetRemove(true)
+		}
 		if len(f.fields) > 0 {
 			setFieldModeRecursively(g, fields[k].fields)
 		}

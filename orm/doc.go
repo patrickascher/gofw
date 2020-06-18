@@ -12,7 +12,8 @@ package orm
 //
 // The grid has two policies. On Blacklist, all orm.Fields are added and you have to remove them manually when not needed. This means
 // all relations and data is fetched. IF this is not necessary use the Whitelist policy. This means no orm.Field is added by default.
-// You have to choose which field is required and only the required data is fetched by the database.
+// You have to choose which field is required and only the required data is fetched by the database. This is the default policy to avoid
+// unnecessary database calls. A minimum of one field has to be defined.
 //
 // The grid transforms the orm into a json object. To avoid overhead, use the json omitempty tag on your fields.
 //
@@ -91,7 +92,7 @@ package orm
 //
 //
 // Scope:
-// Can be used to access internal fields or relations. This can be usefull on loading strategies or callbacks.
+// Can be used to access internal fields or relations. This can be useful on loading strategies or callbacks.
 // A lot of helpers exists. Please check out the scope.go file for more details.
 //
 //

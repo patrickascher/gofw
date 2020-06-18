@@ -55,11 +55,19 @@ func config() (*Config, error) {
 func loadConfig(userConfig interface{}) *Config {
 	rv := reflect.Indirect(reflect.ValueOf(userConfig))
 	if rv.IsValid() {
+
+		// check if its the the server config struct
+		if rv.Type().String() == "server.Config" {
+			return userConfig.(*Config)
+		}
+
+		// check if the server config struct is embedded
 		for i := 0; i < rv.NumField(); i++ {
 			if rv.Field(i).Type().String() == "server.Config" {
 				return rv.Field(i).Addr().Interface().(*Config)
 			}
 		}
 	}
+
 	return nil
 }

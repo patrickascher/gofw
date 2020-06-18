@@ -3,6 +3,7 @@ package orm_test
 import (
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/cache/memory"
 	"testing"
 	"time"
 
@@ -22,10 +23,12 @@ type Role struct {
 }
 
 func truncate(ormI orm.Interface) error {
-	b := ormI.DefaultBuilder()
-
+	b, err := ormI.DefaultBuilder()
+	if err != nil {
+		return err
+	}
 	// owner belongsTo
-	_, err := b.Delete("owners").Exec()
+	_, err = b.Delete("owners").Exec()
 	if err != nil {
 		return err
 	}
@@ -82,9 +85,12 @@ func truncate(ormI orm.Interface) error {
 }
 
 func createEntries(ormI orm.Interface) error {
-	b := ormI.DefaultBuilder()
+	b, err := ormI.DefaultBuilder()
+	if err != nil {
+		return err
+	}
 
-	err := truncate(ormI)
+	err = truncate(ormI)
 	if err != nil {
 		return err
 	}
@@ -305,8 +311,8 @@ type carNoBuilder struct {
 	OwnerID orm.NullInt
 }
 
-func (c carNoBuilder) DefaultBuilder() sqlquery.Builder {
-	return sqlquery.Builder{}
+func (c carNoBuilder) DefaultBuilder() (sqlquery.Builder, error) {
+	return sqlquery.Builder{}, nil
 }
 
 type carNoTableName struct {
@@ -331,7 +337,12 @@ type carErrCache struct {
 }
 
 func (c carErrCache) DefaultCache() (cache.Interface, time.Duration, error) {
-	return orm.GlobalCache, 6 * time.Hour, errors.New("cache error")
+	cache, err := cache.New("memory", memory.Options{GCInterval: time.Duration(5) * time.Minute})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return cache, 6 * time.Hour, errors.New("cache error")
 }
 
 func TestModel_Init(t *testing.T) {

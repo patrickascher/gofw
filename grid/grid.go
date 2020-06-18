@@ -18,6 +18,7 @@ const (
 	UPDATE
 	DELETE
 	CALLBACK
+	HEAD
 	VTable
 	VDetails
 	VUpdate
@@ -166,9 +167,11 @@ func (g *Grid) SetCondition(c *sqlquery.Condition) *Grid {
 }
 
 func (g *Grid) gridID() string {
+
 	if g.config.ID != "" {
 		return g.config.ID
 	}
+
 	return g.controller.Name() + ":" + g.controller.Action()
 }
 
@@ -211,6 +214,9 @@ func (g *Grid) SetSource(src SourceI) error {
 		fmt.Println("SET FIELDS::", time.Since(t))
 	}
 
+	for _, f := range fields {
+		f.SetMode(VTable)
+	}
 	// make a deep copy to avoid that the cached slice will be changed
 	g.fields = copySlice(fields)
 
@@ -279,6 +285,8 @@ func (g *Grid) Mode() int {
 			return VTable
 		}
 		switch m[0] {
+		case "head":
+			return HEAD
 		case "callback":
 			return CALLBACK
 		case "create":
@@ -350,8 +358,16 @@ func (g *Grid) Render() {
 		g.controller.Set("title", g.config.Title)
 	}
 
+	// get user defined Filter
+
+	ff, err := getFilterList(g)
+	fmt.Println(ff, err)
+
 	mode := g.Mode()
 	switch mode {
+	case HEAD:
+		g.controller.Set("head", g.sortFields())
+		return
 	case CREATE:
 		err = g.callback(BeforeCreate)
 		if err != nil {
@@ -422,6 +438,11 @@ func (g *Grid) Render() {
 			return
 		}
 
+		t, err := g.Controller().Context().Request.Param("type")
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
+			return
+		}
 		g.controller.Set("head", FieldsToString(g.sortFields()))
 
 		values, err := g.src.All(c, g)
@@ -430,8 +451,9 @@ func (g *Grid) Render() {
 			return
 		}
 
-		g.controller.SetRenderType("excel") // remove type here
+		g.controller.SetRenderType(t[0])
 		g.controller.Set("data", values)
+		values = nil
 	case VTable:
 		err = g.callback(BeforeAll)
 		if err != nil {

@@ -58,6 +58,11 @@ func (scope Scope) Parent(name string) (*Model, error) {
 	return nil, fmt.Errorf(errParentModel, name)
 }
 
+// SetParent adds a parent link.
+func (scope Scope) SetParent(m *Model) {
+	scope.model.parentModel = m
+}
+
 // UnsetParent removes the parent link on the orm model.
 // Useful on self referencing relations.
 func (scope Scope) UnsetParent() {
