@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/patrickascher/gofw/sqlquery"
+	"strconv"
 	"strings"
 )
 
@@ -82,11 +83,87 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 		return nil, err
 	}
 
+	// TODO first check filter,
+	filter, err := g.controller.Context().Request.Param("filter")
+	if err == nil {
+
+		id, err := strconv.Atoi(filter[0])
+		if err != nil {
+			return nil, err
+		}
+
+		uFilter, err := getFilterByID(id, g)
+		fmt.Println("Filter::", uFilter)
+		if err != nil {
+			return nil, err
+		}
+
+		// set active Filter
+		g.config.Filter.Active.ID = uFilter.ID
+		if uFilter.RowsPerPage.Valid {
+			g.config.Filter.Active.RowsPerPage = int(uFilter.RowsPerPage.Int64)
+		}
+
+		// Add filters
+		for _, f := range uFilter.Filters {
+			if gridField := g.Field(f.Key); gridField.error == nil && gridField.IsFilterable() {
+				switch f.Op {
+				case "=", ">=", "<=":
+					c.Where(gridField.referenceId+" "+f.Op+" ?", f.Value)
+				case "IN":
+					c.Where(gridField.referenceId+" "+f.Op+" (?)", f.Value)
+				case "NOT IN":
+					c.Where(gridField.referenceId+" "+f.Op+" (?)", f.Value)
+				case "Like":
+					c.Where(gridField.referenceId+" LIKE %?%", f.Value)
+				case "RLike":
+					c.Where(gridField.referenceId+" LIKE %?", f.Value)
+				case "LLike":
+					c.Where(gridField.referenceId+" LIKE ?%", f.Value)
+				default:
+					return nil, fmt.Errorf(errFilterPermission, f.Key)
+				}
+			} else {
+				return nil, fmt.Errorf(errFilterPermission, f.Key)
+			}
+		}
+
+		// Add sorts
+		var sort string
+		// add grouping as fist param
+		if uFilter.GroupBy.Valid {
+			sort += uFilter.GroupBy.String
+			g.config.Filter.Active.Group = uFilter.GroupBy.String
+			//TODO ASC or DESC
+		}
+		// add order by
+		for _, s := range uFilter.Sorting {
+			if sort != "" {
+				sort += ", "
+			}
+			op := "ASC"
+			if s.Desc {
+				op = "DESC"
+			}
+
+			if gridField := g.Field(s.Key); gridField.error == nil && gridField.IsSortable() {
+				sort += gridField.referenceId + " " + op
+				g.config.Filter.Active.Sort = append(g.config.Filter.Active.Sort, s.Key+" "+op)
+			} else {
+				return nil, fmt.Errorf(errSortPermission, s.Key)
+			}
+
+		}
+		c.Order(sort)
+	}
+	// Then add additional sorting? + resert sort first
+
 	// iterate over the params.
 	// check if the key sort exists or the key is prefixed with filter_
 	for key, param := range params {
 		if key == "sort" {
 			c.Reset(sqlquery.ORDER)
+			g.config.Filter.Active.Sort = nil // reset config order
 			err := addSortCondition(g, param[0], c)
 			if err != nil {
 				return nil, err

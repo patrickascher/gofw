@@ -376,6 +376,7 @@ func gridFields(scope *orm.Scope, g *Grid, parent string) ([]Field, error) {
 		//field.SetView(g.NewValue(""))
 		field.SetSortable(true)
 		field.SetFilterable(true)
+		field.SetGroupable(true)
 		// set validation tag
 		if f.Validator.Config != "" {
 			field.SetOption(orm.TagValidate, f.Validator.Config)
@@ -465,6 +466,7 @@ func gridFields(scope *orm.Scope, g *Grid, parent string) ([]Field, error) {
 		}
 		field.SetSortable(false)
 		field.SetFilterable(false)
+		field.SetGroupable(false)
 
 		// add options for BelongsTo and ManyToMany relations.
 		if r.Kind == orm.BelongsTo || r.Kind == orm.ManyToMany {

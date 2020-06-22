@@ -43,6 +43,27 @@ type Condition struct {
 	error error
 }
 
+func Copy(c *Condition) *Condition {
+	newc := NewCondition()
+
+	newc.where = c.where
+	newc.having = c.having
+	newc.limit = c.limit
+	newc.order = c.order
+	newc.offset = c.offset
+	newc.group = c.group
+	newc.on = c.on
+	newc.error = c.error
+	newc.args = make(map[int][]interface{})
+
+	for i := range c.args {
+		newc.args[i] = make([]interface{}, len(c.args[i]))
+		copy(newc.args[i], c.args[i])
+	}
+
+	return newc
+}
+
 func NewCondition() *Condition {
 	return &Condition{}
 }

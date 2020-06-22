@@ -168,11 +168,11 @@ func (g *Grid) SetCondition(c *sqlquery.Condition) *Grid {
 
 func (g *Grid) gridID() string {
 
-	if g.config.ID != "" {
-		return g.config.ID
+	if g.config.ID == "" {
+		g.config.ID = g.controller.Name() + ":" + g.controller.Action()
 	}
 
-	return g.controller.Name() + ":" + g.controller.Action()
+	return g.config.ID
 }
 
 // SetSource to the grid.
@@ -214,9 +214,6 @@ func (g *Grid) SetSource(src SourceI) error {
 		fmt.Println("SET FIELDS::", time.Since(t))
 	}
 
-	for _, f := range fields {
-		f.SetMode(VTable)
-	}
 	// make a deep copy to avoid that the cached slice will be changed
 	g.fields = copySlice(fields)
 
@@ -312,7 +309,11 @@ func (g *Grid) Mode() int {
 func (g *Grid) security() error {
 
 	switch g.Mode() {
-	case CREATE, VCreate:
+	case CREATE:
+		if g.config.Action.DisableCreate && g.config.Action.DisableFilter {
+			return fmt.Errorf(errSecurity, "create")
+		}
+	case VCreate:
 		if g.config.Action.DisableCreate {
 			return fmt.Errorf(errSecurity, "create")
 		}
@@ -358,10 +359,10 @@ func (g *Grid) Render() {
 		g.controller.Set("title", g.config.Title)
 	}
 
-	// get user defined Filter
-
-	ff, err := getFilterList(g)
-	fmt.Println(ff, err)
+	// add filter to grid config
+	if f, ok := getFilterList(g); ok == nil {
+		g.config.Filter.List = f
+	}
 
 	mode := g.Mode()
 	switch mode {
@@ -369,6 +370,22 @@ func (g *Grid) Render() {
 		g.controller.Set("head", g.sortFields())
 		return
 	case CREATE:
+		// SAVE filter
+		if m, err := g.controller.Context().Request.Param("mode"); err == nil && m[0] == "filter" {
+			err = g.SetSource(Orm(&UserGrid{}))
+			if err != nil {
+				g.controller.Error(500, fmt.Errorf(errWrapper, err))
+				return
+			}
+			pk, err := g.src.Create(g)
+			if err != nil {
+				g.controller.Error(500, fmt.Errorf(errWrapper, err))
+				return
+			}
+			g.controller.Set("pkeys", pk)
+			return
+		}
+
 		err = g.callback(BeforeCreate)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err))
@@ -479,9 +496,6 @@ func (g *Grid) Render() {
 			g.controller.Set("pagination", pagination)
 		}
 
-		// adding config
-		g.controller.Set("config", g.config)
-
 		values, err := g.src.All(c, g)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err))
@@ -494,6 +508,8 @@ func (g *Grid) Render() {
 			return
 		}
 
+		// adding data
+		g.controller.Set("config", g.config)
 		g.controller.Set("data", values)
 		return
 	case VUpdate, VDetails:
