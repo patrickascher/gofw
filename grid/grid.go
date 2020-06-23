@@ -48,6 +48,8 @@ const (
 	FeReturnObject = "vueReturnObject"
 )
 
+const cachePrefix = "grid_"
+
 // Error messages
 var (
 	errCache    = errors.New("grid: cache is required")
@@ -196,7 +198,7 @@ func (g *Grid) SetSource(src SourceI) error {
 
 	// get the source fields
 	var fields []Field
-	if v, err := serverCache.Get(g.gridID()); err == nil {
+	if v, err := serverCache.Get(cachePrefix + g.gridID()); err == nil {
 		t := time.Now()
 		fields = v.Value().([]Field)
 
@@ -207,7 +209,7 @@ func (g *Grid) SetSource(src SourceI) error {
 		if err != nil {
 			return err
 		}
-		err = serverCache.Set(g.gridID(), fields, cache.INFINITY)
+		err = serverCache.Set(cachePrefix+g.gridID(), fields, cache.INFINITY)
 		if err != nil {
 			return err
 		}

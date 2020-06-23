@@ -110,10 +110,8 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 				switch f.Op {
 				case "=", ">=", "<=":
 					c.Where(gridField.referenceId+" "+f.Op+" ?", f.Value)
-				case "IN":
-					c.Where(gridField.referenceId+" "+f.Op+" (?)", f.Value)
-				case "NOT IN":
-					c.Where(gridField.referenceId+" "+f.Op+" (?)", f.Value)
+				case "IN", "NOT IN":
+					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(f.Value, ","))
 				case "Like":
 					c.Where(gridField.referenceId+" LIKE %?%", f.Value)
 				case "RLike":
