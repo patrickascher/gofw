@@ -19,6 +19,14 @@ func newExcel() context.Interface {
 type excelWriter struct {
 }
 
+func (ew *excelWriter) Name() string {
+	return "Excel"
+}
+
+func (ew *excelWriter) Icon() string {
+	return "mdi-microsoft-excel"
+}
+
 func (ew *excelWriter) Write(r *context.Response) error {
 
 	r.Raw().Header().Set("Content-Type", "application/octet-stream")

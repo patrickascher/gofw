@@ -23,6 +23,8 @@ var (
 type provider func() Interface
 type Interface interface {
 	Write(response *Response) error
+	Name() string
+	Icon() string
 }
 
 // Response struct.
@@ -81,4 +83,9 @@ func Register(provider string, fn provider) error {
 	}
 	registry[provider] = fn
 	return nil
+}
+
+// Providers return all registered providers
+func Providers() map[string]provider {
+	return registry
 }

@@ -8,7 +8,10 @@ type Config struct {
 	Description string `json:"description,omitempty"`
 	Policy      int    `json:"-"`
 	Action      Action `json:"action,omitempty"`
-	Filter      Filter `json:"filter,omitempty"`
+
+	// should not be able for the user to config.
+	Filter  Filter        `json:"filter,omitempty"`
+	Exports []ExportTypes `json:"exports,omitempty"`
 }
 
 type Filter struct {

@@ -46,7 +46,7 @@ func (v *value) SetUpdate(val interface{}) *value {
 	return v
 }
 
-// SetUpdate sets the value only for the update view
+// SetExport sets the value only for the export view
 func (v *value) SetExport(val interface{}) *value {
 	v.export = val
 	return v

@@ -17,6 +17,13 @@ func NewJson() Interface {
 type jsonStruct struct {
 }
 
+func (js jsonStruct) Name() string {
+	return "Json"
+}
+func (js jsonStruct) Icon() string {
+	return "mdi-code-json"
+}
+
 // renderJson render the given data to json.
 // It sets an content header and marshals the data.
 func (js jsonStruct) Write(r *Response) error {

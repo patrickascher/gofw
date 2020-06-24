@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
+	"github.com/patrickascher/gofw/controller/context"
 	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
@@ -56,6 +57,7 @@ var (
 	errSource   = "grid: no source is added in %s action %s"
 	errWrapper  = "grid: %w"
 	errSecurity = "grid: the mode %s is not allowed"
+	errExport   = "grid: export type %s does not exist"
 )
 
 type SourceI interface {
@@ -112,6 +114,8 @@ type Grid struct {
 	config Config
 	//callbacks
 	callbacks map[int]func(*Grid) error
+	//exports
+	avaiableExportTypes []ExportTypes
 }
 
 // New creates a grid instance with the given controller.
@@ -126,7 +130,28 @@ func New(c controller.Interface, config *Config) *Grid {
 		grid.config.Policy = 1 // whitelist
 	}
 
+	// adding available render types as export
+	for k, fn := range context.Providers() {
+		grid.avaiableExportTypes = append(grid.avaiableExportTypes, ExportTypes{Key: k, Name: fn().Name(), Icon: fn().Icon()})
+	}
+
 	return grid
+}
+
+func (g *Grid) SetExport(exports ...string) error {
+	for _, export := range exports {
+		exists := false
+		for _, ae := range g.avaiableExportTypes {
+			if ae.Key == export {
+				exists = true
+				g.config.Exports = append(g.config.Exports, ae)
+			}
+		}
+		if !exists {
+			return fmt.Errorf(errExport, export)
+		}
+	}
+	return nil
 }
 
 func (g *Grid) IsCallback() bool {
@@ -166,6 +191,12 @@ func (g *Grid) Controller() controller.Interface {
 func (g *Grid) SetCondition(c *sqlquery.Condition) *Grid {
 	g.srcCondition = c
 	return g
+}
+
+type ExportTypes struct {
+	Key  string
+	Name string
+	Icon string
 }
 
 func (g *Grid) gridID() string {
@@ -311,6 +342,24 @@ func (g *Grid) Mode() int {
 func (g *Grid) security() error {
 
 	switch g.Mode() {
+	case Export:
+		t, err := g.Controller().Context().Request.Param("type")
+		if err != nil {
+			return fmt.Errorf(errSecurity, "export")
+		}
+
+		exists := false
+		fmt.Println("EXPORTTTTT::::", g.config.Exports)
+		for _, e := range g.config.Exports {
+			if e.Key == t[0] {
+				exists = true
+			}
+			fmt.Println("EXPORTTTTT----", e.Key, t[0], exists)
+
+		}
+		if !exists {
+			return fmt.Errorf(errSecurity, "export-"+t[0])
+		}
 	case CREATE:
 		if g.config.Action.DisableCreate && g.config.Action.DisableFilter {
 			return fmt.Errorf(errSecurity, "create")
@@ -344,16 +393,16 @@ func (g *Grid) Render() {
 		return
 	}
 
-	// security check
-	if err := g.security(); err != nil {
-		g.controller.Error(500, err)
-		return
-	}
-
 	// update the user config in the source
 	err := g.src.UpdatedFields(g)
 	if err != nil {
 		g.controller.Error(500, fmt.Errorf(errWrapper, err))
+		return
+	}
+
+	// security check, called after update fields because of SetExport there...
+	if err := g.security(); err != nil {
+		g.controller.Error(500, err)
 		return
 	}
 
