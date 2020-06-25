@@ -17,9 +17,9 @@ type UserGrid struct {
 	Name    string
 	GroupBy orm.NullString
 
-	Filters   []UserGridFilter
-	Sorting   []UserGridSort
-	Positions []UserGridPosition
+	Filters []UserGridFilter
+	Sorting []UserGridSort
+	Fields  []UserGridField
 
 	Default     bool
 	RowsPerPage orm.NullInt
@@ -45,13 +45,14 @@ type UserGridSort struct {
 	Desc bool
 }
 
-type UserGridPosition struct {
+type UserGridField struct {
 	orm.Model
 	ID         int
 	UserGridID int
 
-	Key string
-	Pos int
+	Key  string
+	Pos  orm.NullInt
+	Show bool
 }
 
 type FeGridFilter struct {

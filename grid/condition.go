@@ -104,6 +104,17 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 			g.config.Filter.Active.RowsPerPage = int(uFilter.RowsPerPage.Int64)
 		}
 
+		// Disable fields
+		for _, f := range uFilter.Fields {
+			// TODO Position
+
+			if f.Show == false {
+				if gridField := g.Field(f.Key); gridField.error == nil && !gridField.IsRemoved() {
+					gridField.SetRemove(true)
+				}
+			}
+		}
+
 		// Add filters
 		for _, f := range uFilter.Filters {
 			if gridField := g.Field(f.Key); gridField.error == nil && gridField.IsFilterable() {
