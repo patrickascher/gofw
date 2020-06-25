@@ -38,7 +38,7 @@ func (ew *excelWriter) Write(r *context.Response) error {
 	index := f.NewSheet(worksheet)
 
 	header := r.Data("head").([]string)
-	data := r.Data("data").([]interface{})
+	data := r.Data("data")
 
 	// adding header data
 	i := 1
@@ -55,30 +55,36 @@ func (ew *excelWriter) Write(r *context.Response) error {
 	}
 
 	// adding body
-	i = 2
-	for _, body := range data {
+	rData := reflect.ValueOf(data)
+	line := 2
+	for i := 0; i < rData.Len(); i++ {
 		n := 1
-
-		bodyx := body.(map[string]interface{})
 		for _, head := range header {
-			cell, err := excelize.CoordinatesToCellName(n, i)
+			cell, err := excelize.CoordinatesToCellName(n, line)
 			if err != nil {
 				return err
 			}
 
-			// excel only allows UTC times.
-			typ := reflect.TypeOf(bodyx[head])
-			if typ != nil && typ.String() == "time.Time" {
-				bodyx[head] = bodyx[head].(time.Time).String()
+			var value interface{}
+			if rData.Index(i).Type().Kind().String() == "struct" {
+				value = rData.Index(i).FieldByName(head).Interface()
+			} else {
+				value = reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head)).Interface()
 			}
 
-			err = f.SetCellValue(worksheet, cell, bodyx[head])
+			// excel only allows UTC times.
+			typ := reflect.TypeOf(value)
+			if typ != nil && typ.String() == "time.Time" {
+				value = value.(time.Time).String()
+			}
+
+			err = f.SetCellValue(worksheet, cell, value)
 			if err != nil {
 				return err
 			}
 			n++
 		}
-		i++
+		line++
 	}
 
 	// Set active sheet of the workbook.

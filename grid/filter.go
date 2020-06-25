@@ -41,7 +41,7 @@ type UserGridSort struct {
 	UserGridID int
 
 	Key  string
-	Pos  int
+	Pos  orm.NullInt // because 0 should be allowed as well. TODO figure out a better solution
 	Desc bool
 }
 

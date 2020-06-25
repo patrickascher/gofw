@@ -336,7 +336,7 @@ func setFieldModeRecursively(g *Grid, fields []Field) {
 		mode = VCreate
 	case UPDATE:
 		mode = VUpdate
-	case HEAD:
+	case FILTERCONFIG:
 		mode = VTable
 	}
 

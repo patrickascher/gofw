@@ -19,7 +19,7 @@ const (
 	UPDATE
 	DELETE
 	CALLBACK
-	HEAD
+	FILTERCONFIG
 	VTable
 	VDetails
 	VUpdate
@@ -306,17 +306,18 @@ func (g *Grid) Field(name string) *Field {
 // GET with mode param "callback" = grid view callback
 // everything else will return 0
 func (g *Grid) Mode() int {
+	m, notExisting := g.controller.Context().Request.Param("mode")
+	if notExisting == nil && m[0] == "filter" {
+		return FILTERCONFIG
+	}
 	// Requested HTTP method of the controller, always uppercase.
 	switch g.controller.Context().Request.Method() {
 	case http.MethodGet:
 		// if the param mode does not exist, its the grid view.
-		m, notExisting := g.controller.Context().Request.Param("mode")
 		if notExisting != nil {
 			return VTable
 		}
 		switch m[0] {
-		case "head":
-			return HEAD
 		case "callback":
 			return CALLBACK
 		case "create":
@@ -349,13 +350,10 @@ func (g *Grid) security() error {
 		}
 
 		exists := false
-		fmt.Println("EXPORTTTTT::::", g.config.Exports)
 		for _, e := range g.config.Exports {
 			if e.Key == t[0] {
 				exists = true
 			}
-			fmt.Println("EXPORTTTTT----", e.Key, t[0], exists)
-
 		}
 		if !exists {
 			return fmt.Errorf(errSecurity, "export-"+t[0])
@@ -417,26 +415,77 @@ func (g *Grid) Render() {
 
 	mode := g.Mode()
 	switch mode {
-	case HEAD:
-		g.controller.Set("head", g.sortFields())
-		return
-	case CREATE:
-		// SAVE filter
-		if m, err := g.controller.Context().Request.Param("mode"); err == nil && m[0] == "filter" {
-			err = g.SetSource(Orm(&UserGrid{}))
+	case FILTERCONFIG:
+		m, errParam := g.controller.Context().Request.Param("id")
+
+		// Grid header fields
+		if g.controller.Context().Request.IsGet() && errParam != nil {
+			g.controller.Set("head", g.sortFields())
+			return
+		}
+
+		//Filter source
+		err = g.SetSource(Orm(&UserGrid{}))
+		if err != nil {
+			g.controller.Error(500, fmt.Errorf(errWrapper, err))
+			return
+		}
+
+		// delete filter
+		if g.controller.Context().Request.IsDelete() && errParam == nil {
+			id := m[0]
+			err := g.src.Delete(sqlquery.NewCondition().Where("id = ?", id), g)
 			if err != nil {
 				g.controller.Error(500, fmt.Errorf(errWrapper, err))
 				return
 			}
+			if f, ok := getFilterList(g); ok == nil {
+				g.controller.Set("filterList", f)
+			}
+			return
+		}
+
+		// create filter
+		if g.controller.Context().Request.IsPost() {
 			pk, err := g.src.Create(g)
 			if err != nil {
 				g.controller.Error(500, fmt.Errorf(errWrapper, err))
 				return
 			}
+			if f, ok := getFilterList(g); ok == nil {
+				g.controller.Set("filterList", f)
+			}
 			g.controller.Set("pkeys", pk)
 			return
 		}
 
+		// update filter
+		if g.controller.Context().Request.IsPut() {
+			err := g.src.Update(g)
+			if err != nil {
+				g.controller.Error(500, fmt.Errorf(errWrapper, err))
+				return
+			}
+			if f, ok := getFilterList(g); ok == nil {
+				g.controller.Set("filterList", f)
+			}
+			return
+		}
+
+		// get filter
+		if g.controller.Context().Request.IsGet() && errParam == nil {
+			id := m[0]
+			item, err := g.src.First(sqlquery.NewCondition().Where("id = ?", id), g)
+			if err != nil {
+				g.controller.Error(500, fmt.Errorf(errWrapper, err))
+				return
+			}
+			g.controller.Set("item", item)
+			return
+		}
+
+		return
+	case CREATE:
 		err = g.callback(BeforeCreate)
 		if err != nil {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err))
