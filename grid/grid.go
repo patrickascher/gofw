@@ -6,6 +6,7 @@ import (
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
+	_ "github.com/patrickascher/gofw/grid/export"
 	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
