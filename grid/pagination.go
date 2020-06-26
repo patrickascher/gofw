@@ -38,6 +38,10 @@ func (g *Grid) newPagination(c *sqlquery.Condition) (*pagination, error) {
 	}
 
 	p.Limit = p.paginationParam(g, "limit")
+	// customized filter
+	if g.config.Filter.Active.RowsPerPage != 0 {
+		p.Limit = g.config.Filter.Active.RowsPerPage
+	}
 	p.TotalPages = p.totalPages()
 	p.CurrentPage = p.paginationParam(g, "page")
 	p.Next = p.next()

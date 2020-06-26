@@ -86,6 +86,7 @@ func getFilterByID(id int, g *Grid) (*UserGrid, error) {
 		return nil, err
 	}
 	userGrid.SetRelationCondition("Sorting", *sqlquery.NewCondition().Where("user_grid_id = ?", id).Order("pos ASC"))
+	userGrid.SetRelationCondition("Fields", *sqlquery.NewCondition().Where("user_grid_id = ?", id).Order("`show` DESC", "pos ASC"))
 	err = userGrid.First(sqlquery.NewCondition().Where("id = ? AND user_id = ? AND grid_id = ?", id, userID, g.gridID()))
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err

@@ -1,6 +1,7 @@
 package export
 
 import (
+	"fmt"
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"github.com/patrickascher/gofw/controller/context"
 	"reflect"
@@ -42,6 +43,7 @@ func (ew *excelWriter) Write(r *context.Response) error {
 
 	// adding header data
 	i := 1
+	fmt.Println(header)
 	for _, head := range header {
 		cell, err := excelize.CoordinatesToCellName(i, 1)
 		if err != nil {

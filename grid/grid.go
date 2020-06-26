@@ -10,6 +10,7 @@ import (
 	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -475,8 +476,13 @@ func (g *Grid) Render() {
 
 		// get filter
 		if g.controller.Context().Request.IsGet() && errParam == nil {
-			id := m[0]
-			item, err := g.src.First(sqlquery.NewCondition().Where("id = ?", id), g)
+
+			id, err := strconv.Atoi(m[0])
+			if err != nil {
+				g.controller.Error(500, fmt.Errorf(errWrapper, err))
+				return
+			}
+			item, err := getFilterByID(id, g)
 			if err != nil {
 				g.controller.Error(500, fmt.Errorf(errWrapper, err))
 				return

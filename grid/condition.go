@@ -93,7 +93,6 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 		}
 
 		uFilter, err := getFilterByID(id, g)
-		fmt.Println("Filter::", uFilter)
 		if err != nil {
 			return nil, err
 		}
@@ -104,12 +103,13 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 			g.config.Filter.Active.RowsPerPage = int(uFilter.RowsPerPage.Int64)
 		}
 
-		// Disable fields
+		// Position/Disable fields
 		for _, f := range uFilter.Fields {
-			// TODO Position
-
-			if f.Show == false {
-				if gridField := g.Field(f.Key); gridField.error == nil && !gridField.IsRemoved() {
+			if gridField := g.Field(f.Key); gridField.error == nil && !gridField.IsRemoved() {
+				if f.Pos.Valid {
+					gridField.SetPosition(int(f.Pos.Int64))
+				}
+				if f.Show == false {
 					gridField.SetRemove(true)
 				}
 			}
@@ -178,12 +178,6 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 				return nil, err
 			}
 		}
-		if strings.HasPrefix(key, ConditionFilterPrefix) {
-			err := addFilterCondition(g, key[len(ConditionFilterPrefix):], param, c)
-			if err != nil {
-				return nil, err
-			}
-		}
 	}
 
 	return c, nil
@@ -218,24 +212,4 @@ func addSortCondition(g *Grid, params string, c *sqlquery.Condition) error {
 	c.Order(orderFields...)
 
 	return nil
-}
-
-// addFilterCondition adds a where condition with the given params.
-// If the field is not allowed to filter or the field does not exist, an error will return.
-// If there are more than one argument, a WHERE IN (?) will be added.
-func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
-
-	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
-		args := strings.Split(params[0], ConditionSeparator)
-		if len(args) > 1 {
-			c.Where(field+" IN(?)", args)
-		}
-
-		if len(args) == 1 {
-			c.Where(field+" = ?", args[0])
-		}
-		return nil
-	}
-
-	return fmt.Errorf(errFilterPermission, field)
 }
