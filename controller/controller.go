@@ -194,6 +194,8 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqController := newController(c)
 	reqController.SetContext(context.New(r, w))
 
+	//c.Translate("XY")
+
 	// TODO defer c.displayError(newC.Context())
 	function, err := reqController.methodBy(reqController.Context().Request.Pattern(), r.Method)
 	if err == nil {

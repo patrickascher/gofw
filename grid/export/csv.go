@@ -24,7 +24,7 @@ func (cw *csvWriter) Name() string {
 }
 
 func (cw *csvWriter) Icon() string {
-	return "mdi-file-delimited"
+	return "mdi-file-delimited-outline"
 }
 
 func (cw *csvWriter) Write(r *context.Response) error {
@@ -36,6 +36,7 @@ func (cw *csvWriter) Write(r *context.Response) error {
 	r.Raw().Header().Set("Content-Disposition", "attachment; filename=\"export.csv\"")
 
 	w := csv.NewWriter(r.Raw())
+	w.Comma = 59 //;
 
 	header := r.Data("head").([]string)
 	data := r.Data("data")
