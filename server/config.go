@@ -22,6 +22,9 @@ type Config struct {
 }
 
 type Server struct {
+	Domain   string `json:"domain" validate:"required"`
+	Language string `json:"language" validate:"required"`
+	TimeZone string `json:"timezone" validate:"required"`
 	HTTPPort int    `json:"httpPort" validate:"required"`
 	AppPath  string `json:"appPath" validate:"required"`
 }
