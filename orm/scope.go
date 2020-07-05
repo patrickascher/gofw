@@ -37,6 +37,29 @@ func (scope Scope) Model() *Model {
 // Parent returns the parent model by name or the root parent if the name is empty.
 // The name must be the orm struct name incl. namespace.
 // Error will return if no parent exists or the given name does not exist.
+func (scope Scope) Parents() []string {
+	var rv []string
+	p := scope.model.parentModel
+	i := 0
+	for p != nil {
+		if i > 10 {
+			return nil
+		}
+		// return root parent
+		if p.parentModel == nil {
+			return rv
+		}
+
+		rv = append(rv, p.scope.Name(false))
+		p = p.parentModel
+		i++
+	}
+	return rv
+}
+
+// Parent returns the parent model by name or the root parent if the name is empty.
+// The name must be the orm struct name incl. namespace.
+// Error will return if no parent exists or the given name does not exist.
 func (scope Scope) Parent(name string) (*Model, error) {
 	p := scope.model.parentModel
 	i := 0

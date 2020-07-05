@@ -1,4 +1,4 @@
-package export
+package grid
 
 import (
 	"encoding/csv"
@@ -38,11 +38,15 @@ func (cw *csvWriter) Write(r *context.Response) error {
 	w := csv.NewWriter(r.Raw())
 	w.Comma = 59 //;
 
-	header := r.Data("head").([]string)
+	header := r.Data("head").([]Field)
 	data := r.Data("data")
 
 	//header
-	if err := w.Write(header); err != nil {
+	var headString []string
+	for _, head := range header {
+		headString = append(headString, head.Title())
+	}
+	if err := w.Write(headString); err != nil {
 		return err
 	}
 
@@ -53,9 +57,9 @@ func (cw *csvWriter) Write(r *context.Response) error {
 
 		for _, head := range header {
 			if rData.Index(i).Type().Kind().String() == "struct" {
-				body = append(body, fmt.Sprint(rData.Index(i).FieldByName(head).Interface()))
+				body = append(body, fmt.Sprint(rData.Index(i).FieldByName(head.id).Interface()))
 			} else {
-				body = append(body, fmt.Sprint(reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head)).Interface()))
+				body = append(body, fmt.Sprint(reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head.id)).Interface()))
 			}
 		}
 

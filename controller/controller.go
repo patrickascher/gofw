@@ -48,6 +48,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/locale"
 	"net/http"
 	"reflect"
 
@@ -78,6 +79,7 @@ type Controller struct {
 	cache         cache.Interface
 
 	actionName string
+	localizer  locale.LocalizerI
 }
 
 // Interface of the controller.
@@ -100,6 +102,10 @@ type Interface interface {
 	Redirect(status int, url string)
 	Name() string
 	Action() string
+
+	// Translation
+	T(string, ...map[string]interface{}) string
+	TP(string, int, ...map[string]interface{}) string
 
 	// internal helper
 	checkBrowserCancellation() bool
@@ -194,8 +200,6 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqController := newController(c)
 	reqController.SetContext(context.New(r, w))
 
-	//c.Translate("XY")
-
 	// TODO defer c.displayError(newC.Context())
 	function, err := reqController.methodBy(reqController.Context().Request.Pattern(), r.Method)
 	if err == nil {
@@ -245,6 +249,28 @@ func (c *Controller) ReadUserData(user interface{}) error {
 	reflect.ValueOf(user).Elem().Set(reflect.ValueOf(token).Elem())
 
 	return nil
+}
+
+func (c *Controller) T(name string, template ...map[string]interface{}) string {
+	l := c.Context().Request.Localizer()
+	if l == nil {
+		return name
+	}
+	if v, err := l.Translate(name, template...); err == nil {
+		return v
+	}
+	return "notTranslated:" + name
+}
+
+func (c *Controller) TP(name string, count int, template ...map[string]interface{}) string {
+	l := c.Context().Request.Localizer()
+	if l == nil {
+		return name
+	}
+	if v, err := l.TranslatePlural(name, count, template...); err == nil {
+		return v
+	}
+	return name
 }
 
 // newController creates a new instance of the controller itself.

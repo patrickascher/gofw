@@ -12,7 +12,9 @@ import (
 )
 
 // BATCH - default value for batching the insert stmt.
-const BATCH = 50
+// TODO bug when batching only working if it exactly matches the value otherwise sql  expected 300 arguments, got 18 error
+// TODO to fix this, we have to add a stmt as slice.
+const BATCH = 200
 
 // Insert type.
 type Insert struct {

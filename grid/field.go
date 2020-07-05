@@ -9,6 +9,7 @@ import (
 var errFieldNotFound = "grid: field %s was not found"
 
 type Field struct {
+	grid *Grid
 	mode int
 	// Struct field name or json name if defined.
 	id string
@@ -203,7 +204,7 @@ func (f *Field) SetTitle(title interface{}) *Field {
 }
 
 func (f Field) Title() string {
-	return f._title[f.mode]
+	return f.grid.controller.T(f._title[f.mode])
 }
 
 func (f *Field) SetDescription(description interface{}) *Field {
@@ -342,6 +343,7 @@ func setFieldModeRecursively(g *Grid, fields []Field) {
 
 	// recursively add mode
 	for k, f := range fields {
+		fields[k].grid = g
 		fields[k].mode = mode
 		if g.config.Policy == 1 {
 			fields[k].SetRemove(true)

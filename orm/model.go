@@ -61,7 +61,8 @@ const (
 )
 
 var (
-	validate *valid.Validate
+	validate         *valid.Validate
+	registeredModels []Interface
 )
 
 var (
@@ -77,11 +78,17 @@ var (
 )
 
 func init() {
-
 	// global validator
 	validate = valid.New()
 	validate.SetTagName(TagValidate)
 	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullBool{}, NullString{}, NullTime{})
+}
+
+func RegisterModels(model ...Interface) {
+	registeredModels = append(registeredModels, model...)
+}
+func RegisteredModels() []Interface {
+	return registeredModels
 }
 
 type Interface interface {

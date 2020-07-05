@@ -10,6 +10,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,6 +86,21 @@ func (m *memory) Get(key string) (cm.Valuer, error) {
 	return nil, fmt.Errorf(ErrKeyNotExist.Error(), key)
 }
 
+// GetPrefixed returns all items of the cache as map.
+func (m *memory) GetPrefixed(prefix string) map[string]cm.Valuer {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	rv := make(map[string]cm.Valuer, 0)
+	for k, item := range m.items {
+		if strings.HasPrefix(k, prefix) {
+			rv[k] = item
+		}
+	}
+
+	return rv
+}
+
 // GetAll returns all items of the cache as map.
 func (m *memory) GetAll() map[string]cm.Valuer {
 	m.mutex.RLock()
@@ -135,6 +151,17 @@ func (m *memory) DeleteAll() error {
 
 	m.items = make(map[string]cm.Valuer)
 
+	return nil
+}
+
+func (m *memory) DeletePrefixed(prefix string) error {
+	items := m.GetPrefixed(prefix)
+	for k := range items {
+		err := m.Delete(k)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

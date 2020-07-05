@@ -7,6 +7,7 @@ package context
 import (
 	"errors"
 	"fmt"
+	"github.com/patrickascher/gofw/locale"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -22,15 +23,26 @@ var ErrParameter = errors.New("controller/request: the parameter %#v does not ex
 
 // Request struct.
 type Request struct {
-	raw    *http.Request
-	params map[string][]string
-	files  map[string][]*multipart.FileHeader
-	ua     UserAgent
+	raw       *http.Request
+	params    map[string][]string
+	files     map[string][]*multipart.FileHeader
+	ua        UserAgent
+	localizer locale.LocalizerI
 }
 
 // newRequest initialization the Request struct.
 func newRequest(raw *http.Request) *Request {
-	return &Request{raw: raw}
+	r := &Request{raw: raw}
+	// TODO
+	lang := raw.Header.Get("Accept-Language")
+	fmt.Println(lang)
+
+	r.localizer, _ = locale.NewLocalizer(lang)
+	return r
+}
+
+func (req *Request) Localizer() locale.LocalizerI {
+	return req.localizer
 }
 
 // Pattern returns the router url pattern.

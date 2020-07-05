@@ -1,4 +1,4 @@
-package export
+package grid
 
 import (
 	"fmt"
@@ -36,7 +36,7 @@ func (pw *pdfWriter) Write(r *context.Response) error {
 	r.Raw().Header().Set("Content-Type", "application/pdf")
 	r.Raw().Header().Set("Content-Disposition", "attachment; filename=\"export.pdf\"")
 
-	header := r.Data("head").([]string)
+	header := r.Data("head").([]Field)
 	data := r.Data("data")
 
 	// pdf general options
@@ -58,7 +58,7 @@ func (pw *pdfWriter) Write(r *context.Response) error {
 	pdf.SetFont("Times", "B", fontSize)
 	pdf.SetFillColor(240, 240, 240)
 	for _, head := range header {
-		pdf.CellFormat(cellWidth, cellHeight, head, "1", 0, "", true, 0, "")
+		pdf.CellFormat(cellWidth, cellHeight, head.Title(), "1", 0, "", true, 0, "")
 	}
 	pdf.Ln(-1)
 
@@ -70,9 +70,9 @@ func (pw *pdfWriter) Write(r *context.Response) error {
 		for _, head := range header {
 			var body string
 			if rData.Index(i).Type().Kind().String() == "struct" {
-				body = fmt.Sprint(rData.Index(i).FieldByName(head).Interface())
+				body = fmt.Sprint(rData.Index(i).FieldByName(head.id).Interface())
 			} else {
-				body = fmt.Sprint(reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head)).Interface())
+				body = fmt.Sprint(reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head.id)).Interface())
 			}
 			pdf.CellFormat(cellWidth, cellHeight, body, "1", 0, "", true, 0, "")
 		}

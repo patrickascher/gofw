@@ -1,7 +1,6 @@
-package export
+package grid
 
 import (
-	"fmt"
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"github.com/patrickascher/gofw/controller/context"
 	"reflect"
@@ -38,18 +37,17 @@ func (ew *excelWriter) Write(r *context.Response) error {
 	// Create a new sheet.
 	index := f.NewSheet(worksheet)
 
-	header := r.Data("head").([]string)
+	header := r.Data("head").([]Field)
 	data := r.Data("data")
 
 	// adding header data
 	i := 1
-	fmt.Println(header)
 	for _, head := range header {
 		cell, err := excelize.CoordinatesToCellName(i, 1)
 		if err != nil {
 			return err
 		}
-		err = f.SetCellValue(worksheet, cell, head)
+		err = f.SetCellValue(worksheet, cell, head.Title())
 		if err != nil {
 			return err
 		}
@@ -69,9 +67,9 @@ func (ew *excelWriter) Write(r *context.Response) error {
 
 			var value interface{}
 			if rData.Index(i).Type().Kind().String() == "struct" {
-				value = rData.Index(i).FieldByName(head).Interface()
+				value = rData.Index(i).FieldByName(head.id).Interface()
 			} else {
-				value = reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head)).Interface()
+				value = reflect.ValueOf(rData.Index(i).Interface()).MapIndex(reflect.ValueOf(head.id)).Interface()
 			}
 
 			// excel only allows UTC times.
@@ -95,7 +93,7 @@ func (ew *excelWriter) Write(r *context.Response) error {
 	err := f.Write(r.Raw())
 
 	f = nil
-	header = make([]string, 0)
+	header = make([]Field, 0)
 	data = make([]interface{}, 0)
 
 	return err

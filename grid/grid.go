@@ -6,7 +6,6 @@ import (
 	"github.com/patrickascher/gofw/cache"
 	"github.com/patrickascher/gofw/controller"
 	"github.com/patrickascher/gofw/controller/context"
-	_ "github.com/patrickascher/gofw/grid/export"
 	"github.com/patrickascher/gofw/server"
 	"github.com/patrickascher/gofw/sqlquery"
 	"net/http"
@@ -567,7 +566,7 @@ func (g *Grid) Render() {
 			g.controller.Error(500, fmt.Errorf(errWrapper, err))
 			return
 		}
-		g.controller.Set("head", FieldsToString(g.sortFields()))
+		g.controller.Set("head", g.sortFields())
 
 		values, err := g.src.All(c, g)
 		if err != nil {

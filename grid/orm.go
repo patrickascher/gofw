@@ -368,7 +368,7 @@ func gridFields(scope *orm.Scope, g *Grid, parent string) ([]Field, error) {
 		field.SetPrimary(f.Information.PrimaryKey)
 		field.SetDatabaseId(f.Information.Table + "." + f.Information.Name)
 		field.SetFieldType(f.Information.Type.Kind())
-		field.SetTitle(f.Name)
+		field.SetTitle("ORM§§" + scope.Name(true) + "§§" + f.Name)
 		//field.SetDescription(grid.NewValue(""))
 		field.SetPosition(i)
 		field.SetRemove(false)
@@ -455,7 +455,8 @@ func gridFields(scope *orm.Scope, g *Grid, parent string) ([]Field, error) {
 			continue
 		}
 		field.SetFieldType(r.Kind)
-		field.SetTitle(r.Field)
+		field.SetTitle("ORM§§" + scope.Name(true) + "§§" + r.Field)
+
 		//field.SetDescription(g.NewValue(""))
 		field.SetPosition(i)
 		field.SetRemove(false)

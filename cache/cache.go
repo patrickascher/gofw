@@ -37,6 +37,8 @@ type Interface interface {
 	Get(key string) (Valuer, error)
 	// GetAll returns all existing Valuer as map.
 	GetAll() map[string]Valuer
+	// GetAll returns all existing Valuer as map.
+	GetPrefixed(string) map[string]Valuer
 	// Set a value by its key and lifetime.
 	// If a value should not get deleted, cache.INFINITY can be used as time.Duration.
 	Set(key string, value interface{}, ttl time.Duration) error
@@ -46,6 +48,7 @@ type Interface interface {
 	Delete(key string) error
 	// DeleteAll values of the cache provider.
 	DeleteAll() error
+	DeletePrefixed(string) error
 	// GC will spawn the garbage collector in a goroutine.
 	// If your cache provider has its own gc (redis, memcached, ...) just return void in this method.
 	GC()
