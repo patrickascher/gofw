@@ -124,11 +124,11 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 				case "IN", "NOT IN":
 					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(f.Value, ","))
 				case "Like":
-					c.Where(gridField.referenceId+" LIKE %?%", f.Value)
+					c.Where(gridField.referenceId+" LIKE ?", "%"+f.Value+"%")
 				case "RLike":
-					c.Where(gridField.referenceId+" LIKE %?", f.Value)
+					c.Where(gridField.referenceId+" LIKE ?%", f.Value+"%")
 				case "LLike":
-					c.Where(gridField.referenceId+" LIKE ?%", f.Value)
+					c.Where(gridField.referenceId+" LIKE %?", "%"+f.Value)
 				default:
 					return nil, fmt.Errorf(errFilterPermission, f.Key)
 				}
@@ -178,9 +178,37 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 				return nil, err
 			}
 		}
+		if strings.HasPrefix(key, ConditionFilterPrefix) {
+			err := addFilterCondition(g, key[len(ConditionFilterPrefix):], param, c)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return c, nil
+}
+
+// addFilterCondition adds a where condition with the given params.
+// If the field is not allowed to filter or the field does not exist, an error will return.
+// If there are more than one argument, a WHERE IN (?) will be added.
+func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
+
+	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
+		args := strings.Split(params[0], ConditionSeparator)
+		if len(args) > 1 {
+			c.Where(field+" IN(?)", args)
+		}
+
+		if len(args) == 1 {
+			c.Where(field+" LIKE ?", args[0]+"%")
+		}
+
+		fmt.Println("--->", field, args, args[0])
+		return nil
+	}
+
+	return fmt.Errorf(errFilterPermission, field)
 }
 
 // addSortCondition adds an order by condition with the given params.
