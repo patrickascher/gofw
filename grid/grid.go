@@ -421,6 +421,13 @@ func (g *Grid) Render() {
 
 		// Grid header fields
 		if g.controller.Context().Request.IsGet() && errParam != nil {
+			rawTranslations := Translations("Filter", "Name", "GroupBy", "Sort", "Fields", "RowsPerPage", "EditFilter", "Save", "Close", "Delete", "NoData", "NoChanges", "NotValid")
+			translations := make(map[string]string, len(rawTranslations))
+			for _, t := range rawTranslations {
+				translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)
+			}
+			g.controller.Set("translations", translations)
+
 			g.controller.Set("head", g.sortFields())
 			return
 		}
@@ -600,6 +607,14 @@ func (g *Grid) Render() {
 		if _, err := g.controller.Context().Request.Param("noheader"); err != nil {
 			g.controller.Set("head", g.sortFields())
 			g.controller.Set("pagination", pagination)
+
+			// translations
+			rawTranslations := Translations("Add", "AddEdit", "Export", "Filter", "Hide", "Show", "LoadingData", "NoData", "QuickFilter", "RowsPerPage", "XofY")
+			translations := make(map[string]string, len(rawTranslations))
+			for _, t := range rawTranslations {
+				translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)
+			}
+			g.controller.Set("translations", translations)
 		}
 
 		values, err := g.src.All(c, g)
@@ -625,6 +640,13 @@ func (g *Grid) Render() {
 			return
 		}
 
+		// translations
+		rawTranslations := Translations("Save", "Back", "NoData", "NoChanges", "NotValid", "Loading")
+		translations := make(map[string]string, len(rawTranslations))
+		for _, t := range rawTranslations {
+			translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)
+		}
+		g.controller.Set("translations", translations)
 		g.controller.Set("head", g.sortFields())
 
 		c, err := g.conditionFirst()
@@ -646,6 +668,13 @@ func (g *Grid) Render() {
 		g.controller.Set("data", values)
 		return
 	case VCreate:
+		// translations
+		rawTranslations := Translations("Save", "Back", "NoData", "NoChanges", "NotValid", "Loading")
+		translations := make(map[string]string, len(rawTranslations))
+		for _, t := range rawTranslations {
+			translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)
+		}
+		g.controller.Set("translations", translations)
 		g.controller.Set("head", g.sortFields())
 		return
 	case CALLBACK:

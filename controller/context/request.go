@@ -33,9 +33,13 @@ type Request struct {
 // newRequest initialization the Request struct.
 func newRequest(raw *http.Request) *Request {
 	r := &Request{raw: raw}
-	// TODO
+
 	lang := raw.Header.Get("Accept-Language")
-	fmt.Println(lang)
+	if lang == "" { // TODO get server default?
+		lang = "en"
+	}
+
+	fmt.Println("lang", lang)
 
 	r.localizer, _ = locale.NewLocalizer(lang)
 	return r

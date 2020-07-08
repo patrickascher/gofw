@@ -16,6 +16,34 @@ func init() {
 	_ = locale.Register(DB, newDB)
 }
 
+func ConvertI18nMessage(ia8nMessage i18n.Message) Message {
+	msg := Message{MessageID: ia8nMessage.ID}
+
+	if ia8nMessage.Description != "" {
+		msg.Description = orm.NewNullString(ia8nMessage.Description)
+	}
+	if ia8nMessage.Zero != "" {
+		msg.Zero = orm.NewNullString(ia8nMessage.Zero)
+	}
+	if ia8nMessage.One != "" {
+		msg.One = orm.NewNullString(ia8nMessage.One)
+	}
+	if ia8nMessage.Two != "" {
+		msg.Two = orm.NewNullString(ia8nMessage.Two)
+	}
+	if ia8nMessage.Few != "" {
+		msg.Few = orm.NewNullString(ia8nMessage.Few)
+	}
+	if ia8nMessage.Many != "" {
+		msg.Many = orm.NewNullString(ia8nMessage.Many)
+	}
+	if ia8nMessage.Other != "" {
+		msg.Other = orm.NewNullString(ia8nMessage.Other)
+	}
+
+	return msg
+}
+
 func convertDBMessage(message Message) *i18n.Message {
 	ia8nMessage := i18n.Message{ID: message.MessageID}
 	if message.Description.Valid {
