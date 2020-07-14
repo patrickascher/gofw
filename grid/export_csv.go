@@ -38,7 +38,14 @@ func (cw *csvWriter) Write(r *context.Response) error {
 	w := csv.NewWriter(r.Raw())
 	w.Comma = 59 //;
 
-	header := r.Data("head").([]Field)
+	var header []Field
+	for _, h := range r.Data("head").([]Field) {
+		if h.IsRemoved() {
+			continue
+		}
+		header = append(header, h)
+	}
+
 	data := r.Data("data")
 
 	//header

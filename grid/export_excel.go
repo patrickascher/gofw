@@ -37,7 +37,13 @@ func (ew *excelWriter) Write(r *context.Response) error {
 	// Create a new sheet.
 	index := f.NewSheet(worksheet)
 
-	header := r.Data("head").([]Field)
+	var header []Field
+	for _, h := range r.Data("head").([]Field) {
+		if h.IsRemoved() {
+			continue
+		}
+		header = append(header, h)
+	}
 	data := r.Data("data")
 
 	// adding header data

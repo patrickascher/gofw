@@ -36,7 +36,13 @@ func (pw *pdfWriter) Write(r *context.Response) error {
 	r.Raw().Header().Set("Content-Type", "application/pdf")
 	r.Raw().Header().Set("Content-Disposition", "attachment; filename=\"export.pdf\"")
 
-	header := r.Data("head").([]Field)
+	var header []Field
+	for _, h := range r.Data("head").([]Field) {
+		if h.IsRemoved() {
+			continue
+		}
+		header = append(header, h)
+	}
 	data := r.Data("data")
 
 	// pdf general options
