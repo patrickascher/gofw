@@ -78,7 +78,7 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 		sqlquery.Raw("''"), // DATA_DEFAULT - default was deleted because there are some major memory leaks with that. dont need defaults at the moment. fix: switch driver?
 		"CHAR_LENGTH",
 		sqlquery.Raw("'FALSE' as \"autoincrement\""),
-	).Where("table_name = ?", table)
+	).Where("table_name = ?", table).Order("COLUMN_ID")
 
 	if len(columns) > 0 {
 		sel.Where("COLUMN_NAME IN (?)", columns)

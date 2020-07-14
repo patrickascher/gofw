@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	ConditionSeparator    = ","
-	ConditionFilterPrefix = "filter_"
+	ConditionFilterSeparator = ";"
+	ConditionSeparator       = ","
+	ConditionFilterPrefix    = "filter_"
 )
 
 var (
@@ -195,7 +196,7 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
 
 	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
-		args := strings.Split(params[0], ConditionSeparator)
+		args := strings.Split(params[0], ConditionFilterSeparator)
 		if len(args) > 1 {
 			c.Where(field+" IN(?)", args)
 		}
@@ -204,7 +205,6 @@ func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Cond
 			c.Where(field+" LIKE ?", args[0]+"%")
 		}
 
-		fmt.Println("--->", field, args, args[0])
 		return nil
 	}
 
