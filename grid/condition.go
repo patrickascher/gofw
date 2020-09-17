@@ -124,9 +124,18 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 		}
 
 		// Add filters
+		//TODO Mysql,Oracle have different ways to add/sub dates. create a driver based date function.
 		for _, f := range uFilter.Filters {
 			if gridField := g.Field(f.Key); gridField.error == nil && gridField.IsFilterable() {
 				switch f.Op {
+				case "TODAY":
+					c.Where(gridField.referenceId + " >= SYSDATE")
+				case "LAST 7 DAYS":
+					c.Where(gridField.referenceId + " >= SYSDATE - 7")
+				case "LAST 30 DAYS":
+					c.Where(gridField.referenceId + " >= SYSDATE - 30")
+				case "LAST 365 DAYS":
+					c.Where(gridField.referenceId + " >= SYSDATE - 365")
 				case "=", ">=", "<=":
 					c.Where(gridField.referenceId+" "+f.Op+" ?", escape(f.Value))
 				case "IN", "NOT IN":
