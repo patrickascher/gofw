@@ -65,6 +65,13 @@ func (g *Grid) conditionFirst() (*sqlquery.Condition, error) {
 	return c, nil
 }
 
+// escape is needed to escape the % and _ for sql.
+// at the moment it will only be prefixed with a backslash.
+// TODO for the future every driver should have his own escaping function.
+func escape(v string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(v, "%", "\\%"), "_", "\\_")
+}
+
 // conditionAll return a condtion for the grid table view.
 // if a grid src.condition exists, its getting passed through.
 // sort and filter params are checked. (sort=ID,-Name) (filter_ID=1&filter_Name=Patrick,Tom)
@@ -121,17 +128,17 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 			if gridField := g.Field(f.Key); gridField.error == nil && gridField.IsFilterable() {
 				switch f.Op {
 				case "=", ">=", "<=":
-					c.Where(gridField.referenceId+" "+f.Op+" ?", f.Value)
+					c.Where(gridField.referenceId+" "+f.Op+" ?", escape(f.Value))
 				case "IN", "NOT IN":
-					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(f.Value, ","))
+					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(escape(f.Value), ConditionFilterSeparator))
 				case "Like":
-					c.Where(gridField.referenceId+" LIKE ?", "%"+f.Value+"%")
+					c.Where(gridField.referenceId+" LIKE ?", "%"+escape(f.Value+"%"))
 				case "RLike":
-					c.Where(gridField.referenceId+" LIKE ?%", f.Value+"%")
+					c.Where(gridField.referenceId+" LIKE ?", escape(f.Value+"%"))
 				case "LLike":
-					c.Where(gridField.referenceId+" LIKE %?", "%"+f.Value)
+					c.Where(gridField.referenceId+" LIKE ?", "%"+escape(f.Value))
 				default:
-					return nil, fmt.Errorf(errFilterPermission, f.Key)
+					return nil, fmt.Errorf(errFilterPermission, escape(f.Key))
 				}
 			} else {
 				return nil, fmt.Errorf(errFilterPermission, f.Key)
@@ -196,7 +203,7 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
 
 	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
-		args := strings.Split(params[0], ConditionFilterSeparator)
+		args := strings.Split(escape(params[0]), ConditionFilterSeparator)
 		if len(args) > 1 {
 			c.Where(field+" IN(?)", args)
 		}
