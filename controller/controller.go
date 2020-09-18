@@ -259,7 +259,7 @@ func (c *Controller) T(name string, template ...map[string]interface{}) string {
 	if v, err := l.Translate(name, template...); err == nil {
 		return v
 	}
-	return "notTranslated:" + name
+	return name
 }
 
 func (c *Controller) TP(name string, count int, template ...map[string]interface{}) string {

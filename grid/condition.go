@@ -218,7 +218,7 @@ func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Cond
 		}
 
 		if len(args) == 1 {
-			c.Where(field+" LIKE ?", args[0]+"%")
+			c.Where(field+" LIKE ?", "%"+args[0]+"%")
 		}
 
 		return nil
