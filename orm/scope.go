@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/patrickascher/gofw/sqlquery"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -82,6 +83,11 @@ func (scope Scope) Parent(name string) (*Model, error) {
 }
 
 // SetParent adds a parent link.
+func (scope Scope) Snapshot() Interface {
+	return scope.model.modelSnapshot
+}
+
+// SetParent adds a parent link.
 func (scope Scope) SetParent(m *Model) {
 	scope.model.parentModel = m
 }
@@ -152,6 +158,14 @@ func SetReflectValue(field reflect.Value, value reflect.Value) error {
 				}
 				value = reflect.ValueOf(vv)
 			}
+		}
+		// int mapping, create a better solution
+		if field.Kind() == reflect.Int && value.Kind() == reflect.String {
+			v, err := strconv.Atoi(value.Interface().(string))
+			if err != nil {
+				return err
+			}
+			value = reflect.ValueOf(v)
 		}
 		// int mapping, create a better solution
 		if field.Kind() == reflect.Int && value.Kind() == reflect.Int64 {

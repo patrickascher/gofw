@@ -73,6 +73,7 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 		"COLUMN_ID",
 		sqlquery.Raw("case when NULLABLE='Y' THEN 'TRUE' ELSE 'FALSE' END AS \"N\""),
 		sqlquery.Raw("'FALSE' AS \"K\""),
+		sqlquery.Raw("'FALSE' AS \"U\""),
 		"DATA_TYPE",
 		sqlquery.Raw("''"), // DATA_DEFAULT - default was deleted because there are some major memory leaks with that. dont need defaults at the moment. fix: switch driver?
 		"CHAR_LENGTH",
@@ -100,7 +101,7 @@ func (o *oracle) Describe(b *sqlquery.Builder, db string, table string, columns 
 		c.Table = table // adding Table info
 
 		var t string
-		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
+		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &c.Unique, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
 			return nil, err
 		}
 

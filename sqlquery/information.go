@@ -23,6 +23,7 @@ type Column struct {
 	Position      int
 	NullAble      bool
 	PrimaryKey    bool
+	Unique        bool
 	Type          types.Interface
 	DefaultValue  sql.NullString
 	Length        sql.NullInt64

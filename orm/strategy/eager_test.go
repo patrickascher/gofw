@@ -12,7 +12,7 @@ import (
 
 // this is copied of model_test
 func truncate(ormI orm.Interface) error {
-	b := ormI.DefaultBuilder()
+	b, _ := ormI.DefaultBuilder()
 
 	// owner belongsTo
 	_, err := b.Delete("owners").Exec()

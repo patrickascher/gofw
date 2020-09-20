@@ -42,6 +42,10 @@ func (g *gridSource) Fields(grid *Grid) ([]Field, error) {
 	return gridFields(g.orm.Scope(), grid, "")
 }
 
+func (g *gridSource) Data() interface{} {
+	return g.orm
+}
+
 // UpdatedFields is called before grid.Render to update the entered user config to the grid.
 func (g *gridSource) UpdatedFields(gr *Grid) error {
 	if gr.Mode() != CALLBACK && gr.Mode() != DELETE {
@@ -66,7 +70,30 @@ func (g *gridSource) UpdatedFields(gr *Grid) error {
 // At the moment FeSelect is implemented for all select fields.
 // select OrmField is used because it can differ from the called select field. TODO simplify, use one version link or Field.
 func (g *gridSource) Callback(callback string, gr *Grid) (interface{}, error) {
-
+	if callback == FeUnique {
+		selectField, err := gr.Controller().Context().Request.Param("f")
+		if err != nil {
+			return nil, err
+		}
+		value, err := gr.Controller().Context().Request.Param("v")
+		if err != nil {
+			return nil, err
+		}
+		// set all primary keys
+		for _, pk := range g.orm.Scope().PrimaryKeysFieldName() {
+			value, err := gr.Controller().Context().Request.Param(pk)
+			if err != nil {
+				return nil, err
+			}
+			err = orm.SetReflectValue(g.orm.Scope().CallerField(pk), reflect.ValueOf(value[0]))
+			if err != nil {
+				return nil, err
+			}
+		}
+		g.orm.Scope().CallerField(selectField[0]).Set(reflect.ValueOf(value[0]))
+		fl := orm.OrmToFieldLevel(selectField[0], g.orm.Scope().Caller())
+		return orm.ValidateUnique(fl), nil
+	}
 	if callback == FeSelect {
 		selectField, err := gr.Controller().Context().Request.Param("f")
 		if err != nil {

@@ -1,8 +1,10 @@
 package orm
 
 import (
+	"database/sql"
 	driverI "database/sql/driver"
 	"fmt"
+	"github.com/patrickascher/gofw/sqlquery"
 	"reflect"
 	"sort"
 	"strings"
@@ -162,7 +164,12 @@ func (m *Model) addDBValidation() error {
 			//TODO write own
 		case "Select":
 			opt := f.Information.Type.(types.Select)
-			f.Validator.appendConfig(fmt.Sprintf("oneof=%s", strings.Join(opt.Items(), " ")))
+			f.Validator.appendConfig(fmt.Sprintf("oneof='%s'", strings.Join(opt.Items(), "' '")))
+		}
+
+		// unique validator
+		if f.Information.Unique {
+			f.Validator.appendConfig("unique")
 		}
 
 		// required if null is not allowed and its not an autoincrement column
@@ -187,12 +194,23 @@ func (m *Model) isValid() error {
 
 	// checking all fields (exclusive relations) for system added validation (not per tag)
 	for _, f := range m.scope.Fields(writePerm) {
+
 		err := validate.Var(m.scope.CallerField(f.Name).Interface(), f.Validator.Config)
 		if err != nil {
 			for _, vErr := range err.(valid.ValidationErrors) {
 				return fmt.Errorf(errValidation, m.scope.Name(true), f.Name, vErr.ActualTag(), vErr.Param(), vErr.Value())
 			}
 		}
+
+		// special case for unique, because we need the struct data
+
+		if strings.Contains(f.Validator.Config, "unique") {
+			fl := OrmToFieldLevel(f.Name, m.scope.Caller())
+			if !ValidateUnique(fl) {
+				return fmt.Errorf("orm: field %s must be unique", f.Name)
+			}
+		}
+
 	}
 
 	// check all the whole struct (incl relations). in that case relations are included and dive validation is working.
@@ -219,4 +237,91 @@ func ValidateValuer(field reflect.Value) interface{} {
 		}
 	}
 	return nil
+}
+
+// noDbEntryExists checks if the entered value already exists in the database.
+// The Parameter "exclude" can be used to automatically exclude the actual primary key(s).
+func ValidateUnique(fl valid.FieldLevel) bool {
+
+	// the orm is checking isValid twice. First only the fields and then the whole struct.
+	// the single field does not have all needed informations, so we are skipping it.
+	if fl.Top().Type().Kind() == reflect.String {
+		return true
+	}
+
+	// get the casted orm struct
+	orm := fl.Top().Interface().(Interface)
+
+	// create the condition with the field and value
+	c := sqlquery.NewCondition()
+	c.Where(fl.StructFieldName()+" = ?", orm.Scope().CallerField(fl.StructFieldName()).Interface())
+
+	// exclude the current entry by primary keys, if all of them are set.
+	if orm.Scope().PrimariesSet() {
+		pkeys := orm.Scope().PrimaryKeysFieldName()
+		for _, pk := range pkeys {
+			c.Where(pk+" != ?", orm.Scope().CallerField(pk).Interface())
+		}
+	}
+	fmt.Println("WHEREEEE", c.Config(true, sqlquery.WHERE))
+	// create a copy of the orm to request the database table and return true if there is no result.
+	ormCopy := reflect.New(fl.Top().Type().Elem()).Interface().(Interface)
+	err := ormCopy.Init(ormCopy)
+	ormCopy.SetWBList(WHITELIST, fl.StructFieldName())
+	if err != nil {
+		return false
+	}
+	err = ormCopy.First(c)
+	if err == sql.ErrNoRows {
+		return true
+	}
+
+	return false
+}
+
+func OrmToFieldLevel(field string, orm Interface) valid.FieldLevel {
+	fl := fieldLevel{field: field, orm: orm}
+	return &fl
+}
+
+type fieldLevel struct {
+	field string
+	orm   Interface
+}
+
+func (f *fieldLevel) Top() reflect.Value {
+	return reflect.ValueOf(f.orm)
+}
+func (f *fieldLevel) Parent() reflect.Value {
+	return reflect.Value{}
+}
+func (f *fieldLevel) Field() reflect.Value {
+	return reflect.Value{}
+}
+func (f *fieldLevel) FieldName() string {
+	return f.field
+}
+func (f *fieldLevel) StructFieldName() string {
+	return f.field
+}
+func (f *fieldLevel) Param() string {
+	return ""
+}
+func (f *fieldLevel) GetTag() string {
+	return ""
+}
+func (f *fieldLevel) ExtractType(field reflect.Value) (value reflect.Value, kind reflect.Kind, nullable bool) {
+	return reflect.Value{}, 0, false
+}
+func (f *fieldLevel) GetStructFieldOK() (reflect.Value, reflect.Kind, bool) {
+	return reflect.Value{}, 0, false
+}
+func (f *fieldLevel) GetStructFieldOKAdvanced(val reflect.Value, namespace string) (reflect.Value, reflect.Kind, bool) {
+	return reflect.Value{}, 0, false
+}
+func (f *fieldLevel) GetStructFieldOK2() (reflect.Value, reflect.Kind, bool, bool) {
+	return reflect.Value{}, 0, false, false
+}
+func (f *fieldLevel) GetStructFieldOKAdvanced2(val reflect.Value, namespace string) (reflect.Value, reflect.Kind, bool, bool) {
+	return reflect.Value{}, 0, false, false
 }

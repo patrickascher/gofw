@@ -87,7 +87,7 @@ func Reload() (err error) {
 // CreateLocalizer create localizer object to generate text messages.
 func NewLocalizer(lang ...string) (LocalizerI, error) {
 	if bundle == nil || len(lang) == 0 || lang[0] == "" || bundleData == nil {
-		return nil, errors.New("global bundle ord language is not defined")
+		return nil, errors.New("global bundle or language is not defined")
 	}
 	l := i18n.NewLocalizer(bundleData, lang...)
 	v := &localizer{localizer: l}

@@ -28,10 +28,12 @@ const (
 )
 
 var (
-	errDBColumn   = "orm: column %s does not exist table %s"
-	errDbSync     = errors.New("orm: database is not in sync with the struct")
-	errPrimaryKey = "orm: no primary key or ID FIELD is set in  %s"
-	errNullField  = "orm: db: \"%s\" column: \"%s\" is null able but field \"%s\" does not implement the sql.Scanner interface"
+	errDBColumn           = "orm: column %s does not exist table %s"
+	errDbSync             = errors.New("orm: database is not in sync with the struct")
+	errPrimaryKey         = "orm: no primary key or ID FIELD is set in  %s"
+	errSoftDelete         = "orm: the soft delete field %s does not exists in the orm %s"
+	errSoftDeleteDatabase = "orm: the soft delete field %s does not exists in the db table %s"
+	errNullField          = "orm: db: \"%s\" column: \"%s\" is null able but field \"%s\" does not implement the sql.Scanner interface"
 )
 
 // Field is holding some struct field information.
@@ -75,17 +77,38 @@ func (m *Model) createFields() error {
 		m.fields = append(m.fields, f)
 	}
 
+	// check if soft deleting field exists
+	err := m.checkSoftDeleteField()
+	if err != nil {
+		return err
+	}
+
 	// check if at least one primary key is set.
 	// this is checked before describe fields, because it checks if the Field ID exists or the user used the primary tag.
 	// after that its compared to the database.
 	// Permission.internal is set to true
-	err := m.checkPrimaryKey()
+	err = m.checkPrimaryKey()
 	if err != nil {
 		return err
 	}
 
 	// check if the fields exist in the database table.
 	return m.describeFields()
+}
+
+func (m *Model) checkSoftDeleteField() error {
+	f, _, _ := m.caller.SoftDelete()
+	exists := false
+	for k, _ := range m.fields {
+		if m.fields[k].Name == f {
+			m.softDeleteField = &m.fields[k]
+			exists = true
+		}
+	}
+	if !exists {
+		return fmt.Errorf(errSoftDelete, f, m.modelName(true))
+	}
+	return nil
 }
 
 // checkPrimaryKey is testing if a user primary key was set.
@@ -180,9 +203,20 @@ Columns:
 
 		// if the predefined time fields does not exist in the database, delete it of the fields list.
 		if m.fields[i].Information.Name == "created_at" || m.fields[i].Information.Name == "updated_at" || m.fields[i].Information.Name == "deleted_at" {
+			// deleting the softDelete Field if the default DeletedAt field does not exist in the database
+			// no error is shown to the user because this field is set as default with every model. Only
+			// user defined fields will throw an error.
+			if m.fields[i].Information.Name == "deleted_at" && m.softDeleteField != nil && m.softDeleteField.Information.Name == "deleted_at" {
+				m.softDeleteField = nil
+			}
 			m.fields = append(m.fields[:i], m.fields[i+1:]...)
 			i--
 			continue
+		}
+
+		// return error if the user defined soft delete field does not exist in the database table.
+		if m.softDeleteField != nil && m.fields[i].Information.Name == m.softDeleteField.Information.Name {
+			return fmt.Errorf(errSoftDeleteDatabase, m.fields[i].Name, m.caller.DefaultTableName())
 		}
 
 		return fmt.Errorf(errDBColumn, m.fields[i].Name, m.caller.DefaultTableName()+"."+m.fields[i].Information.Name)

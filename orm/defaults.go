@@ -14,6 +14,12 @@ import (
 // is used for self referencing m2m relations.
 const defaultSelfReferenceAssociationForeignKey = "child_id"
 
+// SoftDelete returns the configured schema of the builder.
+// if the activeValue is nil it will perform a "IS NULL" otherwise it will perform a NOT IN
+func (m Model) SoftDelete() (field string, deleteValue interface{}, activeValue []string) {
+	return "DeletedAt", time.Now(), nil
+}
+
 // DefaultSchemaName returns the configured schema of the builder.
 func (m Model) DefaultSchemaName() string {
 	return m.builder.Config().Schema

@@ -39,8 +39,6 @@ func newRequest(raw *http.Request) *Request {
 		lang = "en"
 	}
 
-	fmt.Println("lang", lang)
-
 	r.localizer, _ = locale.NewLocalizer(lang)
 	return r
 }

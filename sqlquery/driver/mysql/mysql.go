@@ -77,6 +77,7 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 		"c.ORDINAL_POSITION",
 		sqlquery.Raw("IF(c.IS_NULLABLE='YES','TRUE','FALSE') AS N"),
 		sqlquery.Raw("IF(COLUMN_KEY='PRI','TRUE','FALSE') AS K"),
+		sqlquery.Raw("IF(COLUMN_KEY='UNI','TRUE','FALSE') AS U"),
 		"c.COLUMN_TYPE",
 		"c.COLUMN_DEFAULT",
 		"c.CHARACTER_MAXIMUM_LENGTH",
@@ -103,7 +104,7 @@ func (m *mysql) Describe(b *sqlquery.Builder, db string, table string, columns [
 		c.Table = table // adding Table info
 
 		var t string
-		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
+		if err := rows.Scan(&c.Name, &c.Position, &c.NullAble, &c.PrimaryKey, &c.Unique, &t, &c.DefaultValue, &c.Length, &c.Autoincrement); err != nil {
 			return nil, err
 		}
 		c.Type = m.TypeMapping(t, c)

@@ -82,6 +82,7 @@ func init() {
 	validate = valid.New()
 	validate.SetTagName(TagValidate)
 	validate.RegisterCustomTypeFunc(ValidateValuer, NullInt{}, NullFloat{}, NullBool{}, NullString{}, NullTime{})
+	_ = validate.RegisterValidation("unique", ValidateUnique)
 }
 
 func RegisterModels(model ...Interface) {
@@ -109,6 +110,7 @@ type Interface interface {
 	DefaultDatabaseName() string
 	DefaultSchemaName() string
 	DefaultStrategy() string
+	SoftDelete() (field string, deleteValue interface{}, activeValue []string)
 
 	Scope() *Scope
 	model() *Model
@@ -144,7 +146,8 @@ type Model struct {
 	// changedValues, needed for update, that only changed values are updated
 	changedValues []ChangedValue
 	// takeSnapshot is used to compare the updated values with the existing ones in the database.
-	takeSnapshot bool
+	takeSnapshot  bool
+	modelSnapshot Interface
 	// white/black list
 	wbList *whiteBlackList
 	// identifier for a loop
@@ -167,9 +170,10 @@ type Model struct {
 	updateReferencesOnly bool
 
 	// Embedded time fields
-	CreatedAt *NullTime `orm:"permission:w" json:",omitempty"`
-	UpdatedAt *NullTime `orm:"permission:w" json:",omitempty"`
-	DeletedAt *NullTime `orm:"permission:w" json:",omitempty"`
+	CreatedAt       *NullTime `orm:"permission:w" json:",omitempty"`
+	UpdatedAt       *NullTime `orm:"permission:w" json:",omitempty"`
+	DeletedAt       *NullTime `orm:"permission:w" json:",omitempty"`
+	softDeleteField *Field
 }
 
 // Init the orm model.
@@ -427,6 +431,7 @@ func (m *Model) All(result interface{}, c *sqlquery.Condition) error {
 
 	now := time.Now()
 	err = s.All(result, m.scope, c)
+
 	if err != nil {
 		return err
 	}
@@ -557,17 +562,19 @@ func (m *Model) Update() (err error) {
 
 		// init snapshot
 		snapshot := newValueInstanceFromType(reflect.TypeOf(m.caller)).Addr().Interface().(Interface)
-		err = m.scope.InitRelation(snapshot, "")
+		m.modelSnapshot = snapshot
+
+		err = m.scope.InitRelation(m.modelSnapshot, "")
 		if err != nil {
 			return
 		}
 
-		err = s.First(snapshot.Scope(), c, Permission{Write: true})
+		err = s.First(m.modelSnapshot.Scope(), c, Permission{Write: true})
 		if err != nil {
 			return
 		}
 
-		m.changedValues, err = m.scope.EqualWith(snapshot)
+		m.changedValues, err = m.scope.EqualWith(m.modelSnapshot)
 		if err != nil {
 			return
 		}
@@ -626,6 +633,13 @@ func (m *Model) Delete() (err error) {
 	c := &sqlquery.Condition{}
 	for _, col := range m.scope.PrimaryKeys() {
 		c.Where(m.scope.Builder().QuoteIdentifier(col.Information.Name)+" = ?", m.scope.CallerField(col.Name).Interface())
+	}
+
+	// check if its a soft delete
+	if m.softDeleteField != nil {
+		field, value, _ := m.caller.SoftDelete()
+		_, err := m.scope.Builder().Update(m.scope.TableName()).Columns(field).Set(map[string]interface{}{field: value}).Condition(c).Exec()
+		return err
 	}
 
 	s, err := m.strategy()

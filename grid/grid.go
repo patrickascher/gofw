@@ -45,6 +45,7 @@ const (
 // Frontend constants
 const (
 	FeSelect       = "select"
+	FeUnique       = "unique"
 	FeDecorator    = "decorator"
 	FeNoEscaping   = "noEscaping"
 	FeReturnObject = "vueReturnObject"
@@ -83,6 +84,7 @@ type SourceI interface {
 	Delete(c *sqlquery.Condition, grid *Grid) error
 	// Count all the existing object by the given condition.
 	Count(c *sqlquery.Condition, grid *Grid) (int, error)
+	Data() interface{}
 }
 
 type Select struct {
@@ -166,7 +168,14 @@ func (g *Grid) IsCallback() bool {
 // AddCallback to the grid.
 // (Before/After)First,All,Create,Update,Delete exists.
 func (g *Grid) AddCallback(name int, fn func(*Grid) error) {
+	if g.callbacks == nil {
+		g.callbacks = make(map[int]func(*Grid) error, 1)
+	}
 	g.callbacks[name] = fn
+}
+
+func (g *Grid) Source() interface{} {
+	return g.src.Data()
 }
 
 // callback internal calls the callback function if exists.
