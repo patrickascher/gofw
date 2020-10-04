@@ -18,4 +18,5 @@ type Config struct {
 	MaxIdleConnections int    `json:"maxIdleConnections"`
 	MaxConnLifetime    int    `json:"maxConnLifetime"` // in Minutes
 	Debug              bool   `json:"debug"`
+	PreQuery           string `json:"preQuery"`
 }

@@ -165,6 +165,12 @@ func (c *Condition) Reset(reset ...int) {
 	}
 }
 
+// DEPRECATED - this is just a quick fix. the wholde sqlquery.condition has to get rewritten because of the where string.
+// not enough manipulation chances.
+func (c *Condition) SetWhere(w string) {
+	c.where = w
+}
+
 // Where condition.
 // Where can be called multiple times on a sql statement and gets chained by AND.
 // If you need an OR Condition, be aware to set the right brackets or write the whole condition in one WHERE call.

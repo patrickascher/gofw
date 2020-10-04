@@ -52,6 +52,15 @@ func New(cfg Config, db *sql.DB) (Builder, error) {
 		return Builder{}, err
 	}
 
+	// pre query
+	if cfg.PreQuery != "" {
+		_, err := d.Connection().Exec(cfg.PreQuery)
+		fmt.Println("running prequery", cfg.PreQuery)
+		if err != nil {
+			return Builder{}, err
+		}
+	}
+
 	return Builder{driver: d, conf: cfg}, nil
 }
 
@@ -259,7 +268,6 @@ func (b *Builder) all(stmt string, args []interface{}) (*sql.Rows, error) {
 	if b.tx != nil {
 		return b.tx.Query(stmt, args...)
 	}
-
 	rows, err := b.driver.Connection().Query(stmt, args...)
 	b.log(stmt, time.Since(start), args)
 

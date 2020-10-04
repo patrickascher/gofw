@@ -84,7 +84,8 @@ type SourceI interface {
 	Delete(c *sqlquery.Condition, grid *Grid) error
 	// Count all the existing object by the given condition.
 	Count(c *sqlquery.Condition, grid *Grid) (int, error)
-	Data() interface{}
+	// Interface returns the under laying interface
+	Interface() interface{}
 }
 
 type Select struct {
@@ -175,7 +176,7 @@ func (g *Grid) AddCallback(name int, fn func(*Grid) error) {
 }
 
 func (g *Grid) Source() interface{} {
-	return g.src.Data()
+	return g.src.Interface()
 }
 
 // callback internal calls the callback function if exists.

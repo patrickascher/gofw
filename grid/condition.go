@@ -127,25 +127,33 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 		//TODO Mysql,Oracle have different ways to add/sub dates. create a driver based date function.
 		for _, f := range uFilter.Filters {
 			if gridField := g.Field(f.Key); gridField.error == nil && gridField.IsFilterable() {
+
 				switch f.Op {
 				case "TODAY":
-					c.Where(gridField.referenceId + " >= SYSDATE")
+					c.Where(gridField.referenceId + " >= DATENOW")
+					c.Where(gridField.referenceId + " <= DATENOW")
+
 				case "LAST 7 DAYS":
-					c.Where(gridField.referenceId + " >= SYSDATE - 7")
+					c.Where(gridField.referenceId + " >= DATENOW-7")
+					c.Where(gridField.referenceId + " <= DATENOW")
+
 				case "LAST 30 DAYS":
-					c.Where(gridField.referenceId + " >= SYSDATE - 30")
+					c.Where(gridField.referenceId + " >= DATENOW-30")
+					c.Where(gridField.referenceId + " <= DATENOW")
+
 				case "LAST 365 DAYS":
-					c.Where(gridField.referenceId + " >= SYSDATE - 365")
+					c.Where(gridField.referenceId + " >= DATENOW-365")
+					c.Where(gridField.referenceId + " <= DATENOW")
 				case "=", ">=", "<=":
 					c.Where(gridField.referenceId+" "+f.Op+" ?", escape(f.Value))
 				case "IN", "NOT IN":
 					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(escape(f.Value), ConditionFilterSeparator))
 				case "Like":
-					c.Where(gridField.referenceId+" LIKE ?", "%"+escape(f.Value+"%"))
+					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value)+"%%")
 				case "RLike":
-					c.Where(gridField.referenceId+" LIKE ?", escape(f.Value+"%"))
+					c.Where(gridField.referenceId+" LIKE ?", escape(f.Value)+"%%")
 				case "LLike":
-					c.Where(gridField.referenceId+" LIKE ?", "%"+escape(f.Value))
+					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value))
 				default:
 					return nil, fmt.Errorf(errFilterPermission, escape(f.Key))
 				}
@@ -218,7 +226,7 @@ func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Cond
 		}
 
 		if len(args) == 1 {
-			c.Where(field+" LIKE ?", "%"+args[0]+"%")
+			c.Where(field+" LIKE ?", "%%"+args[0]+"%%")
 		}
 
 		return nil

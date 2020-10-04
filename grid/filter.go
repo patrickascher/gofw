@@ -65,6 +65,9 @@ type FeGridActive struct {
 	RowsPerPage int      `json:"rowsPerPage,omitempty"`
 	Sort        []string `json:"sort,omitempty"`
 	Group       string   `json:"group,omitempty"`
+
+	UserDisabledGrouping bool `json:"disabledGrouping"`
+	UserDisabledSorting  bool `json:"disabledSorting"`
 }
 
 func filterBase(g *Grid) (*UserGrid, int, error) {

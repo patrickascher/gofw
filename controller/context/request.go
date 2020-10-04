@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/patrickascher/gofw/locale"
+	"io/ioutil"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ var ErrParameter = errors.New("controller/request: the parameter %#v does not ex
 // Request struct.
 type Request struct {
 	raw       *http.Request
+	rawBody   []byte
 	params    map[string][]string
 	files     map[string][]*multipart.FileHeader
 	ua        UserAgent
@@ -41,6 +43,16 @@ func newRequest(raw *http.Request) *Request {
 
 	r.localizer, _ = locale.NewLocalizer(lang)
 	return r
+}
+
+func (req *Request) Body() []byte {
+	if req.rawBody == nil {
+		b, err := ioutil.ReadAll(req.raw.Body)
+		if err == nil {
+			req.rawBody = b
+		}
+	}
+	return req.rawBody
 }
 
 func (req *Request) Localizer() locale.LocalizerI {

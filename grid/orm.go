@@ -8,7 +8,6 @@ import (
 	"github.com/patrickascher/gofw/slices"
 	"github.com/patrickascher/gofw/sqlquery"
 	"github.com/patrickascher/gofw/sqlquery/types"
-	"io/ioutil"
 	"reflect"
 	"strings"
 )
@@ -42,7 +41,7 @@ func (g *gridSource) Fields(grid *Grid) ([]Field, error) {
 	return gridFields(g.orm.Scope(), grid, "")
 }
 
-func (g *gridSource) Data() interface{} {
+func (g *gridSource) Interface() interface{} {
 	return g.orm
 }
 
@@ -255,23 +254,18 @@ func (g *gridSource) Count(c *sqlquery.Condition, grid *Grid) (int, error) {
 // Empty struct is not allowed.
 // Errors will return if one of the rules are not satisfied.
 func (g *gridSource) unmarshalModel(gr *Grid) error {
-	body := gr.Controller().Context().Request.Raw().Body
-
+	body := gr.Controller().Context().Request.Body()
 	if body == nil {
 		return ErrRequestBody
 	}
-	b, err := ioutil.ReadAll(body)
-	if err != nil {
-		return err
-	}
 
 	// check if the json is valid
-	if !json.Valid(b) {
+	if !json.Valid(body) {
 		return ErrJsonInvalid
 	}
 
 	// unmarshal the request to the model struct
-	dec := json.NewDecoder(bytes.NewReader(b))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	for dec.More() {
 		err := dec.Decode(g.orm)

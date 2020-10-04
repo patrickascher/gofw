@@ -196,6 +196,7 @@ func (s *Select) render() (string, []interface{}, error) {
 	// ORACLE EXCEPTION
 	// TODO move to oracle driver, create a render interface?
 	if s.builder.driver.Config().Driver == "oracle" && (limit != 0 || offset != 0) {
+		fmt.Println("SELECT "+columns+" FROM (SELECT "+columns+",rownum as rnum FROM ("+selectStmt+conditionStmt+") WHERE rownum<="+strconv.Itoa(offset+limit)+") WHERE rnum>"+strconv.Itoa(offset), s.condition.arguments(), err)
 		return "SELECT " + columns + " FROM (SELECT " + columns + ",rownum as rnum FROM (" + selectStmt + conditionStmt + ") WHERE rownum<=" + strconv.Itoa(offset+limit) + ") WHERE rnum>" + strconv.Itoa(offset), s.condition.arguments(), err
 	}
 
