@@ -82,7 +82,8 @@ func (g *gridSource) Callback(callback string, gr *Grid) (interface{}, error) {
 		for _, pk := range g.orm.Scope().PrimaryKeysFieldName() {
 			value, err := gr.Controller().Context().Request.Param(pk)
 			if err != nil {
-				return nil, err
+				continue
+				//return nil, err  // no primary if its a new entry
 			}
 			err = orm.SetReflectValue(g.orm.Scope().CallerField(pk), reflect.ValueOf(value[0]))
 			if err != nil {
