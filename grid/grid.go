@@ -93,7 +93,7 @@ type Select struct {
 	ValueField string       `json:",omitempty"`
 	Items      []SelectItem `json:",omitempty"`
 
-	Api       string `json:",omitempty"`
+	Api       string `json:"api,omitempty"`
 	Condition string `json:",omitempty"`
 	OrmField  string `json:"-"`
 }
@@ -619,7 +619,7 @@ func (g *Grid) Render() {
 			g.controller.Set("pagination", pagination)
 
 			// translations
-			rawTranslations := Translations("Add", "AddEdit", "Export", "Filter", "Hide", "Show", "LoadingData", "NoData", "QuickFilter", "RowsPerPage", "XofY")
+			rawTranslations := Translations("Save", "Back", "Add", "AddEdit", "Export", "Filter", "Hide", "Show", "LoadingData", "NoData", "QuickFilter", "RowsPerPage", "XofY")
 			translations := make(map[string]string, len(rawTranslations))
 			for _, t := range rawTranslations {
 				translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)

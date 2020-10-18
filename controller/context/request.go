@@ -55,6 +55,10 @@ func (req *Request) Body() []byte {
 	return req.rawBody
 }
 
+func (req *Request) SetBody(body []byte) {
+	req.rawBody = body
+}
+
 func (req *Request) Localizer() locale.LocalizerI {
 	return req.localizer
 }

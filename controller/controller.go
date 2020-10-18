@@ -107,6 +107,9 @@ type Interface interface {
 	T(string, ...map[string]interface{}) string
 	TP(string, int, ...map[string]interface{}) string
 
+	//Experimental
+	ReadUserData(interface{}) error
+
 	// internal helper
 	checkBrowserCancellation() bool
 	methodBy(pattern string, httpMethod string) (func(), error)

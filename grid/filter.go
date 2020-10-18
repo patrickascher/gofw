@@ -5,8 +5,11 @@ import (
 	"github.com/patrickascher/gofw/middleware/jwt"
 	"github.com/patrickascher/gofw/orm"
 	"github.com/patrickascher/gofw/sqlquery"
-	"github.com/patrickascher/skeleton-application/backend/model/auth"
 )
+
+type Claim interface {
+	UserIdentification() interface{}
+}
 
 type UserGrid struct {
 	orm.Model
@@ -70,9 +73,9 @@ type FeGridActive struct {
 	UserDisabledSorting  bool `json:"disabledSorting"`
 }
 
-func filterBase(g *Grid) (*UserGrid, int, error) {
+func filterBase(g *Grid) (*UserGrid, interface{}, error) {
 	g.controller.Context().Request.Token()
-	claim := g.Controller().Context().Request.Raw().Context().Value(jwt.CLAIM).(*auth.Claim)
+	claim := g.Controller().Context().Request.Raw().Context().Value(jwt.CLAIM).(Claim)
 
 	userGrid := &UserGrid{}
 	err := userGrid.Init(userGrid)
@@ -80,7 +83,7 @@ func filterBase(g *Grid) (*UserGrid, int, error) {
 		return nil, 0, err
 	}
 
-	return userGrid, claim.UserID, nil
+	return userGrid, claim.UserIdentification(), nil
 }
 
 func getFilterByID(id int, g *Grid) (*UserGrid, error) {

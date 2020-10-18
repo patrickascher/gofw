@@ -60,7 +60,7 @@ func Builder(name string) (sqlquery.Builder, error) {
 			return b, nil
 		}
 	}
-	return sqlquery.Builder{}, errors.New("server: builder does not exist")
+	return sqlquery.Builder{}, errors.New("server: builder does not exist " + name)
 }
 
 // initBuilder initialize a builder of the defined database config.

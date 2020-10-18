@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"time"
@@ -98,7 +100,88 @@ func (i NullInt) MarshalJSON() ([]byte, error) {
 	return []byte(strconv.FormatInt(i.Int64, 10)), nil
 }
 
-type NullFloat sql.NullFloat64
+var nullBytes = []byte("null")
+
+type NullFloat struct {
+	sql.NullFloat64
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+// It supports number and null input.
+// 0 will not be considered a null Float.
+func (f *NullFloat) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, nullBytes) {
+		f.Valid = false
+		return nil
+	}
+
+	if err := json.Unmarshal(data, &f.Float64); err != nil {
+		var typeError *json.UnmarshalTypeError
+		if errors.As(err, &typeError) {
+			// special case: accept string input
+			if typeError.Value != "string" {
+				return fmt.Errorf("null: JSON input is invalid type (need float or string): %w", err)
+			}
+			var str string
+			if err := json.Unmarshal(data, &str); err != nil {
+				return fmt.Errorf("null: couldn't unmarshal number string: %w", err)
+			}
+			n, err := strconv.ParseFloat(str, 64)
+			if err != nil {
+				return fmt.Errorf("null: couldn't convert string to float: %w", err)
+			}
+			f.Float64 = n
+			f.Valid = true
+			return nil
+		}
+		return fmt.Errorf("null: couldn't unmarshal JSON: %w", err)
+	}
+
+	f.Valid = true
+	return nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+// It will unmarshal to a null Float if the input is blank.
+// It will return an error if the input is not an integer, blank, or "null".
+func (f *NullFloat) UnmarshalText(text []byte) error {
+	str := string(text)
+	if str == "" || str == "null" {
+		f.Valid = false
+		return nil
+	}
+	var err error
+	f.Float64, err = strconv.ParseFloat(string(text), 64)
+	if err != nil {
+		return fmt.Errorf("null: couldn't unmarshal text: %w", err)
+	}
+	f.Valid = true
+	return err
+}
+
+// MarshalJSON implements json.Marshaler.
+// It will encode null if this Float is null.
+func (f NullFloat) MarshalJSON() ([]byte, error) {
+	if !f.Valid {
+		return []byte("null"), nil
+	}
+	if math.IsInf(f.Float64, 0) || math.IsNaN(f.Float64) {
+		return nil, &json.UnsupportedValueError{
+			Value: reflect.ValueOf(f.Float64),
+			Str:   strconv.FormatFloat(f.Float64, 'g', -1, 64),
+		}
+	}
+	return []byte(strconv.FormatFloat(f.Float64, 'f', -1, 64)), nil
+}
+
+// MarshalText implements encoding.TextMarshaler.
+// It will encode a blank string if this Float is null.
+func (f NullFloat) MarshalText() ([]byte, error) {
+	if !f.Valid {
+		return []byte{}, nil
+	}
+	return []byte(strconv.FormatFloat(f.Float64, 'f', -1, 64)), nil
+}
 
 type NullString struct {
 	sql.NullString
@@ -139,6 +222,23 @@ func (s NullString) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return json.Marshal(s.String)
+}
+
+// MarshalText implements encoding.TextMarshaler.
+// It will encode a blank string when this String is null.
+func (s NullString) MarshalText() ([]byte, error) {
+	if !s.Valid {
+		return []byte{}, nil
+	}
+	return []byte(s.String), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+// It will unmarshal to a null String if the input is a blank string.
+func (s *NullString) UnmarshalText(text []byte) error {
+	s.String = string(text)
+	s.Valid = s.String != ""
+	return nil
 }
 
 type NullTime struct {

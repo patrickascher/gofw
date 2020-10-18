@@ -105,7 +105,7 @@ func (m *Model) checkSoftDeleteField() error {
 			exists = true
 		}
 	}
-	if !exists {
+	if !exists && f != "DeletedAt" {
 		return fmt.Errorf(errSoftDelete, f, m.modelName(true))
 	}
 	return nil
@@ -208,6 +208,7 @@ Columns:
 			// user defined fields will throw an error.
 			if m.fields[i].Information.Name == "deleted_at" && m.softDeleteField != nil && m.softDeleteField.Information.Name == "deleted_at" {
 				m.softDeleteField = nil
+				fmt.Println("---------------->DELETE SOFT DELETE")
 			}
 			m.fields = append(m.fields[:i], m.fields[i+1:]...)
 			i--

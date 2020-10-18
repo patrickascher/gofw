@@ -638,7 +638,11 @@ func (m *Model) Delete() (err error) {
 	// check if its a soft delete
 	if m.softDeleteField != nil {
 		field, value, _ := m.caller.SoftDelete()
-		_, err := m.scope.Builder().Update(m.scope.TableName()).Columns(field).Set(map[string]interface{}{field: value}).Condition(c).Exec()
+		f, err := m.Scope().Field(field)
+		if err != nil {
+			return err
+		}
+		_, err = m.scope.Builder().Update(m.scope.TableName()).Columns(f.Information.Name).Set(map[string]interface{}{f.Information.Name: value}).Condition(c).Exec()
 		return err
 	}
 

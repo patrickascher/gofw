@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/patrickascher/gofw/orm"
 	"github.com/patrickascher/gofw/slices"
 	"github.com/patrickascher/gofw/sqlquery"
@@ -147,7 +148,17 @@ func (g *gridSource) Callback(callback string, gr *Grid) (interface{}, error) {
 			textFields[k] = strings.Trim(tf, " ")
 			reqFields = append(reqFields, strings.Trim(tf, " "))
 		}
-		relScope.Model().SetWBList(orm.WHITELIST, reqFields...)
+
+		_, err = gr.Controller().Context().Request.Param("allFields")
+		if err != nil {
+			fmt.Println("not all fields")
+			relScope.Model().SetWBList(orm.WHITELIST, reqFields...)
+		} else {
+			fmt.Println("all field not all fields")
+			fmt.Println(gr.Controller().Context().Request.Param("allFields"))
+
+		}
+
 		// request the data
 		err = relScope.Model().All(rRes.Interface(), sqlquery.NewCondition().Where(sel.Condition))
 		if err != nil {
