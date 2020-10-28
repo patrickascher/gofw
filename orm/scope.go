@@ -495,12 +495,13 @@ func (scope Scope) EqualWith(snapshot Interface) ([]ChangedValue, error) {
 				op := UPDATE
 				if relationI.Scope() != relationSnapshotI.Scope() {
 
-					// TODO get primary field
-					v1, err := SanitizeToString(relationI.Scope().CallerField("ID").Interface())
+					v1Keys := relationI.Scope().PrimaryKeys()
+					v2Keys := relationSnapshotI.Scope().PrimaryKeys()
+					v1, err := SanitizeToString(relationI.Scope().CallerField(v1Keys[0].Name).Interface())
 					if err != nil {
 						return nil, err
 					}
-					v2, err := SanitizeToString(relationSnapshotI.Scope().CallerField("ID").Interface())
+					v2, err := SanitizeToString(relationSnapshotI.Scope().CallerField(v2Keys[0].Name).Interface())
 					if err != nil {
 						return nil, err
 					}
