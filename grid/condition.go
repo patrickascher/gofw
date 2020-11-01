@@ -112,14 +112,17 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 		}
 
 		// Position/Disable fields
-		for _, f := range uFilter.Fields {
-			if gridField := g.Field(f.Key); gridField.error == nil && !gridField.IsRemoved() {
-				if f.Pos.Valid {
-					gridField.SetPosition(int(f.Pos.Int64))
+		if len(uFilter.Fields) > 0 {
+			for i, f := range g.Fields() {
+				remove := true
+				for _, uf := range uFilter.Fields {
+					if uf.Key == f.id {
+						g.fields[i].SetPosition(uf.Pos)
+						remove = false
+						break
+					}
 				}
-				if f.Show == false {
-					gridField.SetRemove(true)
-				}
+				g.fields[i].SetRemove(remove)
 			}
 		}
 
@@ -132,28 +135,37 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 				case "TODAY":
 					c.Where(gridField.referenceId + " >= DATENOW")
 					c.Where(gridField.referenceId + " <= DATENOW")
-
-				case "LAST 7 DAYS":
-					c.Where(gridField.referenceId + " >= DATENOW-7")
-					c.Where(gridField.referenceId + " <= DATENOW")
-
-				case "LAST 30 DAYS":
-					c.Where(gridField.referenceId + " >= DATENOW-30")
-					c.Where(gridField.referenceId + " <= DATENOW")
-
-				case "LAST 365 DAYS":
-					c.Where(gridField.referenceId + " >= DATENOW-365")
-					c.Where(gridField.referenceId + " <= DATENOW")
-				case "=", ">=", "<=":
-					c.Where(gridField.referenceId+" "+f.Op+" ?", escape(f.Value))
-				case "IN", "NOT IN":
-					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(escape(f.Value), ConditionFilterSeparator))
+				case "YESTERDAY":
+					c.Where(gridField.referenceId + " >= DATENOW-1")
+					c.Where(gridField.referenceId + " < DATENOW")
+				case "WEEK":
+					c.Where(gridField.referenceId + " = WEEK")
+				case "LWEEK":
+					c.Where(gridField.referenceId + " = WEEK-1")
+				case "MONTH":
+					c.Where(gridField.referenceId + " = MONTH")
+				case "LMONTH":
+					c.Where(gridField.referenceId + " = MONTH-1")
+				case "YEAR":
+					c.Where(gridField.referenceId + " = YEAR")
+				case "LYEAR":
+					c.Where(gridField.referenceId + " = YEAR-1")
+				case "!=", "=", ">=", "<=":
+					c.Where(gridField.referenceId+" "+f.Op+" ?", escape(f.Value.String))
+				case "IN":
+					c.Where(gridField.referenceId+" "+f.Op+" (?)", strings.Split(escape(f.Value.String), ConditionFilterSeparator))
+				case "NOTIN":
+					c.Where(gridField.referenceId+" NOT IN (?)", strings.Split(escape(f.Value.String), ConditionFilterSeparator))
+				case "NULL":
+					c.Where(gridField.referenceId + " IS NULL")
+				case "NOTNULL":
+					c.Where(gridField.referenceId + " IS NOT NULL")
 				case "Like":
-					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value)+"%%")
+					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value.String)+"%%")
 				case "RLike":
-					c.Where(gridField.referenceId+" LIKE ?", escape(f.Value)+"%%")
+					c.Where(gridField.referenceId+" LIKE ?", escape(f.Value.String)+"%%")
 				case "LLike":
-					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value))
+					c.Where(gridField.referenceId+" LIKE ?", "%%"+escape(f.Value.String))
 				default:
 					return nil, fmt.Errorf(errFilterPermission, escape(f.Key))
 				}

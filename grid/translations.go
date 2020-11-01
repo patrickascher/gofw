@@ -21,8 +21,11 @@ func Translations(ids ...string) []i18n.Message {
 	messages = append(messages, i18n.Message{ID: TPrefix + "Required", Description: "Grid indicator for the * symbol (* required fields)", Other: "required field"})
 
 	messages = append(messages, i18n.Message{ID: TPrefix + "QuickFilter", Description: "Filter text", Other: "Quick Filter"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "BtnFilter", Description: "Filter button", Other: "Filter"})
 	messages = append(messages, i18n.Message{ID: TPrefix + "Filter", Description: "Filter text", Other: "Filter"})
 	messages = append(messages, i18n.Message{ID: TPrefix + "Sort", Description: "Filter text", Other: "Sort"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Desc", Description: "Sorting Desc", Other: "Desc"})
+
 	messages = append(messages, i18n.Message{ID: TPrefix + "Fields", Description: "Filter text", Other: "Fields"})
 	messages = append(messages, i18n.Message{ID: TPrefix + "Name", Description: "Filter text", Other: "Name"})
 	messages = append(messages, i18n.Message{ID: TPrefix + "GroupBy", Description: "Filter text", Other: "Group by"})
@@ -40,6 +43,18 @@ func Translations(ids ...string) []i18n.Message {
 
 	messages = append(messages, i18n.Message{ID: TPrefix + "NoChanges", Description: "Export text - used on buttons", Other: "The form has no changes yet!"})
 	messages = append(messages, i18n.Message{ID: TPrefix + "NotValid", Description: "Export text - used on buttons", Other: "The form is not valid!"})
+
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_=", Description: "Filter equal description", Other: "Field must be equal"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_!=", Description: "Filter not equal description", Other: "Field must be not equal"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_>=", Description: "Filter greater than description", Other: "Field must be greater than"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_<=", Description: "Filter less than description", Other: "Field must be less than"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_IN", Description: "Filter in description", Other: "Field must be in"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_NOTIN", Description: "Filter not in description", Other: "Field must be not in"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_LIKE", Description: "Filter like description", Other: "Field must be %like%"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_RLIKE", Description: "Filter right like description", Other: "Field must be like%"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_LLIKE", Description: "Filter left like description", Other: "Field must be %like"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_NULL", Description: "Filter null description", Other: "Field must be null"})
+	messages = append(messages, i18n.Message{ID: TPrefix + "Filter_NOTNULL", Description: "Filter not null description", Other: "Field must be not null"})
 
 	if len(ids) > 0 {
 		var custom []i18n.Message

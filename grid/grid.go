@@ -431,7 +431,7 @@ func (g *Grid) Render() {
 
 		// Grid header fields
 		if g.controller.Context().Request.IsGet() && errParam != nil {
-			rawTranslations := Translations("Filter", "Name", "GroupBy", "Sort", "Fields", "RowsPerPage", "EditFilter", "Save", "Close", "Delete", "NoData", "NoChanges", "NotValid")
+			rawTranslations := Translations("Filter_=", "Filter_!=", "Filter_>=", "Filter_<=", "Filter_IN", "Filter_NOTIN", "Filter_LIKE", "Filter_RLIKE", "Filter_LLIKE", "Filter_NULL", "Filter_NOTNULL", "Desc", "Filter", "Name", "GroupBy", "Sort", "Fields", "RowsPerPage", "EditFilter", "Save", "Close", "Delete", "NoData", "NoChanges", "NotValid")
 			translations := make(map[string]string, len(rawTranslations))
 			for _, t := range rawTranslations {
 				translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)
@@ -619,7 +619,7 @@ func (g *Grid) Render() {
 			g.controller.Set("pagination", pagination)
 
 			// translations
-			rawTranslations := Translations("Save", "Back", "Add", "AddEdit", "Export", "Filter", "Hide", "Show", "LoadingData", "NoData", "QuickFilter", "RowsPerPage", "XofY")
+			rawTranslations := Translations("Save", "BtnFilter", "Back", "Add", "AddEdit", "Export", "Filter", "Hide", "Show", "LoadingData", "NoData", "QuickFilter", "RowsPerPage", "XofY")
 			translations := make(map[string]string, len(rawTranslations))
 			for _, t := range rawTranslations {
 				translations[strings.Replace(t.ID, TPrefix, "", -1)] = g.controller.T(t.ID)

@@ -35,7 +35,7 @@ type UserGridFilter struct {
 
 	Key   string
 	Op    string
-	Value string
+	Value orm.NullString
 }
 
 type UserGridSort struct {
@@ -53,9 +53,8 @@ type UserGridField struct {
 	ID         int
 	UserGridID int
 
-	Key  string
-	Pos  orm.NullInt
-	Show bool
+	Key string
+	Pos int
 }
 
 type FeGridFilter struct {
