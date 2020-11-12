@@ -75,7 +75,7 @@ func New(opt interface{}) cm.Interface {
 }
 
 // Get returns the value of the given key.
-// Error will return if the key does not exist.
+// Error will return if the key does not exist..
 func (m *memory) Get(key string) (cm.Valuer, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
