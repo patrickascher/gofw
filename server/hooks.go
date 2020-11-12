@@ -49,7 +49,7 @@ func initLogger() error {
 }
 
 // Builder returns the configured database.
-// If no database is defined, the builder will be nil.
+// If no database is defined, the builder will be nil..
 func Builder(name string) (sqlquery.Builder, error) {
 	if name == DEFAULT {
 		return cfgBuilder[0], nil
