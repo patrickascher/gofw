@@ -84,6 +84,7 @@ func New(provider string, options interface{}) (Interface, error) {
 // Register the cache provider. This should be called in the init() of the providers.
 // If the cache provider/name is empty or is already registered, an error will return.
 func Register(provider string, fn provider) error {
+
 	if fn == nil || provider == "" {
 		return ErrNoProvider
 	}

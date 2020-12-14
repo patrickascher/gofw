@@ -73,6 +73,7 @@ func Register(provider string, fn provider) error {
 // If the provider is not registered, the parsing fails or the cfg kind is not ptr, an error will return.
 // By default validate can be used on the struct to ensure all mandatory data is set.
 // Callbacks BeforeParse, BeforeValid, AfterValid, AfterParse can be used.
+
 func New(provider string, config interface{}, options interface{}) error {
 	instanceFn, ok := registry[provider]
 	if !ok {

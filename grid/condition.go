@@ -232,7 +232,14 @@ func (g *Grid) conditionAll() (*sqlquery.Condition, error) {
 func addFilterCondition(g *Grid, field string, params []string, c *sqlquery.Condition) error {
 
 	if gridField := g.Field(field); gridField.error == nil && gridField.IsFilterable() {
+
 		args := strings.Split(escape(params[0]), ConditionFilterSeparator)
+
+		if gridField.where != "" {
+			c.Where(gridField.where, "%%"+args[0]+"%%")
+			return nil
+		}
+
 		if len(args) > 1 {
 			c.Where(field+" IN(?)", args)
 		}

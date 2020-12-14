@@ -56,7 +56,6 @@ func (h *httpRouterExtended) Handler(method, path string, handler http.Handler) 
 			ctx = context.WithValue(ctx, router.PATTERN, p.MatchedRoutePath())
 			ctx = context.WithValue(ctx, router.PARAMS, h.paramsToMap(p, w))
 			req = req.WithContext(ctx)
-
 			handler.ServeHTTP(w, req)
 		},
 	)

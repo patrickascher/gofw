@@ -59,6 +59,51 @@ ac := controller.AuthController{}
 rm.PublicRoute("/login", &ac, router.Config{"POST,OPTIONS:Login", nil})
 rm.SecureRoute("/logout", &ac, router.Config{"GET,OPTIONS:Logout", nil})
 
+xm.PublicRoute(route.Config(pattern:"/login",mapper:{methods:"get","post",function:a.Login}));
+xm.PublicRoute(&ac, "/login", "POST,OPTIONS:Login",nil )
+
+xm.PublicRoute(&ac, "/login", "POST,OPTIONS:Login",nil )
+
+
+xm.PublicRoute(&ac, "/login",mapper:route.Add(function,methods).add(function,methods));
+
+router.AllowHTTPMethods(GET,POST)
+xm.PublicRoute(&ac, "/login",mapper:route.Add(ac.Login,GET,POST,OPTION).add(function,methods));
+xm.PublicRoute(&ac, "/login",router.Mapper(ac.Login,nil));
+
+AddMapper(ac.Login).Methods(GET,POST,PW).Middleware(xy),
+xm.PublicRoute(&ac, "/login",Mapper{Fn:ac.Login,Methods:{GET,PORT}),Mapper(ac.Logout,nil,DELETE));
+
+xm.PublicRoute(
+    "/login",
+    &ac,
+    router.Mapper(ac.Login).Methods(GET,POST,PW).Middleware(xy),
+    router.Mapper(ac.Login).Methods(GET,POST,PW).Middleware(xy)
+);
+
+
+router.Mapper("pattern","method") (router.Route, error)
+router.Route{"pattern","method","fnname","mw","secured?"}
+
+
+xm.PublicRoute(&ac, "/login",router.MethodMapper(ac.Login,nil,POST,GET),router.MethodMapper(ac.Logout,nil,DELETE));
+
+router[pattern][HTTPMethod]{fnname, mw}
+ServerHTTP(fname)
+
+
+
+
+xm.PublicRoute(&ac, "/login",mapper:route.Config({fn:ac.Login,methods:"GET","POST"},{}));
+
+
+
+
+
+
+
+
+
 // adding the router handler to the server
 server := http.Server{}
 server.Addr = fmt.Sprint(":", c.Server.HTTPSPort)

@@ -37,6 +37,8 @@ type Field struct {
 	sortable bool
 	// filter allowed
 	filterable bool
+	// customize filter
+	where string
 	// grouping allowed
 	groupable bool
 	// additional options
@@ -123,6 +125,11 @@ func (f *Field) SetPrimary(primary bool) {
 
 func (f *Field) IsPrimary() bool {
 	return f.primary
+}
+
+func (f *Field) SetWhere(where string) *Field {
+	f.where = where
+	return f
 }
 
 func (f *Field) SetFields(fields []Field) {
