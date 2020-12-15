@@ -41,6 +41,16 @@ func newRequest(raw *http.Request) *Request {
 		lang = "en"
 	}
 
+	s, err := r.Param("lang")
+	if err == nil {
+		if s[0] == "preview-DE" {
+			lang = "de"
+		}
+		if s[0] == "preview-EN" {
+			lang = "en"
+		}
+	}
+
 	r.localizer, _ = locale.NewLocalizer(lang)
 	return r
 }
