@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 )
 
 var errFieldNotFound = "grid: field %s was not found"
+var mutex = &sync.RWMutex{}
 
 type Field struct {
 	grid *Grid
@@ -62,6 +64,7 @@ func (g Grid) sortFields() []Field {
 
 // MarshalJson is used to create the header information of the field.
 func (f Field) MarshalJSON() ([]byte, error) {
+	mutex.RLock()
 	rv := map[string]interface{}{}
 
 	rv["id"] = f.id
@@ -107,7 +110,7 @@ func (f Field) MarshalJSON() ([]byte, error) {
 	if len(f.fields) > 0 {
 		rv["fields"] = f.fields
 	}
-
+	mutex.RUnlock()
 	return json.Marshal(rv)
 }
 
@@ -206,7 +209,9 @@ func (f Field) FieldType() string {
 }
 
 func (f *Field) SetTitle(title interface{}) *Field {
+	mutex.Lock()
 	f._title = setValueString(title)
+	mutex.Unlock()
 	return f
 }
 
@@ -215,7 +220,9 @@ func (f Field) Title() string {
 }
 
 func (f *Field) SetDescription(description interface{}) *Field {
+	mutex.Lock()
 	f._description = setValueString(description)
+	mutex.Unlock()
 	return f
 }
 
@@ -224,7 +231,9 @@ func (f Field) Description() string {
 }
 
 func (f *Field) SetPosition(position interface{}) *Field {
+	mutex.Lock()
 	f._position = setValueInt(position)
+	mutex.Unlock()
 	return f
 }
 
@@ -246,7 +255,9 @@ func (f Field) IsRemoved() bool {
 }
 
 func (f *Field) SetHidden(hidden interface{}) *Field {
+	mutex.Lock()
 	f._hidden = setValueBool(hidden)
+	mutex.Unlock()
 	return f
 }
 
@@ -282,6 +293,7 @@ func (f Field) IsFilterable() bool {
 }
 
 func (f *Field) SetOption(key string, value interface{}) *Field {
+	mutex.Lock()
 	if f.options == nil {
 		f.options = map[string]interface{}{}
 	}
@@ -294,6 +306,7 @@ func (f *Field) SetOption(key string, value interface{}) *Field {
 		f.SetOption(FeReturnObject, false)
 	}
 	f.options[key] = value
+	mutex.Unlock()
 	return f
 }
 
@@ -309,7 +322,9 @@ func (f *Field) Option(key string) interface{} {
 }
 
 func (f *Field) SetView(view interface{}) *Field {
+	mutex.Lock()
 	f._view = setValueString(view)
+	mutex.Unlock()
 	return f
 }
 
