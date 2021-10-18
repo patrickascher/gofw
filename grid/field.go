@@ -293,9 +293,11 @@ func (f Field) IsFilterable() bool {
 }
 
 func (f *Field) SetOption(key string, value interface{}) *Field {
-	mutex.Lock()
+
 	if f.options == nil {
+		mutex.Lock()
 		f.options = map[string]interface{}{}
+		mutex.Unlock()
 	}
 	if key == FeSelect && len(value.(Select).Items) > 0 {
 		f.SetFieldType("Select")
@@ -305,8 +307,10 @@ func (f *Field) SetOption(key string, value interface{}) *Field {
 		value = sel
 		f.SetOption(FeReturnObject, false)
 	}
+	mutex.Lock()
 	f.options[key] = value
 	mutex.Unlock()
+
 	return f
 }
 
